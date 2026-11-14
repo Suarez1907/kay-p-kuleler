@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!-- WebView localStorage (oyun ilerlemesi) app_webview altında saklanır -->
+    <include domain="root" path="app_webview/" />
+</full-backup-content>

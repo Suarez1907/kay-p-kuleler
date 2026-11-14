@@ -1,0 +1,69 @@
+name: Android APK (Godot sürümü)
+
+# Godot 4.3 projesini Android'e aktarır. Dışa aktarma şablonları ~1 GB olduğu için önbelleğe alınır.
+on:
+  push:
+    branches: [main]
+    paths: ['godot/**', 'tools/godot-android-export.sh', '.github/workflows/godot-android.yml']
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  GODOT_VERSION: '4.3'
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools build-tools;34.0.0 platforms;android-34'
+
+      - name: Godot ve şablon önbelleği
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/godot-bin
+            ~/.local/share/godot/export_templates/${{ env.GODOT_VERSION }}.stable
+          key: godot-${{ env.GODOT_VERSION }}-android-v1
+
+      - name: Godot + Android şablonlarını indir
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/godot-bin ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable
+          curl -sSL -o g.zip https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip
+          unzip -q g.zip -d ~/godot-bin && mv ~/godot-bin/Godot_v${GODOT_VERSION}-stable_linux.x86_64 ~/godot-bin/godot && rm g.zip
+          curl -sSL -o t.tpz https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_export_templates.tpz
+          unzip -q -j t.tpz 'templates/version.txt' 'templates/android_debug.apk' 'templates/android_release.apk' \
+            -d ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable/
+          rm t.tpz
+
+      - name: Android APK dışa aktar
+        run: |
+          export GODOT="$HOME/godot-bin/godot"
+          chmod +x "$GODOT" tools/godot-android-export.sh
+          tools/godot-android-export.sh "$PWD/dist/KayipKuleler-godot-debug.apk" debug
+          tools/godot-android-export.sh "$PWD/dist/KayipKuleler-godot.apk" release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KayipKuleler-godot-apk
+          path: dist/*.apk
+          if-no-files-found: error
+
+      - name: GitHub Release'e ekle (v* etiketlerinde)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/KayipKuleler-godot.apk
