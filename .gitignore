@@ -1,0 +1,36 @@
+# Node
+node_modules/
+npm-debug.log*
+
+# Godot
+.godot/
+godot/.import/
+*.import
+export_credentials.cfg
+godot-build/
+
+# Android / Gradle
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+android/captures/
+android/.cxx/
+.gradle/
+*.iml
+.kotlin/
+
+# Çıktılar ve gizli anahtarlar
+*.apk
+*.aab
+*.keystore
+*.jks
+*.p12
+build/
+dist/
+
+# Sistem
+.DS_Store
+Thumbs.db
+screenshots/test-sonuclari.json

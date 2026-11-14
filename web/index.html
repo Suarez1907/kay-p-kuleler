@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#c8b6e8">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Kayıp Kuleler — 3B Bulmaca</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E%F0%9F%A4%96%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.min.js" } }
+</script>
+</head>
+<body>
+<div id="bg"></div>
+<canvas id="c"></canvas>
+
+<div id="hud" class="hidden">
+  <div class="bar top">
+    <button id="btnMenu" class="ic" title="Seviyeler (M)">☰</button>
+    <div class="title"><span id="lvlNum">1</span> · <span id="lvlName">-</span></div>
+    <div class="moves">Hamle <b id="moves">0</b> <span class="par">/ par <span id="par">0</span></span></div>
+  </div>
+  <div class="bar side">
+    <button id="btnUndo" class="ic" title="Geri al (Z)">↶</button>
+    <button id="btnRestart" class="ic" title="Yeniden başla (R)">🔄</button>
+    <button id="btnCamL" class="ic" title="Kamerayı sola çevir (Q)">↺</button>
+    <button id="btnCamR" class="ic" title="Kamerayı sağa çevir (E)">↻</button>
+    <button id="btnHint" class="ic" title="İpucu (H)">💡</button>
+    <button id="btnSound" class="ic" title="Ses">🔊</button>
+    <button id="btnHelp" class="ic" title="Kontroller (?)">❔</button>
+  </div>
+  <div id="mechPanel" class="bar bottom"></div>
+  <div id="hintBox" class="hidden"></div>
+  <div id="toast" class="hidden"></div>
+</div>
+
+<div id="screenTitle" class="screen">
+  <div class="card big">
+    <div class="logo">Kayıp<br>Kuleler</div>
+    <p class="sub">Robo'yu imkânsız kulelerin tepesine ulaştır.<br>Döndür, kaydır, it, yuvarla — ve düşün!</p>
+    <button id="btnPlay" class="primary">Oyna</button>
+    <p class="small">Mekorama ve Monument Valley'den esinlenen fizik tabanlı bir bulmaca oyunu.</p>
+  </div>
+</div>
+
+<div id="screenLevels" class="screen hidden">
+  <div class="card wide">
+    <h2>Seviyeler</h2>
+    <div id="levelGrid"></div>
+    <div class="row"><button id="btnBackTitle">Geri</button><button id="btnReset" class="ghost">İlerlemeyi sıfırla</button></div>
+  </div>
+</div>
+
+<div id="screenWin" class="screen hidden">
+  <div class="card">
+    <h2>Seviye Tamamlandı!</h2>
+    <div id="stars" class="stars">★★★</div>
+    <p id="winText"></p>
+    <div class="row">
+      <button id="btnWinLevels">Seviyeler</button>
+      <button id="btnWinRetry">Tekrar</button>
+      <button id="btnNext" class="primary">Sonraki ▶</button>
+    </div>
+  </div>
+</div>
+
+<div id="help" class="hidden">
+  <b>Kontroller</b><br>
+  Dokun / tıkla: Robo oraya yürür · Kutuya/topa tıkla: it/tekmele · Kola tıkla: çevir<br>
+  Döner/kayan platformu <b>sürükle</b> ya da alttaki düğmeleri kullan · Sağ tık sürükle: kamera<br>
+  Ok tuşları / WASD: tek adım · Q/E: kamera · Z: geri al · R: yeniden · H: ipucu
+</div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
