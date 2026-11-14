@@ -41,14 +41,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # The project directory is already named godot/, so the binary must not be
+      # installed as ./godot (mv would drop it inside that directory and ./godot
+      # would then fail with "Is a directory").
       - name: Godot 4.3 indir
         run: |
-          curl -sSL -o godot.zip https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip
-          unzip -q godot.zip && mv Godot_v4.3-stable_linux.x86_64 godot && chmod +x godot
+          curl -sSL -o /tmp/godot.zip https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip
+          unzip -q /tmp/godot.zip -d /tmp
+          mv /tmp/Godot_v4.3-stable_linux.x86_64 /tmp/godot-bin
+          chmod +x /tmp/godot-bin
       - name: GDScript motorunda tüm çözümler
         run: |
-          ./godot --headless --path godot --import >/dev/null 2>&1 || true
-          ./godot --headless --path godot --script res://tests/run_solutions.gd
+          /tmp/godot-bin --headless --path godot --import >/dev/null 2>&1 || true
+          /tmp/godot-bin --headless --path godot --script res://tests/run_solutions.gd
       - name: Tam sahne otomatik testi
-        run: ./godot --headless --path godot -- --autotest 2>&1 | grep -E "autotest|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
+        run: /tmp/godot-bin --headless --path godot -- --autotest 2>&1 | grep -E "autotest|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
         shell: bash

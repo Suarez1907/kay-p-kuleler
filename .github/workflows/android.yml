@@ -29,8 +29,12 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      # v3 defaults to the removed "tools" package and fails on current cmdline-tools
+      # (sdkmanager: Failed to find package 'tools'). v4 installs platform-tools only.
       - name: Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4.0.4
+        with:
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
 
       - name: Gradle önbelleği
         uses: gradle/actions/setup-gradle@v4
