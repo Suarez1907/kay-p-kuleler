@@ -47,6 +47,8 @@ jobs:
       - name: Sürüm adı
         id: ver
         shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           if [[ -n "$RELEASE_TAG" ]]; then
             echo "name=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
