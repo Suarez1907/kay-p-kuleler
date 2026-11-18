@@ -41,6 +41,13 @@ export const sfx = {
   thud() { tone(90, 0.2, 'sine', 0.5, -40); noise(0.1, 0.3, 300); },
   crumble() { noise(0.4, 0.5, 900); },
   fail() { tone(400, 0.6, 'triangle', 0.3, -330); },
+  turn() { tone(660, 0.05, 'triangle', 0.14, 120); },
+  jump() { tone(330, 0.18, 'triangle', 0.25, 500); },
+  tick() { tone(1200, 0.04, 'sine', 0.12); },
+  del() { tone(500, 0.07, 'triangle', 0.12, -200); },
+  run() { [392, 523].forEach((f, i) => tone(f, 0.12, 'triangle', 0.18, 0, i * 0.07)); },
+  pause() { [523, 392].forEach((f, i) => tone(f, 0.12, 'triangle', 0.18, 0, i * 0.07)); },
+  bump() { tone(150, 0.12, 'square', 0.1, -40); },
   nope() { tone(180, 0.12, 'square', 0.12); },
   win() { [523, 659, 784, 1046].forEach((f, i) => tone(f, 0.6, 'triangle', 0.25, 0, i * 0.1)); tone(1568, 0.9, 'sine', 0.15, 0, 0.45); },
 };

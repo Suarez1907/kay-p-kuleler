@@ -5,72 +5,111 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="theme-color" content="#c8b6e8">
 <meta name="mobile-web-app-capable" content="yes">
-<title>Kayıp Kuleler — 3B Bulmaca</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E%F0%9F%A4%96%3C/text%3E%3C/svg%3E">
+<title>Kayıp Kuleler</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Cpath d=%22M50 8 88 30v40L50 92 12 70V30z%22 fill=%22%23ff8e72%22/%3E%3Cpath d=%22M50 8 88 30 50 52 12 30z%22 fill=%22%23ffd0c2%22/%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
 <script type="importmap">
 { "imports": { "three": "./vendor/three.module.min.js" } }
 </script>
 </head>
 <body>
-<div id="bg"></div>
+<div id="bg"><div class="sun"></div></div>
 <canvas id="c"></canvas>
 
+<!-- Oyun arayüzü -->
 <div id="hud" class="hidden">
-  <div class="bar top">
-    <button id="btnMenu" class="ic" title="Seviyeler (M)">☰</button>
-    <div class="title"><span id="lvlNum">1</span> · <span id="lvlName">-</span></div>
-    <div class="moves">Hamle <b id="moves">0</b> <span class="par">/ par <span id="par">0</span></span></div>
+  <header class="topbar">
+    <button id="btnMenu" class="ic" title="Seviyeler (M)" aria-label="Seviyeler"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+    <div class="title">
+      <div class="chap" id="lvlChap">Bölüm</div>
+      <div class="name"><span id="lvlNum">1</span><span class="dot">·</span><span id="lvlName">-</span></div>
+    </div>
+    <div class="score" title="Kullanılan blok / par">
+      <div class="blocks"><b id="blockCount">0</b><span>/ par <i id="par">0</i></span></div>
+      <div class="mini-stars" id="miniStars"></div>
+    </div>
+  </header>
+  <div class="sidebar">
+    <button id="btnCamL" class="ic" title="Kamerayı sola çevir (Q)" aria-label="Kamera sola"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg></button>
+    <button id="btnCamR" class="ic" title="Kamerayı sağa çevir (E)" aria-label="Kamera sağa"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg></button>
+    <button id="btnHint" class="ic" title="İpucu (H)" aria-label="İpucu"><svg viewBox="0 0 24 24"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/></svg></button>
+    <button id="btnReset" class="ic" title="Dünyayı başa al (R)" aria-label="Dünyayı başa al"><svg viewBox="0 0 24 24"><path d="M12 3 20 7.5v9L12 21l-8-4.5v-9z"/><path d="M12 12 20 7.5M12 12 4 7.5M12 12v9"/></svg></button>
+    <button id="btnSound" class="ic" title="Ses" aria-label="Ses"><svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9z"/><path class="wave" d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/></svg></button>
   </div>
-  <div class="bar side">
-    <button id="btnUndo" class="ic" title="Geri al (Z)">↶</button>
-    <button id="btnRestart" class="ic" title="Yeniden başla (R)">🔄</button>
-    <button id="btnCamL" class="ic" title="Kamerayı sola çevir (Q)">↺</button>
-    <button id="btnCamR" class="ic" title="Kamerayı sağa çevir (E)">↻</button>
-    <button id="btnHint" class="ic" title="İpucu (H)">💡</button>
-    <button id="btnSound" class="ic" title="Ses">🔊</button>
-    <button id="btnHelp" class="ic" title="Kontroller (?)">❔</button>
-  </div>
-  <div id="mechPanel" class="bar bottom"></div>
+
+  <!-- Program paneli -->
+  <section id="panel">
+    <div id="palette"></div>
+    <div id="rows"></div>
+    <div id="controls">
+      <button id="btnUndo" class="ctl" title="Geri al (Z)" aria-label="Geri al"><svg viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg></button>
+      <button id="btnClear" class="ctl" title="Programı temizle" aria-label="Temizle"><svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button>
+      <div class="spacer"></div>
+      <button id="btnStop" class="ctl" title="Durdur ve başa sar (S)" aria-label="Durdur"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></button>
+      <button id="btnStep" class="ctl" title="Tek adım (N)" aria-label="Tek adım"><svg viewBox="0 0 24 24"><path d="M6 5l9 7-9 7z"/><path d="M18 5v14"/></svg></button>
+      <button id="btnRun" class="run" title="Çalıştır / duraklat (Boşluk)" aria-label="Çalıştır"><svg class="play" viewBox="0 0 24 24"><path d="M7 4.5v15l12.5-7.5z"/></svg><svg class="pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></svg><span id="runLabel">Çalıştır</span></button>
+      <button id="btnSpeed" class="ctl speed" title="Hız" aria-label="Hız">1×</button>
+    </div>
+    <div id="popover" class="hidden">
+      <button data-op="left" title="Sola taşı" aria-label="Sola taşı"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>
+      <button data-op="cond" class="cond-btn" title="Koşul" aria-label="Koşul"><span class="cdot"></span><span class="ctext">Her zaman</span></button>
+      <button data-op="right" title="Sağa taşı" aria-label="Sağa taşı"><svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg></button>
+      <button data-op="del" class="del" title="Sil" aria-label="Sil"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    </div>
+  </section>
+
+  <div id="status" class="hidden"></div>
   <div id="hintBox" class="hidden"></div>
   <div id="toast" class="hidden"></div>
+  <div id="drag" class="hidden"></div>
 </div>
 
+<!-- Yeni kavram kartı -->
+<div id="intro" class="overlay hidden">
+  <div class="card intro">
+    <div class="badge">Yeni</div>
+    <h3 id="introTitle"></h3>
+    <p id="introText"></p>
+    <button id="btnIntroOk" class="primary">Anladım</button>
+  </div>
+</div>
+
+<!-- Başlık -->
 <div id="screenTitle" class="screen">
-  <div class="card big">
-    <div class="logo">Kayıp<br>Kuleler</div>
-    <p class="sub">Robo'yu imkânsız kulelerin tepesine ulaştır.<br>Döndür, kaydır, it, yuvarla — ve düşün!</p>
-    <button id="btnPlay" class="primary">Oyna</button>
-    <p class="small">Mekorama ve Monument Valley'den esinlenen fizik tabanlı bir bulmaca oyunu.</p>
+  <div class="title-wrap">
+    <div class="logo"><span>Kayıp</span><span>Kuleler</span></div>
+    <p class="sub">Robo'yu programla. Dünyayı döndür.<br>İmkânsız kulelerin tepesindeki kristallere ulaş.</p>
+    <button id="btnPlay" class="primary big">Oyna</button>
+    <p class="small" id="titleProgress"></p>
   </div>
 </div>
 
+<!-- Seviye seçimi -->
 <div id="screenLevels" class="screen hidden">
-  <div class="card wide">
-    <h2>Seviyeler</h2>
+  <div class="card wide levels">
+    <div class="levels-head">
+      <button id="btnBackTitle" class="ic" aria-label="Geri"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>
+      <h2>Kuleler</h2>
+      <div class="total" id="totalStars"></div>
+    </div>
     <div id="levelGrid"></div>
-    <div class="row"><button id="btnBackTitle">Geri</button><button id="btnReset" class="ghost">İlerlemeyi sıfırla</button></div>
+    <div class="row"><button id="btnWipe" class="ghost">İlerlemeyi sıfırla</button></div>
   </div>
 </div>
 
+<!-- Kazanma -->
 <div id="screenWin" class="screen hidden">
-  <div class="card">
-    <h2>Seviye Tamamlandı!</h2>
-    <div id="stars" class="stars">★★★</div>
+  <div class="card win">
+    <div class="win-gem"></div>
+    <h2>Kristal bulundu!</h2>
+    <div id="stars" class="stars"></div>
     <p id="winText"></p>
     <div class="row">
       <button id="btnWinLevels">Seviyeler</button>
-      <button id="btnWinRetry">Tekrar</button>
-      <button id="btnNext" class="primary">Sonraki ▶</button>
+      <button id="btnWinRetry">Programa dön</button>
+      <button id="btnNext" class="primary">Sonraki ▸</button>
     </div>
   </div>
-</div>
-
-<div id="help" class="hidden">
-  <b>Kontroller</b><br>
-  Dokun / tıkla: Robo oraya yürür · Kutuya/topa tıkla: it/tekmele · Kola tıkla: çevir<br>
-  Döner/kayan platformu <b>sürükle</b> ya da alttaki düğmeleri kullan · Sağ tık sürükle: kamera<br>
-  Ok tuşları / WASD: tek adım · Q/E: kamera · Z: geri al · R: yeniden · H: ipucu
 </div>
 <script type="module" src="js/main.js"></script>
 </body>

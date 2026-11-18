@@ -20,10 +20,10 @@ jobs:
           cache: npm
           cache-dependency-path: tools/package-lock.json
       - run: npm ci
-      - name: Tüm seviyeler çözülebilir mi? (BFS çözücü)
+      - name: Tüm seviyeler doğrulanıyor mu? (program yorumlayıcısı + BFS çözücü)
         run: node build.mjs
       - name: Derlenmiş seviye dosyaları güncel mi?
-        run: git diff --exit-code -- ../web/levels.json ../web/js/levels.js ../godot/data/levels.json
+        run: git diff --exit-code -- ../web/js/levels.js ../godot/data/levels.json ../SOLUTIONS.md
       - name: Tarayıcıda uçtan uca test (headless Chrome)
         run: |
           (cd ../web && python3 -m http.server 8765 >/dev/null 2>&1 &)

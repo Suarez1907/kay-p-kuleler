@@ -91,6 +91,7 @@ export function buildWorld(L, s, skip) {
   (d.sliders || []).forEach((r, i) => { if (!(skip && skip.slide === i)) for (const c of sliderCells(L, i, s.slides[i])) solid.set(KP(c), { t: 'sl', i }); });
   (d.crumbles || []).forEach((c, i) => { if (!s.crumbles[i]) solid.set(KP(c), { t: 'cr', i }); });
   (d.levers || []).forEach((l, i) => solid.set(KP(l.p), { t: 'lv', i }));
+  (d.cranks || []).forEach((c, i) => solid.set(KP(c.p), { t: 'ck', i }));
   const ents = new Map();
   if (!s.dead) ents.set(KP(s.p), { k: 'p' });
   s.crates.forEach((c, i) => { if (c) ents.set(KP(c), { k: 'c', i }); });
@@ -157,7 +158,7 @@ function movePlatform(L, s, skip, oldCells, newCells, f, dirTurn) {
   return true;
 }
 
-function tryRotate(L, s, i, dir) {
+export function tryRotate(L, s, i, dir) {
   const r = L.def.rotators[i];
   const oldC = rotatorCells(L, i, s.rots[i]);
   const newC = rotatorCells(L, i, s.rots[i] + dir);
@@ -181,7 +182,7 @@ function weightOn(L, s, i) {
 }
 
 // Yerçekimi, top yuvarlanması, köprüler, sürülen platformlar — kararlı olana kadar tik tik.
-function settle(L, s, frames) {
+export function settle(L, s, frames) {
   const d = L.def;
   for (let tick = 0; tick < 200; tick++) {
     let changed = false;
