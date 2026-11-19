@@ -23,7 +23,7 @@ asansörleri kaldırır, kamerayı çevirip imkânsız geçitleri birleştirirsi
 | Tarayıcı | `web/` | Three.js r170 + cannon-es (yerel olarak paketlendi, CDN yok) |
 | Godot (klasik mod) | `godot/` | Godot 4.3, GDScript — programlama öncesi "dokun-yürü" sürümü ve 15 klasik seviyesi |
 
-Android ve tarayıcı sürümü **20 el yapımı seviyelik, 6 bölümlük programlama kampanyasını** içerir; her seviyenin
+Android ve tarayıcı sürümü **25 el yapımı seviyelik, 7 bölümlük programlama kampanyasını** içerir; her seviyenin
 referans programı derleme sırasında gerçek yorumlayıcıda çalıştırılarak doğrulanır.
 
 ---
