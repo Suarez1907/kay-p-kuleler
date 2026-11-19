@@ -430,6 +430,41 @@ function buildLevel(i, opts = {}) {
       objs.links.push({ m, view: ln.view });
     }
   });
+  (def.portals || []).forEach((pt, pi) => {
+    const col = pt.color || PORTAL_COLORS[pi % PORTAL_COLORS.length];
+    for (const c of [pt.a, pt.b]) {
+      addB(c);
+      const g = new THREE.Group(); g.position.set(c[0], c[1] - 0.48, c[2]);
+      const outer = new THREE.Mesh(new THREE.TorusGeometry(0.36, 0.042, 10, 32), new THREE.MeshStandardMaterial({ color: col, emissive: col, emissiveIntensity: 0.75, roughness: 0.25 }));
+      outer.rotation.x = Math.PI / 2; outer.position.y = 0.04; g.add(outer);
+      const inner = new THREE.Mesh(new THREE.RingGeometry(0.16, 0.27, 6), new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.82, side: THREE.DoubleSide, depthWrite: false }));
+      inner.rotation.x = -Math.PI / 2; inner.position.y = 0.05; g.add(inner);
+      const disc = new THREE.Mesh(new THREE.CircleGeometry(0.18, 24), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.52, side: THREE.DoubleSide, depthWrite: false }));
+      disc.rotation.x = -Math.PI / 2; disc.position.y = 0.03; g.add(disc);
+      const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.28, 1.35, 18, 1, true), new THREE.MeshBasicMaterial({ map: beamTex, color: col, transparent: true, opacity: pal.dark ? 0.48 : 0.32, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending }));
+      beam.position.y = 0.68; g.add(beam);
+      root.add(g);
+      objs.portals.push({ g, outer, inner, disc, beam, col, pt });
+    }
+  });
+  (def.scales || []).forEach((sc) => {
+    const a = def.sliders[sc.a].blocks[0], b = def.sliders[sc.b].blocks[0];
+    const yBase = Math.min(a[1], b[1]) - 1.55;
+    const va = new THREE.Vector3(a[0], yBase, a[2]), vb = new THREE.Vector3(b[0], yBase, b[2]);
+    const dist = va.distanceTo(vb);
+    const mid = va.clone().add(vb).multiplyScalar(0.5);
+    const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, dist, 10), mat('#8a7fa3', { transparent: true, opacity: 0.65 }));
+    bar.position.copy(mid);
+    bar.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), vb.clone().sub(va).normalize());
+    root.add(bar);
+    const pivot = new THREE.Mesh(new THREE.OctahedronGeometry(0.18), mat(pal.accent));
+    pivot.position.copy(mid); root.add(pivot);
+    for (const p of [a, b]) {
+      const h = p[1] - yBase;
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, h, 8), mat('#8a7fa3', { transparent: true, opacity: 0.55 }));
+      post.position.set(p[0], yBase + h / 2, p[2]); root.add(post);
+    }
+  });
   {
     const g = new THREE.Group(); const gp = def.goal; g.position.set(gp[0], gp[1] - 0.5, gp[2]);
     const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.22), new THREE.MeshStandardMaterial({ color: pal.accent, emissive: pal.accent, emissiveIntensity: 0.6, roughness: 0.25 }));
