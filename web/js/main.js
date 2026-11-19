@@ -708,6 +708,7 @@ function tick() {
   markSkipped(runner.skipped);
   if (!n) { endRun(runner.error || 'end'); return false; }
   markExec(n.proc, n.idx);
+  updateHud();
   const r = P.cmdStep(L, state, n.ins.c);
   if (stepOnce) stepOnce = 'done';
   if (r.pause) { if (!instant) sfx.pause(); stepOnce = false; setMode('paused'); return false; }
