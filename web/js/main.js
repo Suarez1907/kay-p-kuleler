@@ -1177,6 +1177,7 @@ window.addEventListener('keydown', (e) => {
     return;
   }
   if (!$('intro').classList.contains('hidden')) { if (e.key === 'Enter' || e.key === 'Escape' || e.key === ' ') { e.preventDefault(); $('btnIntroOk').click(); } return; }
+  if (!$('guide').classList.contains('hidden')) { if (e.key === 'Enter' || e.key === 'Escape' || e.key === ' ') { e.preventDefault(); $('btnGuideOk').click(); } return; }
   const k = e.key.toLowerCase();
   const add = { arrowup: 'F', arrowleft: 'L', arrowright: 'R', j: 'J', k: 'A', p: 'W', 1: '1', 2: '2' }[k];
   if (add) { e.preventDefault(); if (L.def.cmds.includes(add)) insertCmd(add); return; }
@@ -1195,6 +1196,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'e') rotateView(1);
   else if (k === 'h') toggleHint();
   else if (k === 'm') openLevels();
+  else if (k === '?' || k === '/') openGuide();
 });
 
 // ---------- HUD / ekranlar ----------
@@ -1208,27 +1210,83 @@ function updateHud() {
   $('par').textContent = L.def.par;
   const st = blocks ? starsFor(blocks, L.def.par) : 3;
   $('miniStars').innerHTML = [0, 1, 2].map(k => `<span class="${k < st ? '' : 'off'}">★</span>`).join('');
+  const sb = $('stepBadge');
+  const showSteps = runner && (mode === 'running' || mode === 'paused' || mode === 'ended');
+  sb.classList.toggle('hidden', !showSteps);
+  if (showSteps) sb.textContent = `Adım ${runner.steps}`;
   $('btnRun').classList.toggle('attn', levelIdx === 0 && blocks >= 4 && mode === 'edit' && !progress.best[0]);
   $('btnStop').disabled = mode === 'edit';
   $('btnUndo').disabled = mode === 'running' || mode === 'paused';
   $('btnClear').disabled = mode === 'running' || mode === 'paused' || !blocks;
 }
 function chapterIndex(i) { const names = []; LEVELS.slice(0, i + 1).forEach(l => { if (names[names.length - 1] !== l.chapter) names.push(l.chapter); }); return names.length - 1; }
-function toggleHint() { const h = $('hintBox'); h.textContent = L.def.hint || 'İpucu yok.'; h.classList.toggle('hidden'); }
+function toggleHint() {
+  const h = $('hintBox');
+  $('hintText').textContent = L.def.hint || 'İpucu yok.';
+  h.classList.toggle('hidden');
+}
 $('hintBox').onclick = () => $('hintBox').classList.add('hidden');
+$('btnLoadSol').onclick = (e) => {
+  e.stopPropagation();
+  if (!L || !L.def.solution) return;
+  if (mode === 'running' || mode === 'paused' || mode === 'ended') resetToSetup();
+  if (!editable()) return;
+  pushUndo();
+  prog = P.parseProgram(L.def.solution);
+  activeRow = 'main'; caret = prog.main.length; sel = null;
+  $('hintBox').classList.add('hidden');
+  sfx.tick();
+  progChanged();
+  const hasOps = (L.def.solution.ops || []).some(o => o && o.length);
+  toast(hasOps ? 'Örnek program yüklendi — dünya işlemlerini de yapmayı unutma!' : 'Örnek program yüklendi!');
+};
+function openGuide() {
+  if (!L || preview) return;
+  $('hintBox').classList.add('hidden');
+  const list = $('guideList'); list.innerHTML = '';
+  const addItem = (icoHtml, title, desc) => {
+    const it = document.createElement('div'); it.className = 'guide-item';
+    it.innerHTML = `${icoHtml}<div class="g-txt"><b>${title}</b><span>${desc}</span></div>`;
+    list.appendChild(it);
+  };
+  for (const c of L.def.cmds) {
+    const t = tileEl({ c, k: '' });
+    addItem(t.outerHTML, P.COMMANDS[c].name, P.COMMANDS[c].desc);
+  }
+  if (L.def.conds) {
+    addItem('<div class="g-ico" style="background:rgba(47,195,122,.2);color:#2fc37a">✓</div>', 'Önü açıksa (yeşil koşul)', 'Bloğa dokunup koşul ver: yalnızca Robo ileri yürüyebiliyorsa çalışır.');
+    addItem('<div class="g-ico" style="background:rgba(255,122,69,.2);color:#ff7a45">✕</div>', 'Önü kapalıysa (turuncu koşul)', 'Yalnızca Robo\'nun önü kapalıysa çalışır. Labirent döngüleri için idealdir.');
+  }
+  const d = L.def;
+  if (d.portals && d.portals.length) addItem('<div class="g-ico">◎</div>', 'Işınlayıcı', 'Üzerine yürüyen Robo ya da itilen kutu, aynı renkteki eşleşen halkadan anında çıkar.');
+  if (d.scales && d.scales.length) addItem('<div class="g-ico">⚖</div>', 'Terazi', 'İki platform birbirine bağlıdır: ağır kefe iner, hafif kefe yükselir.');
+  if (d.rotators && d.rotators.some(r => !r.fixed)) addItem('<div class="g-ico">↻</div>', 'Döner platform', 'Sapına dokun ya da sürükleyerek 90° çevir. Üzerindeki Robo ve kutuları da taşır.');
+  if (d.sliders && d.sliders.some(E.isManual)) addItem('<div class="g-ico">⇅</div>', 'Asansör / kaydırıcı', 'Oklarına dokun ya da sürükleyerek hareket ettir.');
+  if (d.links && d.links.length) addItem('<div class="g-ico">◈</div>', 'Göz yanılması geçidi', 'Kamerayı çevirerek parlayan halkaları doldur; yol yalnızca o bakış açısından birleşir.');
+  if (d.crumbles && d.crumbles.length) addItem('<div class="g-ico">▧</div>', 'Çöken zemin', 'Robo üzerinden ayrıldığı anda parçalanır — tek geçişliktir.');
+  $('guide').classList.remove('hidden');
+}
+function rankFor(stars, total) {
+  const r = total ? stars / total : 0;
+  if (r >= 0.92) return 'Kulelerin Efendisi';
+  if (r >= 0.65) return 'Algoritma Ustası';
+  if (r >= 0.35) return 'Kule Mühendisi';
+  if (stars > 0) return 'Çırak Mimar';
+  return 'Kâşif';
+}
 let toastT = null;
 function toast(msg) { if (instant) return; const t = $('toast'); t.textContent = msg; t.classList.remove('hidden'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.add('hidden'), 1900); }
 function show(id) {
   for (const s of ['screenTitle', 'screenLevels', 'screenWin']) $(s).classList.toggle('hidden', s !== id);
   $('hud').classList.toggle('hidden', id !== null);
-  if (id !== null) $('intro').classList.add('hidden');
+  if (id !== null) { $('intro').classList.add('hidden'); $('guide').classList.add('hidden'); }
   cam.spin = id === 'screenTitle';
   resize();
 }
 function openLevels() {
   if (mode === 'running') setMode('paused', true);
   const g = $('levelGrid'); g.innerHTML = '';
-  let chapter = null, grid = null, chIdx = 0, total = 0;
+  let chapter = null, grid = null, chIdx = 0, total = 0, done = 0, perfect = 0;
   LEVELS.forEach((lv, i) => {
     if (lv.chapter !== chapter) {
       chapter = lv.chapter; chIdx++;
@@ -1241,7 +1299,7 @@ function openLevels() {
     }
     const locked = i >= progress.unlocked;
     const best = progress.best[i];
-    if (best) total += best.stars;
+    if (best) { total += best.stars; done++; if (best.stars === 3) perfect++; }
     const p = PALETTES[(lv.palette ?? i) % PALETTES.length];
     const d = document.createElement('div'); d.className = 'lvl' + (locked ? ' locked' : '') + (i === progress.unlocked - 1 && !best ? ' cur' : '');
     d.style.setProperty('--a', p.dark ? '#d8d0f5' : p.bg[0]); d.style.setProperty('--b', p.dark ? '#a99ad6' : p.bg[1]);
@@ -1252,6 +1310,7 @@ function openLevels() {
     grid.appendChild(d);
   });
   $('totalStars').textContent = `★ ${total} / ${LEVELS.length * 3}`;
+  $('levelStats').innerHTML = `<span class="rank">${rankFor(total, LEVELS.length * 3)}</span><span><b>${done}</b> / ${LEVELS.length} kule</span><span class="stat-sep">·</span><span><b>${perfect}</b> kusursuz (3★)</span>`;
   show('screenLevels');
 }
 function startLevel(i) {
@@ -1264,6 +1323,7 @@ function startLevel(i) {
   renderPalette(); renderRows();
   setMode('edit');
   $('hintBox').classList.add('hidden');
+  $('guide').classList.add('hidden');
   if (L.def.intro && !progress.seen[i] && !instant) {
     $('introTitle').textContent = L.def.intro.title;
     $('introText').innerHTML = L.def.intro.text;
@@ -1283,13 +1343,13 @@ function showTitle() {
   buildLevel(5, { preview: true });
   cam.az = 20; cam.azCur = 20; cam.zoom = 0.85;
   const got = Object.values(progress.best).reduce((a, b) => a + b.stars, 0);
-  $('titleProgress').textContent = got ? `★ ${got} / ${LEVELS.length * 3} yıldız` : 'Mekorama ve Monument Valley\'den esinlenen bir programlama bulmacası';
+  $('titleProgress').textContent = got ? `${rankFor(got, LEVELS.length * 3)} · ★ ${got} / ${LEVELS.length * 3} yıldız` : 'Mekorama ve Monument Valley\'den esinlenen bir programlama bulmacası';
   show('screenTitle');
 }
 
 $('btnPlay').onclick = () => { initAudio(); const n = progress.unlocked - 1; if (!progress.best[n] && n < LEVELS.length) startLevel(n); else openLevels(); };
 $('btnBackTitle').onclick = showTitle;
-$('btnWipe').onclick = () => { if (confirm('Tüm ilerleme ve programlar silinsin mi?')) { progress = { unlocked: 1, best: {}, progs: {}, seen: {}, sound: soundOn() }; saveProgress(); openLevels(); } };
+$('btnWipe').onclick = () => { if (confirm('Tüm ilerleme ve programlar silinsin mi?')) { progress = { unlocked: 1, best: {}, progs: {}, seen: {}, sound: soundOn(), music: musicOn() }; saveProgress(); openLevels(); } };
 $('btnMenu').onclick = openLevels;
 $('btnUndo').onclick = undo;
 $('btnClear').onclick = () => { if (!editable() || !P.blockCount(prog)) return; pushUndo(); prog = { main: [], p1: [], p2: [] }; caret = 0; sel = null; sfx.del(); progChanged(); };
@@ -1304,6 +1364,10 @@ $('btnReset').onclick = resetWorld;
 $('btnCamL').onclick = () => rotateView(-1);
 $('btnCamR').onclick = () => rotateView(1);
 $('btnHint').onclick = toggleHint;
+$('btnGuide').onclick = openGuide;
+$('btnGuideOk').onclick = () => $('guide').classList.add('hidden');
+$('btnMusic').onclick = () => { initAudio(); setMusic(!musicOn()); progress.music = musicOn(); saveProgress(); $('btnMusic').classList.toggle('off', !musicOn()); };
+$('btnMusic').classList.toggle('off', !musicOn());
 $('btnSound').onclick = () => { setSound(!soundOn()); progress.sound = soundOn(); saveProgress(); $('btnSound').classList.toggle('off', !soundOn()); };
 $('btnSound').classList.toggle('off', !soundOn());
 $('btnIntroOk').onclick = () => { progress.seen[levelIdx] = 1; saveProgress(); $('intro').classList.add('hidden'); };
@@ -1322,6 +1386,12 @@ function loop() {
     updateQueue(dt);
     objs.gem.rotation.y = time * 1.6; objs.gem.position.y = 0.6 + Math.sin(time * 2.4) * 0.07;
     objs.goalRing.scale.setScalar(1 + Math.sin(time * 3) * 0.08);
+    objs.portals.forEach((p, idx) => {
+      p.outer.rotation.z = time * (idx % 2 ? -1.1 : 1.1);
+      p.inner.rotation.z = -time * 1.8;
+      p.disc.scale.setScalar(0.9 + Math.sin(time * 3.2 + idx) * 0.14);
+      p.beam.material.opacity = (pal.dark ? 0.42 : 0.28) + Math.sin(time * 2.6 + idx) * 0.08;
+    });
     const u = objs.player.userData;
     u.body.position.y = 0.33 + Math.sin(time * 4) * 0.012;
     u.eyes.scale.y = (time % 3.7) < 0.12 ? 0.15 : 1;
@@ -1368,6 +1438,7 @@ window.__game = {
 // Android uygulaması geri tuşuna basınca bunu çağırır; true dönerse oyun tuşu tüketmiştir.
 window.__onBack = () => {
   const visible = (id) => !$(id).classList.contains('hidden');
+  if (visible('guide')) { $('guide').classList.add('hidden'); return true; }
   if (visible('intro')) { $('btnIntroOk').click(); return true; }
   if (visible('hintBox')) { $('hintBox').classList.add('hidden'); return true; }
   if (sel) { sel = null; renderRows(); return true; }
