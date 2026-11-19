@@ -79,6 +79,11 @@ Engele çarpan bir komut (ör. duvara doğru İleri) Robo'yu yerinde sarsar ve p
 | 18 | Ustalık | Taşıyıcı | kutu + döner platform + kapı, iki mola | 12 |
 | 19 | | Çöken Zemin | tek geçişlik taşlar, üç kol | 27 |
 | 20 | | Son Kule | her şey bir arada | 24 |
+| 21 | Yankılar | Terazi Kulesi | terazi platformları, iki kutuyla denge | 17 |
+| 22 | | Ayna Kapı | ışınlayıcı halkalar (portallar) | 12 |
+| 23 | | Kutu Işınlama | kutuyu ışınlayıcıyla uzak plakaya düşürme | 11 |
+| 24 | | Yankı Labirenti | koşullu yol izleyici + çoklu kule portalları | 6 |
+| 25 | | Yıldızlar Arası | döner köprü + ışınlayıcı + asansör + göz yanılması | 12 |
 
 Tüm referans çözümler `SOLUTIONS.md` dosyasındadır.
 
