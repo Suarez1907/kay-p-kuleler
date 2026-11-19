@@ -196,6 +196,18 @@ function buildSky(center, radius, floorY, dark) {
   const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   const pts = new THREE.Points(geo, new THREE.PointsMaterial({ map: dotTex, size: 0.22, transparent: true, opacity: 0.7, depthWrite: false, color: dark ? '#fff2b0' : '#ffffff' }));
   pts.userData.dust = true; sky.add(pts);
+  if (dark) {
+    const SN = 120, spos = new Float32Array(SN * 3);
+    for (let i = 0; i < SN; i++) {
+      const a = rnd() * Math.PI * 2, rr = radius * (1.8 + rnd() * 2.2);
+      spos[i * 3] = center.x + Math.cos(a) * rr;
+      spos[i * 3 + 1] = floorY + 2 + rnd() * radius * 2.4;
+      spos[i * 3 + 2] = center.z + Math.sin(a) * rr;
+    }
+    const sgeo = new THREE.BufferGeometry(); sgeo.setAttribute('position', new THREE.BufferAttribute(spos, 3));
+    const stars = new THREE.Points(sgeo, new THREE.PointsMaterial({ map: dotTex, size: 0.34, transparent: true, opacity: 0.85, depthWrite: false, color: '#fff8d6' }));
+    stars.userData.dust = true; sky.add(stars);
+  }
 }
 function mulberry(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 
