@@ -250,14 +250,19 @@ export function settle(L, s, frames) {
         W.ents.delete(KP(p));
         if (np[1] < L.killY) {
           if (e.k === 'p') s.dead = true; else if (e.k === 'c') s.crates[e.i] = null; else s.balls[e.i] = null;
-        } else { setEnt(s, e, np); W.ents.set(KP(np), e); }
+        } else {
+          setEnt(s, e, np); W.ents.set(KP(np), e);
+          if (tryTeleport(L, s, e, p)) { W.ents.delete(KP(np)); W.ents.set(KP(getEnt(s, e)), e); }
+        }
         changed = true;
       } else if (e.k === 'b' && s.balls[e.i].d >= 0) {
         const b = s.balls[e.i];
         const np = add(p, DIRS[b.d]);
         const sv = W.solid.get(KP(np));
         if (!sv && !W.ents.has(KP(np))) {
-          W.ents.delete(KP(p)); b.p = np; W.ents.set(KP(np), e); changed = true;
+          W.ents.delete(KP(p)); b.p = np; W.ents.set(KP(np), e);
+          if (tryTeleport(L, s, e, p)) { W.ents.delete(KP(np)); W.ents.set(KP(b.p), e); }
+          changed = true;
         } else {
           if (sv && sv.t === 'lv') { s.levers[sv.i] = !s.levers[sv.i]; }
           b.d = -1; changed = true;
