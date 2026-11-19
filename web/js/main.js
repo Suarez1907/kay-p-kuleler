@@ -251,11 +251,12 @@ let undoStack = [];
 let progress = loadProgress();
 
 function loadProgress() {
-  const d = { unlocked: 1, best: {}, progs: {}, seen: {}, sound: true };
+  const d = { unlocked: 1, best: {}, progs: {}, seen: {}, sound: true, music: true };
   try { return Object.assign(d, JSON.parse(localStorage.getItem(SAVE_KEY) || '{}')); } catch (e) { return d; }
 }
 function saveProgress() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(progress)); } catch (e) {} }
 setSound(progress.sound !== false);
+setMusic(progress.music !== false);
 
 function addPick(mesh, info) { mesh.userData.pick = info; pickables.push(mesh); }
 function shadowed(m) { m.castShadow = true; m.receiveShadow = true; return m; }
