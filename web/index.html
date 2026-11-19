@@ -24,6 +24,7 @@
       <div class="chap" id="lvlChap">Bölüm</div>
       <div class="name"><span id="lvlNum">1</span><span class="dot">·</span><span id="lvlName">-</span></div>
     </div>
+    <div class="step-badge hidden" id="stepBadge" title="Çalışan komut sayısı">Adım 0</div>
     <div class="score" title="Kullanılan blok / par">
       <div class="blocks"><b id="blockCount">0</b><span>/ par <i id="par">0</i></span></div>
       <div class="mini-stars" id="miniStars"></div>
@@ -33,7 +34,9 @@
     <button id="btnCamL" class="ic" title="Kamerayı sola çevir (Q)" aria-label="Kamera sola"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg></button>
     <button id="btnCamR" class="ic" title="Kamerayı sağa çevir (E)" aria-label="Kamera sağa"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg></button>
     <button id="btnHint" class="ic" title="İpucu (H)" aria-label="İpucu"><svg viewBox="0 0 24 24"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/></svg></button>
+    <button id="btnGuide" class="ic" title="Komut rehberi (?)" aria-label="Rehber"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 0 1 4.8.8c0 1.6-2.3 2-2.3 3.4"/><circle cx="12" cy="17.2" r=".6" fill="currentColor"/></svg></button>
     <button id="btnReset" class="ic" title="Dünyayı başa al (R)" aria-label="Dünyayı başa al"><svg viewBox="0 0 24 24"><path d="M12 3 20 7.5v9L12 21l-8-4.5v-9z"/><path d="M12 12 20 7.5M12 12 4 7.5M12 12v9"/></svg></button>
+    <button id="btnMusic" class="ic" title="Müzik" aria-label="Müzik"><svg viewBox="0 0 24 24"><path d="M9 18V6l11-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/><path class="slash" d="M4 4l16 16"/></svg></button>
     <button id="btnSound" class="ic" title="Ses" aria-label="Ses"><svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9z"/><path class="wave" d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/></svg></button>
   </div>
 
@@ -59,7 +62,12 @@
   </section>
 
   <div id="status" class="hidden"></div>
-  <div id="hintBox" class="hidden"></div>
+  <div id="hintBox" class="hidden">
+    <div id="hintText"></div>
+    <div class="hint-actions">
+      <button id="btnLoadSol" class="mini-btn" type="button">Örnek programı yükle</button>
+    </div>
+  </div>
   <div id="toast" class="hidden"></div>
   <div id="drag" class="hidden"></div>
 </div>
@@ -71,6 +79,16 @@
     <h3 id="introTitle"></h3>
     <p id="introText"></p>
     <button id="btnIntroOk" class="primary">Anladım</button>
+  </div>
+</div>
+
+<!-- Komut ve mekanik rehberi -->
+<div id="guide" class="overlay hidden">
+  <div class="card guide">
+    <div class="badge">Rehber</div>
+    <h3>Komutlar ve Mekanikler</h3>
+    <div id="guideList" class="guide-list"></div>
+    <button id="btnGuideOk" class="primary">Kapat</button>
   </div>
 </div>
 
@@ -92,6 +110,7 @@
       <h2>Kuleler</h2>
       <div class="total" id="totalStars"></div>
     </div>
+    <div class="stats-bar" id="levelStats"></div>
     <div id="levelGrid"></div>
     <div class="row"><button id="btnWipe" class="ghost">İlerlemeyi sıfırla</button></div>
   </div>
