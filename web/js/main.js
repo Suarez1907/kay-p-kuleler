@@ -521,14 +521,36 @@ function entityPos(pA, pB, t, sA, sB, out) {
   out.set(lerp(pA[0], pB[0], t), lerp(pA[1], pB[1], t) - 0.5, lerp(pA[2], pB[2], t));
   return out;
 }
+function isFarJump(p, q) { return p && q && ((Math.abs(p[0] - q[0]) + Math.abs(p[2] - q[2]) > 1) || Math.abs(p[1] - q[1]) > 1); }
+function portalJumpInfo(a, b) {
+  if (!a || !b || a.rots.join() !== b.rots.join() || !(L.def.portals && L.def.portals.length)) return null;
+  const match = (from, to) => {
+    for (let i = 0; i < L.def.portals.length; i++) {
+      const pt = L.def.portals[i];
+      const eq = (u, v) => u[0] === v[0] && u[1] === v[1] && u[2] === v[2];
+      if ((eq(from, pt.a) && eq(to, pt.b)) || (eq(from, pt.b) && eq(to, pt.a))) {
+        return { from, to, color: pt.color || PORTAL_COLORS[i % PORTAL_COLORS.length] };
+      }
+    }
+    return null;
+  };
+  if (!a.dead && !b.dead && isFarJump(a.p, b.p)) { const r = match(a.p, b.p); if (r) return r; }
+  for (let i = 0; i < a.crates.length; i++) {
+    if (isFarJump(a.crates[i], b.crates[i])) { const r = match(a.crates[i], b.crates[i]); if (r) return r; }
+  }
+  for (let i = 0; i < a.balls.length; i++) {
+    if (a.balls[i] && b.balls[i] && isFarJump(a.balls[i].p, b.balls[i].p)) { const r = match(a.balls[i].p, b.balls[i].p); if (r) return r; }
+  }
+  return null;
+}
 const tmpV = new THREE.Vector3();
 function applyVisual(sA, sB, t, extra) {
   const te = ease(t);
   {
-    const linkJump = sA.p && sB.p && Math.abs(sA.p[0] - sB.p[0]) + Math.abs(sA.p[2] - sB.p[2]) > 1 && sA.rots.join() === sB.rots.join();
+    const linkJump = !sA.dead && !sB.dead && isFarJump(sA.p, sB.p) && sA.rots.join() === sB.rots.join();
     const pl = objs.player;
     if (linkJump) {
-      // göz yanılması geçidi: Robo bir noktada kaybolup ötekinde belirir
+      // göz yanılması geçidi veya portal: Robo bir noktada kaybolup ötekinde belirir
       const from = sA.p, to = sB.p; const k = t < 0.5 ? 0 : 1; const pp = k ? to : from;
       pl.visible = !sB.dead; pl.position.set(pp[0], pp[1] - 0.5, pp[2]);
       pl.scale.setScalar(Math.max(0.05, Math.abs(1 - 2 * t)));
@@ -552,9 +574,18 @@ function applyVisual(sA, sB, t, extra) {
     pl.rotation.y = from + diff * te;
   }
   objs.crates.forEach((m, i) => {
-    const p = entityPos(sA.crates[i], sB.crates[i], te, sA, sB, tmpV);
-    m.visible = !!p; if (p) m.position.set(p.x, p.y + 0.42, p.z);
-    m.material.opacity = sB.crates[i] ? 1 : 1 - t;
+    const cA = sA.crates[i], cB = sB.crates[i];
+    if (isFarJump(cA, cB) && sA.rots.join() === sB.rots.join()) {
+      const pp = t < 0.5 ? cA : cB;
+      m.visible = true; m.position.set(pp[0], pp[1] - 0.08, pp[2]);
+      m.scale.setScalar(Math.max(0.05, Math.abs(1 - 2 * t)));
+      m.material.opacity = 1;
+    } else {
+      m.scale.setScalar(1);
+      const p = entityPos(cA, cB, te, sA, sB, tmpV);
+      m.visible = !!p; if (p) m.position.set(p.x, p.y + 0.42, p.z);
+      m.material.opacity = cB ? 1 : 1 - t;
+    }
   });
   objs.balls.forEach((m, i) => {
     const a = sA.balls[i] && sA.balls[i].p, b = sB.balls[i] && sB.balls[i].p;
