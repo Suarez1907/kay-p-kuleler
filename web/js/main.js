@@ -4,7 +4,7 @@ import { RoundedBoxGeometry } from '../vendor/RoundedBoxGeometry.js';
 import * as E from './engine.js';
 import * as P from './program.js';
 import { LEVELS } from './levels.js';
-import { initAudio, sfx, setSound, soundOn } from './audio.js';
+import { initAudio, sfx, setSound, soundOn, setMusic, musicOn } from './audio.js';
 import { FX } from './fx.js';
 
 const $ = (id) => document.getElementById(id);
@@ -13,6 +13,7 @@ const SAVE_KEY = 'kayipKuleler.v2';
 const ROWS = ['main', 'p1', 'p2'];
 const ROW_LABEL = { main: 'Ana', p1: 'F1', p2: 'F2' };
 const SPEEDS = [1, 2, 4];
+const PORTAL_COLORS = ['#4ce8e0', '#ff7ed4', '#ffd36e', '#a18cff'];
 
 // ---------- Paletler (pastel diorama) ----------
 const PALETTES = [
@@ -28,6 +29,10 @@ const PALETTES = [
   { bg: ['#f5e1da', '#8fb8c9'], blocks: ['#f9ece4', '#ecd1c4', '#d9b2a5', '#bf9690'], accent: '#ffb84d', mech: '#74c0b9', slide: '#ad9ce0', bridge: '#a3d9b8', door: '#e3869b' },
   { dark: true, bg: ['#1f2a4a', '#5b4b8a'], blocks: ['#f2e6ff', '#d7c4f2', '#b9a3e3', '#9a86cf'], accent: '#ffd36e', mech: '#6fe0d0', slide: '#ff9bb3', bridge: '#9af0c8', door: '#ff8fa3' },
   { bg: ['#ffe0e9', '#ffd6a5'], blocks: ['#fff1f4', '#fbd9e2', '#f2bccc', '#e19fb4'], accent: '#4aa3df', mech: '#7bd3b0', slide: '#b29bf0', bridge: '#a8e6cf', door: '#e06c8a' },
+  { bg: ['#ffdcc8', '#f5b8c9'], blocks: ['#fff2e6', '#f7d5bf', '#eab7a3', '#d4968c'], accent: '#4a9ee8', mech: '#6bcbb8', slide: '#9e8ee8', bridge: '#a6dfa0', door: '#e56f89' },
+  { dark: true, bg: ['#13243b', '#2b5876'], blocks: ['#e6f8ff', '#bfe8f2', '#90d0df', '#6bb3c9'], accent: '#62f2c8', mech: '#ff96c5', slide: '#ffd26f', bridge: '#86f0a8', door: '#ff7d95' },
+  { bg: ['#ebe0ff', '#ffc8d6'], blocks: ['#f8f2ff', '#e4d4f7', '#cbb4eb', '#b096d9'], accent: '#ff7c6e', mech: '#62cbb8', slide: '#ffb85c', bridge: '#9ae0b4', door: '#e66c96' },
+  { dark: true, bg: ['#1b1834', '#463168'], blocks: ['#fff3d6', '#ebd4a7', '#d4b37f', '#b89262'], accent: '#ffb84d', mech: '#6be0d6', slide: '#ff8fb1', bridge: '#9ae6a8', door: '#ff708d' },
 ];
 
 // ---------- Komut simgeleri ----------
