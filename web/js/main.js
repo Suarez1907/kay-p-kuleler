@@ -635,7 +635,8 @@ function frameDuration(a, b, first, kind) {
     d = { F: 0.34, J: 0.4, L: 0.22, R: 0.22, A: 0.3, rot: 0.42, slide: 0.26, view: 0, bump: 0.26 }[kind] ?? 0.3;
     if (kind === 'A' && a.rots.join() !== b.rots.join()) d = 0.5;
     if (Math.abs(a.p[0] - b.p[0]) + Math.abs(a.p[2] - b.p[2]) > 1 && a.rots.join() === b.rots.join()) d = 0.5;
-  } else if (a.slides.join() !== b.slides.join()) d = 0.24;
+  } else if (portalJumpInfo(a, b)) d = 0.42;
+  else if (a.slides.join() !== b.slides.join()) d = 0.24;
   else if (a.bridges.join() !== b.bridges.join()) d = 0.22;
   else if (a.p.join() === b.p.join() && JSON.stringify(a.crates) === JSON.stringify(b.crates)) d = 0.075;
   else d = 0.1;
@@ -646,6 +647,13 @@ function enqueue(frames, kind, extra) {
   frames.forEach((f, k) => { queue.push({ from: prev, to: f, dur: frameDuration(prev, f, k === 0, kind), t: 0, kind, first: k === 0, extra: k === 0 ? extra : null }); prev = f; });
 }
 function soundsFor(a, b, kind, first) {
+  const pj = portalJumpInfo(a, b);
+  if (pj) {
+    sfx.portal();
+    fx.sparkle(pj.from, pj.color);
+    fx.sparkle(pj.to, pj.color);
+    return;
+  }
   if (first) {
     if (kind === 'F') sfx.step();
     else if (kind === 'J') sfx.jump();
