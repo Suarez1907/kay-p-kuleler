@@ -84,10 +84,11 @@ export function cmdStep(L, s0, c) {
     const below = W.solid.get(KP([P[0], P[1] - 1, P[2]]));
     if (below && below.t === 'cr' && !eq(s.p, P)) s.crumbles[below.i] = 1;
   };
+  let movedEnt = null, oldPos = null;
   if (c === 'F' || c === 'J') {
     const T = c === 'F' ? E.walkTarget(L, s, W, P, s.f) : jumpTarget(L, s, W);
     if (!T) return bump();
-    s.p = T; leave();
+    oldPos = P.slice(); s.p = T; movedEnt = { k: 'p' }; leave();
   } else if (c === 'A') {
     const dv = E.DIRS[s.f];
     const Q = add(P, dv);
@@ -96,7 +97,7 @@ export function cmdStep(L, s0, c) {
     if (e && e.k === 'c') {
       const C = add(Q, dv);
       if (W.solid.has(KP(C)) || W.ents.has(KP(C))) return bump();
-      s.crates[e.i] = C;
+      oldPos = Q.slice(); s.crates[e.i] = C; movedEnt = { k: 'c', i: e.i };
     } else if (e && e.k === 'b') {
       const C = add(Q, dv);
       const cv = W.solid.get(KP(C));
@@ -112,6 +113,7 @@ export function cmdStep(L, s0, c) {
   } else return bump();
   s.moves++;
   frames.push(E.cloneState(s));
+  if (movedEnt && E.tryTeleport(L, s, movedEnt, oldPos)) frames.push(E.cloneState(s));
   E.settle(L, s, frames);
   frames[frames.length - 1] = s;
   return { state: s, frames, bump: false, kind: c };
