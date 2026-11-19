@@ -1,4 +1,4 @@
-// cannon-es ile süs amaçlı rijit-cisim fiziği: çöken taş parçaları, düşen kutular ve zafer konfetisi.
+// cannon-es ile süs amaçlı rijit-cisim fiziği: çöken taş parçaları, portal parıltıları ve zafer konfetisi.
 // (Bulmaca mantığı deterministik ızgara motorunda çalışır; bu katman yalnızca görseldir.)
 import * as CANNON from '../vendor/cannon-es.js';
 import * as THREE from 'three';
@@ -22,7 +22,7 @@ export class FX {
   }
   clear() { for (const it of this.items) { this.scene.remove(it.mesh); this.world.removeBody(it.body); } this.items = []; }
   spawn(pos, size, color, vel, life = 3) {
-    const mesh = new THREE.Mesh(this.geo, new THREE.MeshStandardMaterial({ color, roughness: 0.8, transparent: true }));
+    const mesh = new THREE.Mesh(this.geo, new THREE.MeshStandardMaterial({ color, roughness: 0.7, emissive: color, emissiveIntensity: 0.22, transparent: true }));
     mesh.scale.setScalar(size); mesh.castShadow = true;
     this.scene.add(mesh);
     const body = new CANNON.Body({ mass: 1, shape: new CANNON.Box(new CANNON.Vec3(size / 2, size / 2, size / 2)) });
@@ -37,8 +37,15 @@ export class FX {
       this.spawn(p, 0.42, color, { x: (Math.random() - .5) * 2, y: Math.random() * 2, z: (Math.random() - .5) * 2 }, 2.5);
     }
   }
+  sparkle(cell, color = '#7ff3ff') {
+    for (let i = 0; i < 14; i++) {
+      const a = (i / 14) * Math.PI * 2 + Math.random() * 0.4, s = 1.4 + Math.random() * 1.8;
+      this.spawn(new THREE.Vector3(cell[0], cell[1] - 0.1, cell[2]), 0.1 + Math.random() * 0.06, i % 3 === 0 ? '#ffffff' : color,
+        { x: Math.cos(a) * s, y: 3.5 + Math.random() * 3, z: Math.sin(a) * s }, 1.2);
+    }
+  }
   confetti(at, colors) {
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < 44; i++) {
       const a = Math.random() * Math.PI * 2, s = 2 + Math.random() * 3;
       this.spawn(new THREE.Vector3(at[0], at[1] + 0.5, at[2]), 0.12 + Math.random() * 0.1, colors[i % colors.length],
         { x: Math.cos(a) * s, y: 6 + Math.random() * 5, z: Math.sin(a) * s }, 3.5);

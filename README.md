@@ -23,7 +23,7 @@ asansörleri kaldırır, kamerayı çevirip imkânsız geçitleri birleştirirsi
 | Tarayıcı | `web/` | Three.js r170 + cannon-es (yerel olarak paketlendi, CDN yok) |
 | Godot (klasik mod) | `godot/` | Godot 4.3, GDScript — programlama öncesi "dokun-yürü" sürümü ve 15 klasik seviyesi |
 
-Android ve tarayıcı sürümü **20 el yapımı seviyelik, 6 bölümlük programlama kampanyasını** içerir; her seviyenin
+Android ve tarayıcı sürümü **25 el yapımı seviyelik, 7 bölümlük programlama kampanyasını** içerir; her seviyenin
 referans programı derleme sırasında gerçek yorumlayıcıda çalıştırılarak doğrulanır.
 
 ---
@@ -79,6 +79,11 @@ Engele çarpan bir komut (ör. duvara doğru İleri) Robo'yu yerinde sarsar ve p
 | 18 | Ustalık | Taşıyıcı | kutu + döner platform + kapı, iki mola | 12 |
 | 19 | | Çöken Zemin | tek geçişlik taşlar, üç kol | 27 |
 | 20 | | Son Kule | her şey bir arada | 24 |
+| 21 | Yankılar | Terazi Kulesi | terazi platformları, iki kutuyla denge | 17 |
+| 22 | | Ayna Kapı | ışınlayıcı halkalar (portallar) | 12 |
+| 23 | | Kutu Işınlama | kutuyu ışınlayıcıyla uzak plakaya düşürme | 11 |
+| 24 | | Yankı Labirenti | koşullu yol izleyici + çoklu kule portalları | 6 |
+| 25 | | Yıldızlar Arası | döner köprü + ışınlayıcı + asansör + göz yanılması | 12 |
 
 Tüm referans çözümler `SOLUTIONS.md` dosyasındadır.
 
@@ -191,6 +196,8 @@ Doğrudan bir seviyeyi açmak için: `http://localhost:8765/?level=9`
 | Kaydırıcı / asansör | Raylı platform; oyuncu oklarla ya da sürükleyerek hareket ettirir, yükünü taşır | 16 |
 | Göz yanılması geçidi | Yalnızca belirli kamera açısından birleşen iki yol (halkalar dolunca geçit açıktır) | 17 |
 | Çöken zemin | Robo üzerinden ayrılınca parçalanıp düşer | 19 |
+| Terazi | Birbirine bağlı iki platform: ağır kefe aşağı iner, hafif olan yukarı çıkar | 21 |
+| Işınlayıcı (portal) | Üzerine yürüyen Robo ya da itilen kutu aynı renkteki eşleşen halkadan anında çıkar | 22 |
 
 **Mimari:** Bulmaca kuralları **deterministik bir ızgara fizik motorunda** (`web/js/engine.js`) çalışır; programlama katmanı
 (`web/js/program.js`) komutları, koşulları, çağrı yığınını ve yorumlayıcıyı içerir ve render'dan bağımsızdır. Bu sayede

@@ -123,6 +123,37 @@ Gösterim: `İleri`, `Sola`, `Sağa`, `Zıpla`, `Kullan`, `Mola`, `F1`, `F2`; `[
 * F1: İleri → Kullan
 * F2: İleri → İleri → İleri
 
+### Bölüm: Yankılar
+
+#### 21. Terazi Kulesi — par 17
+
+* Ana: F1 → Kullan → Sola → F1 → Sağa → F1 → Sağa → Kullan → Sağa → İleri → Sağa → İleri → Sola → F1 → İleri
+* F1: İleri → İleri
+
+#### 22. Ayna Kapı — par 12
+
+* Ana: İleri → Sola → İleri → Sağa → İleri → Kullan → Sağa → İleri → Sola → F1
+* F1: İleri → F1
+
+#### 23. Kutu Işınlama — par 11
+
+* Ana: F1 → F1 → Sağa → İleri → İleri → Sola → F2
+* F1: İleri → Kullan
+* F2: İleri → F2
+
+#### 24. Yankı Labirenti — par 6
+
+* Ana: F1
+* F1: İleri[açıksa] → Sağa[kapalıysa] → Sola[kapalıysa] → Sola[kapalıysa] → F1
+
+#### 25. Yıldızlar Arası — par 12
+
+* Ana: F1 → Mola → F1 → F2 → Mola → F1 → F1
+* F1: İleri → İleri → İleri
+* F2: İleri → İleri
+* 1. molada: döner platform #1 +90°
+* 2. molada: kaydırıcı #1 ileri/yukarı, kaydırıcı #1 ileri/yukarı, kamera sağa
+
 ## Klasik seviyeler (Godot sürümü, dokun-yürü)
 
 Bu çözümler tam (BFS) çözücü tarafından otomatik bulunmuştur ve en kısa eylem dizileridir.

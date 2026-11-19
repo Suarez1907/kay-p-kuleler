@@ -3,11 +3,12 @@ package com.akin.kayipkuleler
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.graphics.Color
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.view.HapticFeedbackConstants
 import android.view.View
 import android.view.WindowManager
+import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
@@ -29,6 +30,22 @@ import androidx.webkit.WebViewClientCompat
 class MainActivity : ComponentActivity() {
 
     private lateinit var webView: WebView
+
+    private inner class AndroidBridge {
+        @JavascriptInterface
+        fun haptic(kind: String) {
+            runOnUiThread {
+                val code = when (kind) {
+                    "tick" -> HapticFeedbackConstants.CLOCK_TICK
+                    "heavy" -> HapticFeedbackConstants.LONG_PRESS
+                    "confirm" -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) HapticFeedbackConstants.CONFIRM else HapticFeedbackConstants.VIRTUAL_KEY
+                    "reject" -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) HapticFeedbackConstants.REJECT else HapticFeedbackConstants.LONG_PRESS
+                    else -> HapticFeedbackConstants.KEYBOARD_TAP
+                }
+                webView.performHapticFeedback(code, HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING)
+            }
+        }
+    }
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -52,7 +69,8 @@ class MainActivity : ComponentActivity() {
             overScrollMode = View.OVER_SCROLL_NEVER
             isVerticalScrollBarEnabled = false
             isHorizontalScrollBarEnabled = false
-            isHapticFeedbackEnabled = false
+            isHapticFeedbackEnabled = true
+            addJavascriptInterface(AndroidBridge(), "AndroidBridge")
             settings.apply {
                 javaScriptEnabled = true
                 domStorageEnabled = true          // localStorage: seviye ilerlemesi

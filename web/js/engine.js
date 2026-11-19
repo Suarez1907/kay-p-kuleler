@@ -120,6 +120,25 @@ export function evalSignal(sig, expr) { return evalSig(sig, expr); }
 function getEnt(s, e) { return e.k === 'p' ? s.p : e.k === 'c' ? s.crates[e.i] : s.balls[e.i].p; }
 function setEnt(s, e, p) { if (e.k === 'p') s.p = p; else if (e.k === 'c') s.crates[e.i] = p; else s.balls[e.i].p = p; }
 
+// Işınlayıcı (portal): varlık başka bir hücreden aktif portal hücresine girerse eşleşen diğer uca ışınlanır.
+export function tryTeleport(L, s, ent, oldPos) {
+  const pts = L.def.portals;
+  if (!pts || !pts.length) return false;
+  const cur = getEnt(s, ent);
+  if (!cur || (oldPos && eq(cur, oldPos))) return false;
+  const W = buildWorld(L, s);
+  const sig = signals(L, s, W);
+  for (const pt of pts) {
+    if (pt.on != null && !evalSig(sig, pt.on)) continue;
+    const dest = eq(cur, pt.a) ? pt.b : eq(cur, pt.b) ? pt.a : null;
+    if (dest && free(W, dest)) {
+      setEnt(s, ent, dest.slice());
+      return true;
+    }
+  }
+  return false;
+}
+
 // Platform hücrelerinin üstünde duran (ve üst üste yığılmış) varlıklar
 function carried(W, cells) {
   const out = []; const seen = new Set();
@@ -231,14 +250,19 @@ export function settle(L, s, frames) {
         W.ents.delete(KP(p));
         if (np[1] < L.killY) {
           if (e.k === 'p') s.dead = true; else if (e.k === 'c') s.crates[e.i] = null; else s.balls[e.i] = null;
-        } else { setEnt(s, e, np); W.ents.set(KP(np), e); }
+        } else {
+          setEnt(s, e, np); W.ents.set(KP(np), e);
+          if (tryTeleport(L, s, e, p)) { W.ents.delete(KP(np)); W.ents.set(KP(getEnt(s, e)), e); }
+        }
         changed = true;
       } else if (e.k === 'b' && s.balls[e.i].d >= 0) {
         const b = s.balls[e.i];
         const np = add(p, DIRS[b.d]);
         const sv = W.solid.get(KP(np));
         if (!sv && !W.ents.has(KP(np))) {
-          W.ents.delete(KP(p)); b.p = np; W.ents.set(KP(np), e); changed = true;
+          W.ents.delete(KP(p)); b.p = np; W.ents.set(KP(np), e);
+          if (tryTeleport(L, s, e, p)) { W.ents.delete(KP(np)); W.ents.set(KP(b.p), e); }
+          changed = true;
         } else {
           if (sv && sv.t === 'lv') { s.levers[sv.i] = !s.levers[sv.i]; }
           b.d = -1; changed = true;

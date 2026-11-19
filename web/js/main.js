@@ -4,7 +4,7 @@ import { RoundedBoxGeometry } from '../vendor/RoundedBoxGeometry.js';
 import * as E from './engine.js';
 import * as P from './program.js';
 import { LEVELS } from './levels.js';
-import { initAudio, sfx, setSound, soundOn } from './audio.js';
+import { initAudio, sfx, setSound, soundOn, setMusic, musicOn } from './audio.js';
 import { FX } from './fx.js';
 
 const $ = (id) => document.getElementById(id);
@@ -13,6 +13,7 @@ const SAVE_KEY = 'kayipKuleler.v2';
 const ROWS = ['main', 'p1', 'p2'];
 const ROW_LABEL = { main: 'Ana', p1: 'F1', p2: 'F2' };
 const SPEEDS = [1, 2, 4];
+const PORTAL_COLORS = ['#4ce8e0', '#ff7ed4', '#ffd36e', '#a18cff'];
 
 // ---------- Paletler (pastel diorama) ----------
 const PALETTES = [
@@ -28,6 +29,10 @@ const PALETTES = [
   { bg: ['#f5e1da', '#8fb8c9'], blocks: ['#f9ece4', '#ecd1c4', '#d9b2a5', '#bf9690'], accent: '#ffb84d', mech: '#74c0b9', slide: '#ad9ce0', bridge: '#a3d9b8', door: '#e3869b' },
   { dark: true, bg: ['#1f2a4a', '#5b4b8a'], blocks: ['#f2e6ff', '#d7c4f2', '#b9a3e3', '#9a86cf'], accent: '#ffd36e', mech: '#6fe0d0', slide: '#ff9bb3', bridge: '#9af0c8', door: '#ff8fa3' },
   { bg: ['#ffe0e9', '#ffd6a5'], blocks: ['#fff1f4', '#fbd9e2', '#f2bccc', '#e19fb4'], accent: '#4aa3df', mech: '#7bd3b0', slide: '#b29bf0', bridge: '#a8e6cf', door: '#e06c8a' },
+  { bg: ['#ffdcc8', '#f5b8c9'], blocks: ['#fff2e6', '#f7d5bf', '#eab7a3', '#d4968c'], accent: '#4a9ee8', mech: '#6bcbb8', slide: '#9e8ee8', bridge: '#a6dfa0', door: '#e56f89' },
+  { dark: true, bg: ['#13243b', '#2b5876'], blocks: ['#e6f8ff', '#bfe8f2', '#90d0df', '#6bb3c9'], accent: '#62f2c8', mech: '#ff96c5', slide: '#ffd26f', bridge: '#86f0a8', door: '#ff7d95' },
+  { bg: ['#ebe0ff', '#ffc8d6'], blocks: ['#f8f2ff', '#e4d4f7', '#cbb4eb', '#b096d9'], accent: '#ff7c6e', mech: '#62cbb8', slide: '#ffb85c', bridge: '#9ae0b4', door: '#e66c96' },
+  { dark: true, bg: ['#1b1834', '#463168'], blocks: ['#fff3d6', '#ebd4a7', '#d4b37f', '#b89262'], accent: '#ffb84d', mech: '#6be0d6', slide: '#ff8fb1', bridge: '#9ae6a8', door: '#ff708d' },
 ];
 
 // ---------- Komut simgeleri ----------
@@ -191,6 +196,18 @@ function buildSky(center, radius, floorY, dark) {
   const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   const pts = new THREE.Points(geo, new THREE.PointsMaterial({ map: dotTex, size: 0.22, transparent: true, opacity: 0.7, depthWrite: false, color: dark ? '#fff2b0' : '#ffffff' }));
   pts.userData.dust = true; sky.add(pts);
+  if (dark) {
+    const SN = 120, spos = new Float32Array(SN * 3);
+    for (let i = 0; i < SN; i++) {
+      const a = rnd() * Math.PI * 2, rr = radius * (1.8 + rnd() * 2.2);
+      spos[i * 3] = center.x + Math.cos(a) * rr;
+      spos[i * 3 + 1] = floorY + 2 + rnd() * radius * 2.4;
+      spos[i * 3 + 2] = center.z + Math.sin(a) * rr;
+    }
+    const sgeo = new THREE.BufferGeometry(); sgeo.setAttribute('position', new THREE.BufferAttribute(spos, 3));
+    const stars = new THREE.Points(sgeo, new THREE.PointsMaterial({ map: dotTex, size: 0.34, transparent: true, opacity: 0.85, depthWrite: false, color: '#fff8d6' }));
+    stars.userData.dust = true; sky.add(stars);
+  }
 }
 function mulberry(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 
@@ -234,11 +251,12 @@ let undoStack = [];
 let progress = loadProgress();
 
 function loadProgress() {
-  const d = { unlocked: 1, best: {}, progs: {}, seen: {}, sound: true };
+  const d = { unlocked: 1, best: {}, progs: {}, seen: {}, sound: true, music: true };
   try { return Object.assign(d, JSON.parse(localStorage.getItem(SAVE_KEY) || '{}')); } catch (e) { return d; }
 }
 function saveProgress() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(progress)); } catch (e) {} }
 setSound(progress.sound !== false);
+setMusic(progress.music !== false);
 
 function addPick(mesh, info) { mesh.userData.pick = info; pickables.push(mesh); }
 function shadowed(m) { m.castShadow = true; m.receiveShadow = true; return m; }
@@ -273,7 +291,7 @@ function buildLevel(i, opts = {}) {
   state = E.initialState(L);
   setupState = null;
   queue = []; anim = null; winShown = false; mode = 'edit'; runner = null; undoStack = [];
-  objs = { crates: [], balls: [], levers: [], plates: [], bridges: [], rotators: [], sliders: [], crumbles: [], links: [], cranks: [], trail: [] };
+  objs = { crates: [], balls: [], levers: [], plates: [], bridges: [], rotators: [], sliders: [], crumbles: [], links: [], portals: [], cranks: [], trail: [] };
   const box = new THREE.Box3();
   const addB = (p) => box.expandByPoint(new THREE.Vector3(p[0], p[1], p[2]));
   const staticCells = [];
@@ -412,6 +430,41 @@ function buildLevel(i, opts = {}) {
       objs.links.push({ m, view: ln.view });
     }
   });
+  (def.portals || []).forEach((pt, pi) => {
+    const col = pt.color || PORTAL_COLORS[pi % PORTAL_COLORS.length];
+    for (const c of [pt.a, pt.b]) {
+      addB(c);
+      const g = new THREE.Group(); g.position.set(c[0], c[1] - 0.48, c[2]);
+      const outer = new THREE.Mesh(new THREE.TorusGeometry(0.36, 0.042, 10, 32), new THREE.MeshStandardMaterial({ color: col, emissive: col, emissiveIntensity: 0.75, roughness: 0.25 }));
+      outer.rotation.x = Math.PI / 2; outer.position.y = 0.04; g.add(outer);
+      const inner = new THREE.Mesh(new THREE.RingGeometry(0.16, 0.27, 6), new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.82, side: THREE.DoubleSide, depthWrite: false }));
+      inner.rotation.x = -Math.PI / 2; inner.position.y = 0.05; g.add(inner);
+      const disc = new THREE.Mesh(new THREE.CircleGeometry(0.18, 24), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.52, side: THREE.DoubleSide, depthWrite: false }));
+      disc.rotation.x = -Math.PI / 2; disc.position.y = 0.03; g.add(disc);
+      const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.28, 1.35, 18, 1, true), new THREE.MeshBasicMaterial({ map: beamTex, color: col, transparent: true, opacity: pal.dark ? 0.48 : 0.32, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending }));
+      beam.position.y = 0.68; g.add(beam);
+      root.add(g);
+      objs.portals.push({ g, outer, inner, disc, beam, col, pt });
+    }
+  });
+  (def.scales || []).forEach((sc) => {
+    const a = def.sliders[sc.a].blocks[0], b = def.sliders[sc.b].blocks[0];
+    const yBase = Math.min(a[1], b[1]) - 1.55;
+    const va = new THREE.Vector3(a[0], yBase, a[2]), vb = new THREE.Vector3(b[0], yBase, b[2]);
+    const dist = va.distanceTo(vb);
+    const mid = va.clone().add(vb).multiplyScalar(0.5);
+    const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, dist, 10), mat('#8a7fa3', { transparent: true, opacity: 0.65 }));
+    bar.position.copy(mid);
+    bar.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), vb.clone().sub(va).normalize());
+    root.add(bar);
+    const pivot = new THREE.Mesh(new THREE.OctahedronGeometry(0.18), mat(pal.accent));
+    pivot.position.copy(mid); root.add(pivot);
+    for (const p of [a, b]) {
+      const h = p[1] - yBase;
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, h, 8), mat('#8a7fa3', { transparent: true, opacity: 0.55 }));
+      post.position.set(p[0], yBase + h / 2, p[2]); root.add(post);
+    }
+  });
   {
     const g = new THREE.Group(); const gp = def.goal; g.position.set(gp[0], gp[1] - 0.5, gp[2]);
     const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.22), new THREE.MeshStandardMaterial({ color: pal.accent, emissive: pal.accent, emissiveIntensity: 0.6, roughness: 0.25 }));
@@ -468,14 +521,36 @@ function entityPos(pA, pB, t, sA, sB, out) {
   out.set(lerp(pA[0], pB[0], t), lerp(pA[1], pB[1], t) - 0.5, lerp(pA[2], pB[2], t));
   return out;
 }
+function isFarJump(p, q) { return p && q && ((Math.abs(p[0] - q[0]) + Math.abs(p[2] - q[2]) > 1) || Math.abs(p[1] - q[1]) > 1); }
+function portalJumpInfo(a, b) {
+  if (!a || !b || a.rots.join() !== b.rots.join() || !(L.def.portals && L.def.portals.length)) return null;
+  const match = (from, to) => {
+    for (let i = 0; i < L.def.portals.length; i++) {
+      const pt = L.def.portals[i];
+      const eq = (u, v) => u[0] === v[0] && u[1] === v[1] && u[2] === v[2];
+      if ((eq(from, pt.a) && eq(to, pt.b)) || (eq(from, pt.b) && eq(to, pt.a))) {
+        return { from, to, color: pt.color || PORTAL_COLORS[i % PORTAL_COLORS.length] };
+      }
+    }
+    return null;
+  };
+  if (!a.dead && !b.dead && isFarJump(a.p, b.p)) { const r = match(a.p, b.p); if (r) return r; }
+  for (let i = 0; i < a.crates.length; i++) {
+    if (isFarJump(a.crates[i], b.crates[i])) { const r = match(a.crates[i], b.crates[i]); if (r) return r; }
+  }
+  for (let i = 0; i < a.balls.length; i++) {
+    if (a.balls[i] && b.balls[i] && isFarJump(a.balls[i].p, b.balls[i].p)) { const r = match(a.balls[i].p, b.balls[i].p); if (r) return r; }
+  }
+  return null;
+}
 const tmpV = new THREE.Vector3();
 function applyVisual(sA, sB, t, extra) {
   const te = ease(t);
   {
-    const linkJump = sA.p && sB.p && Math.abs(sA.p[0] - sB.p[0]) + Math.abs(sA.p[2] - sB.p[2]) > 1 && sA.rots.join() === sB.rots.join();
+    const linkJump = !sA.dead && !sB.dead && isFarJump(sA.p, sB.p) && sA.rots.join() === sB.rots.join();
     const pl = objs.player;
     if (linkJump) {
-      // göz yanılması geçidi: Robo bir noktada kaybolup ötekinde belirir
+      // göz yanılması geçidi veya portal: Robo bir noktada kaybolup ötekinde belirir
       const from = sA.p, to = sB.p; const k = t < 0.5 ? 0 : 1; const pp = k ? to : from;
       pl.visible = !sB.dead; pl.position.set(pp[0], pp[1] - 0.5, pp[2]);
       pl.scale.setScalar(Math.max(0.05, Math.abs(1 - 2 * t)));
@@ -499,9 +574,18 @@ function applyVisual(sA, sB, t, extra) {
     pl.rotation.y = from + diff * te;
   }
   objs.crates.forEach((m, i) => {
-    const p = entityPos(sA.crates[i], sB.crates[i], te, sA, sB, tmpV);
-    m.visible = !!p; if (p) m.position.set(p.x, p.y + 0.42, p.z);
-    m.material.opacity = sB.crates[i] ? 1 : 1 - t;
+    const cA = sA.crates[i], cB = sB.crates[i];
+    if (isFarJump(cA, cB) && sA.rots.join() === sB.rots.join()) {
+      const pp = t < 0.5 ? cA : cB;
+      m.visible = true; m.position.set(pp[0], pp[1] - 0.08, pp[2]);
+      m.scale.setScalar(Math.max(0.05, Math.abs(1 - 2 * t)));
+      m.material.opacity = 1;
+    } else {
+      m.scale.setScalar(1);
+      const p = entityPos(cA, cB, te, sA, sB, tmpV);
+      m.visible = !!p; if (p) m.position.set(p.x, p.y + 0.42, p.z);
+      m.material.opacity = cB ? 1 : 1 - t;
+    }
   });
   objs.balls.forEach((m, i) => {
     const a = sA.balls[i] && sA.balls[i].p, b = sB.balls[i] && sB.balls[i].p;
@@ -551,7 +635,8 @@ function frameDuration(a, b, first, kind) {
     d = { F: 0.34, J: 0.4, L: 0.22, R: 0.22, A: 0.3, rot: 0.42, slide: 0.26, view: 0, bump: 0.26 }[kind] ?? 0.3;
     if (kind === 'A' && a.rots.join() !== b.rots.join()) d = 0.5;
     if (Math.abs(a.p[0] - b.p[0]) + Math.abs(a.p[2] - b.p[2]) > 1 && a.rots.join() === b.rots.join()) d = 0.5;
-  } else if (a.slides.join() !== b.slides.join()) d = 0.24;
+  } else if (portalJumpInfo(a, b)) d = 0.42;
+  else if (a.slides.join() !== b.slides.join()) d = 0.24;
   else if (a.bridges.join() !== b.bridges.join()) d = 0.22;
   else if (a.p.join() === b.p.join() && JSON.stringify(a.crates) === JSON.stringify(b.crates)) d = 0.075;
   else d = 0.1;
@@ -562,6 +647,13 @@ function enqueue(frames, kind, extra) {
   frames.forEach((f, k) => { queue.push({ from: prev, to: f, dur: frameDuration(prev, f, k === 0, kind), t: 0, kind, first: k === 0, extra: k === 0 ? extra : null }); prev = f; });
 }
 function soundsFor(a, b, kind, first) {
+  const pj = portalJumpInfo(a, b);
+  if (pj) {
+    sfx.portal();
+    fx.sparkle(pj.from, pj.color);
+    fx.sparkle(pj.to, pj.color);
+    return;
+  }
   if (first) {
     if (kind === 'F') sfx.step();
     else if (kind === 'J') sfx.jump();
@@ -616,6 +708,7 @@ function tick() {
   markSkipped(runner.skipped);
   if (!n) { endRun(runner.error || 'end'); return false; }
   markExec(n.proc, n.idx);
+  updateHud();
   const r = P.cmdStep(L, state, n.ins.c);
   if (stepOnce) stepOnce = 'done';
   if (r.pause) { if (!instant) sfx.pause(); stepOnce = false; setMode('paused'); return false; }
@@ -1084,6 +1177,7 @@ window.addEventListener('keydown', (e) => {
     return;
   }
   if (!$('intro').classList.contains('hidden')) { if (e.key === 'Enter' || e.key === 'Escape' || e.key === ' ') { e.preventDefault(); $('btnIntroOk').click(); } return; }
+  if (!$('guide').classList.contains('hidden')) { if (e.key === 'Enter' || e.key === 'Escape' || e.key === ' ') { e.preventDefault(); $('btnGuideOk').click(); } return; }
   const k = e.key.toLowerCase();
   const add = { arrowup: 'F', arrowleft: 'L', arrowright: 'R', j: 'J', k: 'A', p: 'W', 1: '1', 2: '2' }[k];
   if (add) { e.preventDefault(); if (L.def.cmds.includes(add)) insertCmd(add); return; }
@@ -1102,6 +1196,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'e') rotateView(1);
   else if (k === 'h') toggleHint();
   else if (k === 'm') openLevels();
+  else if (k === '?' || k === '/') openGuide();
 });
 
 // ---------- HUD / ekranlar ----------
@@ -1115,27 +1210,83 @@ function updateHud() {
   $('par').textContent = L.def.par;
   const st = blocks ? starsFor(blocks, L.def.par) : 3;
   $('miniStars').innerHTML = [0, 1, 2].map(k => `<span class="${k < st ? '' : 'off'}">★</span>`).join('');
+  const sb = $('stepBadge');
+  const showSteps = runner && (mode === 'running' || mode === 'paused' || mode === 'ended');
+  sb.classList.toggle('hidden', !showSteps);
+  if (showSteps) sb.textContent = `Adım ${runner.steps}`;
   $('btnRun').classList.toggle('attn', levelIdx === 0 && blocks >= 4 && mode === 'edit' && !progress.best[0]);
   $('btnStop').disabled = mode === 'edit';
   $('btnUndo').disabled = mode === 'running' || mode === 'paused';
   $('btnClear').disabled = mode === 'running' || mode === 'paused' || !blocks;
 }
 function chapterIndex(i) { const names = []; LEVELS.slice(0, i + 1).forEach(l => { if (names[names.length - 1] !== l.chapter) names.push(l.chapter); }); return names.length - 1; }
-function toggleHint() { const h = $('hintBox'); h.textContent = L.def.hint || 'İpucu yok.'; h.classList.toggle('hidden'); }
+function toggleHint() {
+  const h = $('hintBox');
+  $('hintText').textContent = L.def.hint || 'İpucu yok.';
+  h.classList.toggle('hidden');
+}
 $('hintBox').onclick = () => $('hintBox').classList.add('hidden');
+$('btnLoadSol').onclick = (e) => {
+  e.stopPropagation();
+  if (!L || !L.def.solution) return;
+  if (mode === 'running' || mode === 'paused' || mode === 'ended') resetToSetup();
+  if (!editable()) return;
+  pushUndo();
+  prog = P.parseProgram(L.def.solution);
+  activeRow = 'main'; caret = prog.main.length; sel = null;
+  $('hintBox').classList.add('hidden');
+  sfx.tick();
+  progChanged();
+  const hasOps = (L.def.solution.ops || []).some(o => o && o.length);
+  toast(hasOps ? 'Örnek program yüklendi — dünya işlemlerini de yapmayı unutma!' : 'Örnek program yüklendi!');
+};
+function openGuide() {
+  if (!L || preview) return;
+  $('hintBox').classList.add('hidden');
+  const list = $('guideList'); list.innerHTML = '';
+  const addItem = (icoHtml, title, desc) => {
+    const it = document.createElement('div'); it.className = 'guide-item';
+    it.innerHTML = `${icoHtml}<div class="g-txt"><b>${title}</b><span>${desc}</span></div>`;
+    list.appendChild(it);
+  };
+  for (const c of L.def.cmds) {
+    const t = tileEl({ c, k: '' });
+    addItem(t.outerHTML, P.COMMANDS[c].name, P.COMMANDS[c].desc);
+  }
+  if (L.def.conds) {
+    addItem('<div class="g-ico" style="background:rgba(47,195,122,.2);color:#2fc37a">✓</div>', 'Önü açıksa (yeşil koşul)', 'Bloğa dokunup koşul ver: yalnızca Robo ileri yürüyebiliyorsa çalışır.');
+    addItem('<div class="g-ico" style="background:rgba(255,122,69,.2);color:#ff7a45">✕</div>', 'Önü kapalıysa (turuncu koşul)', 'Yalnızca Robo\'nun önü kapalıysa çalışır. Labirent döngüleri için idealdir.');
+  }
+  const d = L.def;
+  if (d.portals && d.portals.length) addItem('<div class="g-ico">◎</div>', 'Işınlayıcı', 'Üzerine yürüyen Robo ya da itilen kutu, aynı renkteki eşleşen halkadan anında çıkar.');
+  if (d.scales && d.scales.length) addItem('<div class="g-ico">⚖</div>', 'Terazi', 'İki platform birbirine bağlıdır: ağır kefe iner, hafif kefe yükselir.');
+  if (d.rotators && d.rotators.some(r => !r.fixed)) addItem('<div class="g-ico">↻</div>', 'Döner platform', 'Sapına dokun ya da sürükleyerek 90° çevir. Üzerindeki Robo ve kutuları da taşır.');
+  if (d.sliders && d.sliders.some(E.isManual)) addItem('<div class="g-ico">⇅</div>', 'Asansör / kaydırıcı', 'Oklarına dokun ya da sürükleyerek hareket ettir.');
+  if (d.links && d.links.length) addItem('<div class="g-ico">◈</div>', 'Göz yanılması geçidi', 'Kamerayı çevirerek parlayan halkaları doldur; yol yalnızca o bakış açısından birleşir.');
+  if (d.crumbles && d.crumbles.length) addItem('<div class="g-ico">▧</div>', 'Çöken zemin', 'Robo üzerinden ayrıldığı anda parçalanır — tek geçişliktir.');
+  $('guide').classList.remove('hidden');
+}
+function rankFor(stars, total) {
+  const r = total ? stars / total : 0;
+  if (r >= 0.92) return 'Kulelerin Efendisi';
+  if (r >= 0.65) return 'Algoritma Ustası';
+  if (r >= 0.35) return 'Kule Mühendisi';
+  if (stars > 0) return 'Çırak Mimar';
+  return 'Kâşif';
+}
 let toastT = null;
 function toast(msg) { if (instant) return; const t = $('toast'); t.textContent = msg; t.classList.remove('hidden'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.add('hidden'), 1900); }
 function show(id) {
   for (const s of ['screenTitle', 'screenLevels', 'screenWin']) $(s).classList.toggle('hidden', s !== id);
   $('hud').classList.toggle('hidden', id !== null);
-  if (id !== null) $('intro').classList.add('hidden');
+  if (id !== null) { $('intro').classList.add('hidden'); $('guide').classList.add('hidden'); }
   cam.spin = id === 'screenTitle';
   resize();
 }
 function openLevels() {
   if (mode === 'running') setMode('paused', true);
   const g = $('levelGrid'); g.innerHTML = '';
-  let chapter = null, grid = null, chIdx = 0, total = 0;
+  let chapter = null, grid = null, chIdx = 0, total = 0, done = 0, perfect = 0;
   LEVELS.forEach((lv, i) => {
     if (lv.chapter !== chapter) {
       chapter = lv.chapter; chIdx++;
@@ -1148,7 +1299,7 @@ function openLevels() {
     }
     const locked = i >= progress.unlocked;
     const best = progress.best[i];
-    if (best) total += best.stars;
+    if (best) { total += best.stars; done++; if (best.stars === 3) perfect++; }
     const p = PALETTES[(lv.palette ?? i) % PALETTES.length];
     const d = document.createElement('div'); d.className = 'lvl' + (locked ? ' locked' : '') + (i === progress.unlocked - 1 && !best ? ' cur' : '');
     d.style.setProperty('--a', p.dark ? '#d8d0f5' : p.bg[0]); d.style.setProperty('--b', p.dark ? '#a99ad6' : p.bg[1]);
@@ -1159,6 +1310,7 @@ function openLevels() {
     grid.appendChild(d);
   });
   $('totalStars').textContent = `★ ${total} / ${LEVELS.length * 3}`;
+  $('levelStats').innerHTML = `<span class="rank">${rankFor(total, LEVELS.length * 3)}</span><span><b>${done}</b> / ${LEVELS.length} kule</span><span class="stat-sep">·</span><span><b>${perfect}</b> kusursuz (3★)</span>`;
   show('screenLevels');
 }
 function startLevel(i) {
@@ -1171,6 +1323,7 @@ function startLevel(i) {
   renderPalette(); renderRows();
   setMode('edit');
   $('hintBox').classList.add('hidden');
+  $('guide').classList.add('hidden');
   if (L.def.intro && !progress.seen[i] && !instant) {
     $('introTitle').textContent = L.def.intro.title;
     $('introText').innerHTML = L.def.intro.text;
@@ -1190,13 +1343,13 @@ function showTitle() {
   buildLevel(5, { preview: true });
   cam.az = 20; cam.azCur = 20; cam.zoom = 0.85;
   const got = Object.values(progress.best).reduce((a, b) => a + b.stars, 0);
-  $('titleProgress').textContent = got ? `★ ${got} / ${LEVELS.length * 3} yıldız` : 'Mekorama ve Monument Valley\'den esinlenen bir programlama bulmacası';
+  $('titleProgress').textContent = got ? `${rankFor(got, LEVELS.length * 3)} · ★ ${got} / ${LEVELS.length * 3} yıldız` : 'Mekorama ve Monument Valley\'den esinlenen bir programlama bulmacası';
   show('screenTitle');
 }
 
 $('btnPlay').onclick = () => { initAudio(); const n = progress.unlocked - 1; if (!progress.best[n] && n < LEVELS.length) startLevel(n); else openLevels(); };
 $('btnBackTitle').onclick = showTitle;
-$('btnWipe').onclick = () => { if (confirm('Tüm ilerleme ve programlar silinsin mi?')) { progress = { unlocked: 1, best: {}, progs: {}, seen: {}, sound: soundOn() }; saveProgress(); openLevels(); } };
+$('btnWipe').onclick = () => { if (confirm('Tüm ilerleme ve programlar silinsin mi?')) { progress = { unlocked: 1, best: {}, progs: {}, seen: {}, sound: soundOn(), music: musicOn() }; saveProgress(); openLevels(); } };
 $('btnMenu').onclick = openLevels;
 $('btnUndo').onclick = undo;
 $('btnClear').onclick = () => { if (!editable() || !P.blockCount(prog)) return; pushUndo(); prog = { main: [], p1: [], p2: [] }; caret = 0; sel = null; sfx.del(); progChanged(); };
@@ -1211,6 +1364,10 @@ $('btnReset').onclick = resetWorld;
 $('btnCamL').onclick = () => rotateView(-1);
 $('btnCamR').onclick = () => rotateView(1);
 $('btnHint').onclick = toggleHint;
+$('btnGuide').onclick = openGuide;
+$('btnGuideOk').onclick = () => $('guide').classList.add('hidden');
+$('btnMusic').onclick = () => { initAudio(); setMusic(!musicOn()); progress.music = musicOn(); saveProgress(); $('btnMusic').classList.toggle('off', !musicOn()); };
+$('btnMusic').classList.toggle('off', !musicOn());
 $('btnSound').onclick = () => { setSound(!soundOn()); progress.sound = soundOn(); saveProgress(); $('btnSound').classList.toggle('off', !soundOn()); };
 $('btnSound').classList.toggle('off', !soundOn());
 $('btnIntroOk').onclick = () => { progress.seen[levelIdx] = 1; saveProgress(); $('intro').classList.add('hidden'); };
@@ -1229,6 +1386,12 @@ function loop() {
     updateQueue(dt);
     objs.gem.rotation.y = time * 1.6; objs.gem.position.y = 0.6 + Math.sin(time * 2.4) * 0.07;
     objs.goalRing.scale.setScalar(1 + Math.sin(time * 3) * 0.08);
+    objs.portals.forEach((p, idx) => {
+      p.outer.rotation.z = time * (idx % 2 ? -1.1 : 1.1);
+      p.inner.rotation.z = -time * 1.8;
+      p.disc.scale.setScalar(0.9 + Math.sin(time * 3.2 + idx) * 0.14);
+      p.beam.material.opacity = (pal.dark ? 0.42 : 0.28) + Math.sin(time * 2.6 + idx) * 0.08;
+    });
     const u = objs.player.userData;
     u.body.position.y = 0.33 + Math.sin(time * 4) * 0.012;
     u.eyes.scale.y = (time % 3.7) < 0.12 ? 0.15 : 1;
@@ -1275,6 +1438,7 @@ window.__game = {
 // Android uygulaması geri tuşuna basınca bunu çağırır; true dönerse oyun tuşu tüketmiştir.
 window.__onBack = () => {
   const visible = (id) => !$(id).classList.contains('hidden');
+  if (visible('guide')) { $('guide').classList.add('hidden'); return true; }
   if (visible('intro')) { $('btnIntroOk').click(); return true; }
   if (visible('hintBox')) { $('hintBox').classList.add('hidden'); return true; }
   if (sel) { sel = null; renderRows(); return true; }
