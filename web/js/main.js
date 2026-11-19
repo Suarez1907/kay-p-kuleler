@@ -291,7 +291,7 @@ function buildLevel(i, opts = {}) {
   state = E.initialState(L);
   setupState = null;
   queue = []; anim = null; winShown = false; mode = 'edit'; runner = null; undoStack = [];
-  objs = { crates: [], balls: [], levers: [], plates: [], bridges: [], rotators: [], sliders: [], crumbles: [], links: [], cranks: [], trail: [] };
+  objs = { crates: [], balls: [], levers: [], plates: [], bridges: [], rotators: [], sliders: [], crumbles: [], links: [], portals: [], cranks: [], trail: [] };
   const box = new THREE.Box3();
   const addB = (p) => box.expandByPoint(new THREE.Vector3(p[0], p[1], p[2]));
   const staticCells = [];
