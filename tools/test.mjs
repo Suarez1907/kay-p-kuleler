@@ -94,7 +94,9 @@ await shot(page, 19, '07-son-kule.png', 6);
 await page.evaluate(() => { const p = window.__game.progress(); for (let i = 0; i < 14; i++) p.best[i] = { blocks: 1, stars: 3 - (i % 3 === 2) }; p.unlocked = 15; window.__game.showLevels(); });
 await page.waitForTimeout(400);
 await page.screenshot({ path: SHOTS + '08-seviyeler.png' });
-// Telefon (dikey)
+// Telefon (dikey). Önceki sayfa kapatılır: efektler açıkken iki WebGL sayfası yazılımsal GPU'yu
+// paylaşınca ikinci sayfa CI'da açılamıyordu.
+await page.close();
 const phone = await open({ width: 412, height: 870 });
 await phone.screenshot({ path: SHOTS + 'android-baslik.png' });
 await shot(phone, 3, 'android-fonksiyon.png', 2.4);

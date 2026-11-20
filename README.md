@@ -21,7 +21,7 @@ asansörleri kaldırır, kamerayı çevirip imkânsız geçitleri birleştirirsi
 |---|---|---|
 | **Android uygulaması (ana sürüm)** | `android/` | Kotlin, AndroidX WebView + `WebViewAssetLoader`; oyun `web/` klasöründen derleme sırasında kopyalanır |
 | Tarayıcı | `web/` | Three.js r170 + cannon-es (yerel olarak paketlendi, CDN yok) |
-| Godot 4 prototipi (programlama) | `godot-program/` | Godot 4.3 Mobile (Vulkan) renderer, GDScript — 27 seviyelik programlama oyununun yerel motor sürümü |
+| Godot 4 prototipi (programlama) | `godot-program/` | **Godot 4.8 beta 4**, Mobile (Vulkan) renderer, AgX ton eşleme, GDScript — 27 seviyelik programlama oyununun yerel motor sürümü |
 | Godot (klasik mod) | `godot/` | Godot 4.3, GDScript — programlama öncesi "dokun-yürü" sürümü ve 15 klasik seviyesi |
 
 Android ve tarayıcı sürümü **25 el yapımı seviyelik, 7 bölümlük programlama kampanyasını** içerir; her seviyenin
@@ -181,9 +181,10 @@ Doğrudan bir seviyeyi açmak için: `http://localhost:8765/?level=9`
 *Yüksek* (masaüstünde varsayılan) = Orta + tam çözünürlük + 4096 px gölge haritası.
 
 ### Godot 4 prototipi (`godot-program/`)
+**Motor sürümü: Godot 4.8 beta 4** (`4.8.beta4.official`; ön sürümler [godot-builds](https://github.com/godotengine/godot-builds/releases) deposundan). Klasik `godot/` projesi Godot 4.3'te kalır.
 Programlama oyununun yerel motor sürümü: aynı 27 seviye (`data/levels.json`, `tools/build.mjs` üretir), aynı kurallar
 (`scripts/logic.gd` fizik motoru + `scripts/program.gd` yorumlayıcı — web sürümüyle birebir), aynı `KK1:` yedek kodu.
-Mobile (Vulkan) renderer, parıltı, sis, yumuşak gölgeler; Vulkan olmayan cihazlarda OpenGL'e düşer.
+Mobile (Vulkan) renderer, AgX ton eşleme, parıltı, sis, yumuşak gölgeler; Vulkan olmayan cihazlarda OpenGL'e düşer.
 * **Android APK:** *Actions → Android APK (Godot 4 prototipi)* (her `godot-program/` değişikliğinde) ya da *Run workflow* ile
   `release_tag` vererek Releases sayfasına ön sürüm olarak. Uygulama kimliği `com.akin.kayipkuleler.godot4`: asıl oyunun
   **yanına ayrı uygulama** olarak kurulur, ona dokunmaz. Aynı kalıcı anahtarla imzalanır. Yalnızca yatay ekran.
