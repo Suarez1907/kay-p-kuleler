@@ -1,0 +1,92 @@
+name: Android APK (Godot 4 prototipi)
+
+# godot-program/ projesini (programlama oyununun Godot 4 sürümü) Android'e aktarır.
+# Uygulama kimliği com.akin.kayipkuleler.godot4: asıl oyunun yanına ayrı uygulama olarak kurulur.
+on:
+  push:
+    branches: [main]
+    paths: ['godot-program/**', 'tools/godot-android-export.sh', '.github/workflows/godot-program-android.yml']
+  pull_request:
+    paths: ['godot-program/**', 'tools/godot-android-export.sh', '.github/workflows/godot-program-android.yml']
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Sürüm etiketi (ör. g4-v0.1.0). Doluysa APK Releases sayfasına yüklenir."
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+env:
+  GODOT_VERSION: '4.3'
+
+jobs:
+  test-export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v4.0.4
+        with:
+          packages: 'platform-tools build-tools;34.0.0 platforms;android-34'
+
+      - name: Godot ve şablon önbelleği
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/godot-bin
+            ~/.local/share/godot/export_templates/${{ env.GODOT_VERSION }}.stable
+          key: godot-${{ env.GODOT_VERSION }}-android-v1
+
+      - name: Godot + Android şablonlarını indir
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/godot-bin ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable
+          curl -sSL -o g.zip https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip
+          unzip -q g.zip -d ~/godot-bin && mv ~/godot-bin/Godot_v${GODOT_VERSION}-stable_linux.x86_64 ~/godot-bin/godot && rm g.zip
+          curl -sSL -o t.tpz https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_export_templates.tpz
+          unzip -q -j t.tpz 'templates/version.txt' 'templates/android_debug.apk' 'templates/android_release.apk' \
+            -d ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable/
+          rm t.tpz
+
+      - name: Yorumlayıcı ve sahne testleri (27 seviye)
+        shell: bash
+        run: |
+          G="$HOME/godot-bin/godot"; chmod +x "$G"
+          cd godot-program
+          "$G" --headless --import >/dev/null 2>&1 || true
+          "$G" --headless --script res://tests/run_programs.gd 2>&1 | grep -E "seviye|HATA|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
+          "$G" --headless -- --autotest 2>&1 | grep -E "autotest|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
+
+      - name: Android APK dışa aktar
+        shell: bash
+        run: |
+          export GODOT="$HOME/godot-bin/godot" PROJECT=godot-program
+          export RELEASE_KEYSTORE="$PWD/android/keystore/kayipkuleler.jks" RELEASE_KEY_ALIAS=kayipkuleler RELEASE_KEY_PASS=kayipkuleler
+          chmod +x "$GODOT" tools/godot-android-export.sh
+          sed -i "s/^version\/code=.*/version\/code=${GITHUB_RUN_NUMBER}/" godot-program/export_presets.cfg
+          tools/godot-android-export.sh "$PWD/dist/KayipKuleler-G4-debug.apk" debug
+          tools/godot-android-export.sh "$PWD/dist/KayipKuleler-G4.apk" release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KayipKuleler-G4-apk
+          path: dist/*.apk
+          if-no-files-found: error
+
+      - name: GitHub Release (elle verilen etiketle)
+        if: inputs.release_tag != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          target_commitish: ${{ github.sha }}
+          name: Kayıp Kuleler G4 (Godot prototipi) ${{ inputs.release_tag }}
+          prerelease: true
+          files: dist/KayipKuleler-G4.apk

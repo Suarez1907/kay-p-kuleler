@@ -6,6 +6,11 @@ import * as P from './program.js';
 import { LEVELS } from './levels.js';
 import { initAudio, sfx, setSound, soundOn, setMusic, musicOn } from './audio.js';
 import { FX } from './fx.js';
+import { EffectComposer } from '../vendor/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from '../vendor/addons/postprocessing/RenderPass.js';
+import { ShaderPass } from '../vendor/addons/postprocessing/ShaderPass.js';
+import { OutputPass } from '../vendor/addons/postprocessing/OutputPass.js';
+import { UnrealBloomPass } from '../vendor/addons/postprocessing/UnrealBloomPass.js';
 
 const $ = (id) => document.getElementById(id);
 const DIRS = E.DIRS;
@@ -82,9 +87,59 @@ function freeRect() {
   if (pr.left > W * 0.3) return { x: 0, y: top * 0.5, w: pr.left, h: H - top * 0.5 };
   return { x: 0, y: top, w: W, h: Math.max(120, pr.top - top) };
 }
+// ---------- Grafik kalitesi ve son işleme (post-processing) ----------
+// 0 = Düşük (efekt yok), 1 = Orta (parıltı + renk düzenleme), 2 = Yüksek (+ tam çözünürlük, keskin gölgeler)
+const GFX_NAMES = ['Düşük', 'Orta', 'Yüksek'];
+let gfx = 1, composer = null, bloomPass = null;
+const GradeShader = {
+  uniforms: { tDiffuse: { value: null }, vignette: { value: 0.32 }, sat: { value: 1.08 }, tint: { value: new THREE.Vector3(1.02, 1.0, 0.98) } },
+  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  fragmentShader: `uniform sampler2D tDiffuse; uniform float vignette; uniform float sat; uniform vec3 tint; varying vec2 vUv;
+    void main(){
+      vec4 c = texture2D(tDiffuse, vUv);
+      float l = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
+      c.rgb = mix(vec3(l), c.rgb, sat) * tint;
+      vec2 d = vUv - 0.5; float v = 1.0 - dot(d, d) * vignette * 2.2;
+      c.rgb *= clamp(v, 0.0, 1.0);
+      gl_FragColor = c;
+    }`,
+};
+function setupPost() {
+  if (composer) { composer.dispose(); composer = null; bloomPass = null; }
+  // Yüksek: tam çözünürlük + daha keskin, yüksek çözünürlüklü gölgeler
+  const sm = gfx === 2 ? 4096 : 2048;
+  if (sun.shadow.mapSize.x !== sm) { sun.shadow.mapSize.set(sm, sm); if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; } }
+  if (gfx === 0) { resize(); return; }
+  const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
+  composer = new EffectComposer(renderer, rt);
+  composer.addPass(new RenderPass(scene, camera));
+  bloomPass = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.7, 0.55, 2.2);
+  composer.addPass(bloomPass);
+  composer.addPass(new ShaderPass(GradeShader));
+  composer.addPass(new OutputPass());
+  resize();
+}
+// Gökyüzü gradyanı sahnenin arka planına çizilir (son işlemede şeffaflık yerine)
+function skyTexture(a, b, dark) {
+  const c = document.createElement('canvas'); c.width = 64; c.height = 512;
+  const g = c.getContext('2d');
+  const gr = g.createLinearGradient(0, 0, 0, 512); gr.addColorStop(0, a); gr.addColorStop(1, b);
+  g.fillStyle = gr; g.fillRect(0, 0, 64, 512);
+  const rg = g.createRadialGradient(32, 0, 0, 32, 0, 300);
+  rg.addColorStop(0, dark ? 'rgba(255,240,200,0.18)' : 'rgba(255,255,255,0.5)'); rg.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = rg; g.fillRect(0, 0, 64, 512);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+function setSky(p) { if (scene.background && scene.background.dispose) scene.background.dispose(); scene.background = skyTexture(p.bg[0], p.bg[1], p.dark); }
+
 function resize() {
   const W = window.innerWidth, H = window.innerHeight;
   renderer.setSize(W, H, false);
+  if (composer) {
+    const pr = Math.min(window.devicePixelRatio, gfx === 2 ? 2 : 1.5);
+    composer.setPixelRatio(pr); composer.setSize(W, H);
+    if (bloomPass) bloomPass.resolution.set(W * pr / 2, H * pr / 2);
+  }
   const f = freeRect();
   const a = f.w / f.h;
   let half = cam.half;
@@ -256,6 +311,7 @@ function loadProgress() {
 }
 function saveProgress() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(progress)); } catch (e) {} }
 setSound(progress.sound !== false);
+gfx = progress.gfx ?? (window.matchMedia('(pointer:coarse)').matches ? 1 : 2);
 setMusic(progress.music !== false);
 
 function addPick(mesh, info) { mesh.userData.pick = info; pickables.push(mesh); }
@@ -284,6 +340,7 @@ function buildLevel(i, opts = {}) {
   const def = LEVELS[i];
   pal = PALETTES[(def.palette ?? i) % PALETTES.length];
   $('bg').style.background = `linear-gradient(${pal.bg[0]}, ${pal.bg[1]})`;
+  setSky(pal);
   document.body.classList.toggle('dark', !!pal.dark);
   document.querySelector('meta[name=theme-color]').content = pal.bg[0];
   root.clear(); fx.clear(); pickables = [];
@@ -1403,6 +1460,9 @@ $('btnBackupRestore').onclick = () => {
   try { importCode($('backupText').value); $('backup').classList.add('hidden'); toast('İlerleme geri yüklendi'); openLevels(); }
   catch (e) { toast('Geçersiz yedek kodu'); sfx.nope(); }
 };
+function updateGfxBtn() { $('btnGfx').textContent = 'Grafik: ' + GFX_NAMES[gfx]; }
+$('btnGfx').onclick = () => { gfx = (gfx + 2) % 3; progress.gfx = gfx; saveProgress(); setupPost(); updateGfxBtn(); toast('Grafik kalitesi: ' + GFX_NAMES[gfx]); };
+updateGfxBtn();
 $('btnIntroOk').onclick = () => { progress.seen[levelIdx] = 1; saveProgress(); $('intro').classList.add('hidden'); };
 $('btnNext').onclick = () => startLevel(Math.min(LEVELS.length - 1, levelIdx + 1));
 $('btnWinRetry').onclick = () => { $('screenWin').classList.add('hidden'); winShown = false; show(null); resetToSetup(); setMode('edit'); renderRows(); };
@@ -1417,6 +1477,8 @@ function loop() {
   updateCamera(dt);
   if (objs) {
     updateQueue(dt);
+    objs.gem.material.emissiveIntensity = composer ? 2.4 : 0.6;
+    objs.player.userData.bulbMat.emissiveIntensity = composer ? 4 : 0.7;
     objs.gem.rotation.y = time * 1.6; objs.gem.position.y = 0.6 + Math.sin(time * 2.4) * 0.07;
     objs.goalRing.scale.setScalar(1 + Math.sin(time * 3) * 0.08);
     objs.portals.forEach((p, idx) => {
@@ -1438,10 +1500,10 @@ function loop() {
     g.position.z = g.userData.c.z + Math.sin(g.userData.a) * g.userData.r;
   });
   fx.update(dt);
-  renderer.render(scene, camera);
+  if (composer) composer.render(dt); else renderer.render(scene, camera);
   requestAnimationFrame(loop);
 }
-resize();
+setupPost();
 loop();
 
 // ---------- Test / hata ayıklama API'si ----------
@@ -1467,6 +1529,7 @@ window.__game = {
   showTitle,
   progress: () => progress,
   exportCode, importCode,
+  setGfx(v) { gfx = v; setupPost(); updateGfxBtn(); },
   closeIntro() { $('intro').classList.add('hidden'); },
 };
 // Android uygulaması geri tuşuna basınca bunu çağırır; true dönerse oyun tuşu tüketmiştir.

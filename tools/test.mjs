@@ -14,15 +14,19 @@ async function open(viewport) {
   page.on('pageerror', e => errors.push('[pageerror] ' + e.message));
   page.on('requestfailed', r => errors.push('[requestfailed] ' + r.url()));
   await page.goto(PAGE_URL, { waitUntil: 'networkidle' });
-  await page.waitForFunction(() => window.__game);
+  // Kare başına (raf) yoklama, efektler açıkken yazılımsal GPU'da çok seyrek kalır; zamanlayıcıyla yokla.
+  await page.waitForFunction(() => window.__game, null, { polling: 200, timeout: 90000 });
   await page.waitForTimeout(600);
   return page;
 }
 const page = await open({ width: 1280, height: 800 });
 await page.screenshot({ path: SHOTS + '00-baslik.png' });
+// İşlevsel testler son işleme efektleri olmadan koşar (yazılımsal GPU'da efektler çok yavaş);
+// ekran görüntüleri aşağıda efektler açıkken alınır.
+await page.evaluate(() => window.__game.setGfx(0));
 const n = await page.evaluate(() => window.__game.count);
 const results = [];
-const settled = () => page.waitForFunction(() => ['paused', 'ended', 'won'].includes(window.__game.mode()) && !window.__game.busy(), null, { timeout: 30000 });
+const settled = () => page.waitForFunction(() => ['paused', 'ended', 'won'].includes(window.__game.mode()) && !window.__game.busy(), null, { polling: 100, timeout: 30000 });
 for (let i = 0; i < n; i++) {
   await page.evaluate((i) => { const g = window.__game; g.setInstant(true); g.start(i); g.closeIntro(); g.setProgram(g.levels[i].solution); }, i);
   const ops = await page.evaluate((i) => window.__game.levels[i].solution.ops || [], i);
@@ -45,6 +49,7 @@ for (let i = 0; i < n; i++) {
 await page.evaluate(() => { localStorage.clear(); });
 await page.reload({ waitUntil: 'networkidle' });
 await page.waitForFunction(() => window.__game);
+await page.evaluate(() => window.__game.setGfx(0));
 await page.click('#btnPlay');
 await page.waitForTimeout(900);
 await page.screenshot({ path: SHOTS + '01-tanitim.png' });
@@ -72,7 +77,8 @@ await page.mouse.move(300, 300, { steps: 8 }); await page.mouse.up();
 const afterTrash = await page.evaluate(() => window.__game.program().main.length);
 const dragOk = afterDrop === 1 && afterTrash === 0;
 console.log(`Sürükle-bırak: ${dragOk ? 'TAMAM' : 'BAŞARISIZ'} (${afterDrop}, ${afterTrash})`);
-// Oynanış görüntüleri (yatay)
+// Oynanış görüntüleri (yatay) — efektler açık
+await page.evaluate(() => window.__game.setGfx(2));
 async function shot(p, i, name, steps = 0.5) {
   await p.evaluate((i) => { const g = window.__game; g.setInstant(false); g.start(i); g.closeIntro(); g.setProgram(g.levels[i].solution); }, i);
   const ops = await p.evaluate((i) => window.__game.levels[i].solution.ops || [], i);
