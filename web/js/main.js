@@ -1370,6 +1370,39 @@ $('btnMusic').onclick = () => { initAudio(); setMusic(!musicOn()); progress.musi
 $('btnMusic').classList.toggle('off', !musicOn());
 $('btnSound').onclick = () => { setSound(!soundOn()); progress.sound = soundOn(); saveProgress(); $('btnSound').classList.toggle('off', !soundOn()); };
 $('btnSound').classList.toggle('off', !soundOn());
+// ---------- İlerleme yedeği (dışa / içe aktarma) ----------
+function exportCode() {
+  const json = JSON.stringify(progress);
+  return 'KK1:' + btoa(unescape(encodeURIComponent(json)));
+}
+function importCode(code) {
+  const m = String(code).trim().match(/^KK1:([A-Za-z0-9+/=\s]+)$/);
+  if (!m) throw new Error('kod');
+  const data = JSON.parse(decodeURIComponent(escape(atob(m[1].replace(/\s/g, '')))));
+  if (!data || typeof data !== 'object' || typeof data.unlocked !== 'number') throw new Error('veri');
+  // Birleştir: hiçbir şey kaybolmaz, her seviye için daha iyi sonuç tutulur
+  progress.unlocked = Math.min(LEVELS.length, Math.max(progress.unlocked, data.unlocked | 0));
+  for (const [k, b] of Object.entries(data.best || {})) {
+    const cur = progress.best[k];
+    if (b && typeof b.blocks === 'number' && (!cur || b.blocks < cur.blocks)) progress.best[k] = { blocks: b.blocks, stars: Math.max(1, Math.min(3, b.stars | 0)) };
+  }
+  for (const [k, p] of Object.entries(data.progs || {})) if (!progress.progs[k] && p && Array.isArray(p.main)) progress.progs[k] = p;
+  Object.assign(progress.seen, data.seen || {});
+  saveProgress();
+}
+$('btnBackup').onclick = () => { $('backupText').value = exportCode(); $('backup').classList.remove('hidden'); };
+$('btnBackupClose').onclick = () => $('backup').classList.add('hidden');
+$('btnBackupCopy').onclick = async () => {
+  const ta = $('backupText'); ta.value = exportCode();
+  let ok = false;
+  try { await navigator.clipboard.writeText(ta.value); ok = true; } catch (e) {}
+  if (!ok) { ta.focus(); ta.select(); try { ok = document.execCommand('copy'); } catch (e) {} }
+  toast(ok ? 'Yedek kodu kopyalandı' : 'Kodu seçip elle kopyala');
+};
+$('btnBackupRestore').onclick = () => {
+  try { importCode($('backupText').value); $('backup').classList.add('hidden'); toast('İlerleme geri yüklendi'); openLevels(); }
+  catch (e) { toast('Geçersiz yedek kodu'); sfx.nope(); }
+};
 $('btnIntroOk').onclick = () => { progress.seen[levelIdx] = 1; saveProgress(); $('intro').classList.add('hidden'); };
 $('btnNext').onclick = () => startLevel(Math.min(LEVELS.length - 1, levelIdx + 1));
 $('btnWinRetry').onclick = () => { $('screenWin').classList.add('hidden'); winShown = false; show(null); resetToSetup(); setMode('edit'); renderRows(); };
@@ -1433,12 +1466,14 @@ window.__game = {
   showLevels: openLevels,
   showTitle,
   progress: () => progress,
+  exportCode, importCode,
   closeIntro() { $('intro').classList.add('hidden'); },
 };
 // Android uygulaması geri tuşuna basınca bunu çağırır; true dönerse oyun tuşu tüketmiştir.
 window.__onBack = () => {
   const visible = (id) => !$(id).classList.contains('hidden');
   if (visible('guide')) { $('guide').classList.add('hidden'); return true; }
+  if (visible('backup')) { $('backup').classList.add('hidden'); return true; }
   if (visible('intro')) { $('btnIntroOk').click(); return true; }
   if (visible('hintBox')) { $('hintBox').classList.add('hidden'); return true; }
   if (sel) { sel = null; renderRows(); return true; }

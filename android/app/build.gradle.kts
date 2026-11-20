@@ -19,6 +19,23 @@ android {
     namespace = "com.akin.kayipkuleler"
     compileSdk = 35
 
+    // Kalıcı imza anahtarı: her derleme AYNI anahtarla imzalanır, böylece yeni APK eski sürümün
+    // üstüne güncelleme olarak kurulur ve oyun ilerlemesi korunur. (Eskiden CI her çalıştırmada
+    // rastgele bir debug anahtarı üretiyordu; Android bu yüzden güncellemeyi reddediyordu.)
+    // Play Store için KEYSTORE_FILE / KEYSTORE_PASSWORD / KEY_ALIAS / KEY_PASSWORD ortam
+    // değişkenleriyle (GitHub Secrets) kendi gizli anahtarınızı verin.
+    val stableKey = file(System.getenv("KEYSTORE_FILE") ?: "../keystore/kayipkuleler.jks")
+    signingConfigs {
+        create("stable") {
+            storeFile = stableKey
+            storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "kayipkuleler"
+            keyAlias = System.getenv("KEY_ALIAS") ?: "kayipkuleler"
+            keyPassword = System.getenv("KEY_PASSWORD") ?: "kayipkuleler"
+        }
+    }
+    // Anahtar yoksa (ör. yerel derleme) eskisi gibi debug anahtarına düşülür.
+    val signing = if (stableKey.exists()) signingConfigs.getByName("stable") else signingConfigs.getByName("debug")
+
     defaultConfig {
         applicationId = "com.akin.kayipkuleler"
         minSdk = 24
@@ -30,13 +47,13 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
-            // Kurulabilir olması için hata ayıklama anahtarıyla imzalanır (Play Store için kendi anahtarınızı kullanın)
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signing
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
         debug {
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
+            signingConfig = signing
         }
     }
 
