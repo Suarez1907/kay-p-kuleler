@@ -200,9 +200,9 @@ func _setup_world() -> void:
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color("#f4ecff")
 	env.ambient_light_energy = 0.32
-	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	env.tonemap_exposure = 1.0
-	env.tonemap_white = 1.6
+	env.tonemap_mode = Environment.TONE_MAPPER_AGX
+	env.tonemap_exposure = 1.3
+	env.tonemap_white = 2.5
 	env.glow_enabled = true
 	env.glow_intensity = 0.6
 	env.glow_strength = 1.0
@@ -213,7 +213,7 @@ func _setup_world() -> void:
 	env.fog_density = 0.006
 	env.fog_light_energy = 1.0
 	env.adjustment_enabled = true
-	env.adjustment_saturation = 1.12
+	env.adjustment_saturation = 1.3
 	env.adjustment_contrast = 1.04
 	we.environment = env
 	add_child(we)

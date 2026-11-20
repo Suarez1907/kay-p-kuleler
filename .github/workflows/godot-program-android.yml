@@ -19,7 +19,9 @@ permissions:
   contents: write
 
 env:
-  GODOT_VERSION: '4.3'
+  # Godot 4.8 beta 4 (ön sürümler godotengine/godot-builds deposunda yayınlanır)
+  GODOT_VERSION: '4.8'
+  GODOT_STATUS: 'beta4'
 
 jobs:
   test-export:
@@ -41,25 +43,27 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            ~/godot-bin
-            ~/.local/share/godot/export_templates/${{ env.GODOT_VERSION }}.stable
-          key: godot-${{ env.GODOT_VERSION }}-android-v1
+            ~/godot48
+            ~/.local/share/godot/export_templates/${{ env.GODOT_VERSION }}.${{ env.GODOT_STATUS }}
+          key: godot-${{ env.GODOT_VERSION }}-${{ env.GODOT_STATUS }}-android-v1
 
       - name: Godot + Android şablonlarını indir
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
-          mkdir -p ~/godot-bin ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable
-          curl -sSL -o g.zip https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip
-          unzip -q g.zip -d ~/godot-bin && mv ~/godot-bin/Godot_v${GODOT_VERSION}-stable_linux.x86_64 ~/godot-bin/godot && rm g.zip
-          curl -sSL -o t.tpz https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_export_templates.tpz
+          T=${GODOT_VERSION}.${GODOT_STATUS}; N=Godot_v${GODOT_VERSION}-${GODOT_STATUS}
+          URL=https://github.com/godotengine/godot-builds/releases/download/${GODOT_VERSION}-${GODOT_STATUS}
+          mkdir -p ~/godot48 ~/.local/share/godot/export_templates/$T
+          curl -fsSL -o g.zip $URL/${N}_linux.x86_64.zip
+          unzip -q g.zip -d ~/godot48 && mv ~/godot48/${N}_linux.x86_64 ~/godot48/godot && rm g.zip
+          curl -fsSL -o t.tpz $URL/${N}_export_templates.tpz
           unzip -q -j t.tpz 'templates/version.txt' 'templates/android_debug.apk' 'templates/android_release.apk' \
-            -d ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable/
+            -d ~/.local/share/godot/export_templates/$T/
           rm t.tpz
 
       - name: Yorumlayıcı ve sahne testleri (27 seviye)
         shell: bash
         run: |
-          G="$HOME/godot-bin/godot"; chmod +x "$G"
+          G="$HOME/godot48/godot"; chmod +x "$G"; "$G" --headless --version
           cd godot-program
           "$G" --headless --import >/dev/null 2>&1 || true
           "$G" --headless --script res://tests/run_programs.gd 2>&1 | grep -E "seviye|HATA|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
@@ -68,7 +72,7 @@ jobs:
       - name: Android APK dışa aktar
         shell: bash
         run: |
-          export GODOT="$HOME/godot-bin/godot" PROJECT=godot-program
+          export GODOT="$HOME/godot48/godot" PROJECT=godot-program
           export RELEASE_KEYSTORE="$PWD/android/keystore/kayipkuleler.jks" RELEASE_KEY_ALIAS=kayipkuleler RELEASE_KEY_PASS=kayipkuleler
           chmod +x "$GODOT" tools/godot-android-export.sh
           sed -i "s/^version\/code=.*/version\/code=${GITHUB_RUN_NUMBER}/" godot-program/export_presets.cfg

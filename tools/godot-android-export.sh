@@ -2,8 +2,9 @@
 # Godot projesini Android APK olarak dışa aktarır (yerelde ve GitHub Actions'ta aynı betik).
 # PROJECT: proje klasörü (varsayılan godot; programlama prototipi için godot-program).
 # RELEASE_KEYSTORE / RELEASE_KEY_ALIAS / RELEASE_KEY_PASS: sürüm imzası için kalıcı anahtar (verilmezse debug anahtarı).
-# Gerekenler: GODOT (Godot 4.3 çalıştırılabilir yolu), ANDROID_HOME (veya ANDROID_SDK_ROOT), JAVA_HOME (JDK 17),
-# ~/.local/share/godot/export_templates/4.3.stable/android_{debug,release}.apk
+# Gerekenler: GODOT (Godot 4.x çalıştırılabilir yolu; klasik proje 4.3, godot-program 4.8 beta),
+# ANDROID_HOME (veya ANDROID_SDK_ROOT), JAVA_HOME (JDK 17),
+# ~/.local/share/godot/export_templates/<sürüm>/android_{debug,release}.apk (ör. 4.3.stable, 4.8.beta4)
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 GODOT="${GODOT:-godot}"
@@ -20,7 +21,9 @@ if [ ! -f "$KS" ]; then
     -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US" >/dev/null 2>&1
 fi
 # Editör ayarlarını oluştur (bir kez başsız editör açılır) ve Android yollarını yaz
-CFG="$HOME/.config/godot/editor_settings-4.3.tres"
+# Editör ayar dosyası sürüme göre adlandırılır (editor_settings-4.3.tres, editor_settings-4.8.tres ...)
+GODOT_MM="$("$GODOT" --headless --version 2>/dev/null | tail -1 | cut -d. -f1-2)"
+CFG="$HOME/.config/godot/editor_settings-${GODOT_MM}.tres"
 PROJECT="${PROJECT:-godot}"
 if [ ! -f "$CFG" ]; then (cd "$ROOT/$PROJECT" && timeout 180 "$GODOT" --headless --editor --quit >/dev/null 2>&1 || true); fi
 [ -f "$CFG" ] || { mkdir -p "$(dirname "$CFG")"; printf '[gd_resource type="EditorSettings" format=3]\n\n[resource]\n' > "$CFG"; }

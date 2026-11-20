@@ -6,7 +6,7 @@ config_version=5
 config/name="Kayıp Kuleler (Godot)"
 config/description="Monument Valley ve Mekorama'dan esinlenen 3B programlama bulmacası — Godot 4 prototipi"
 run/main_scene="res://scenes/main.tscn"
-config/features=PackedStringArray("4.3", "Mobile")
+config/features=PackedStringArray("4.8", "Mobile")
 config/icon="res://icon.svg"
 
 [display]
