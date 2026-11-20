@@ -14,7 +14,8 @@ async function open(viewport) {
   page.on('pageerror', e => errors.push('[pageerror] ' + e.message));
   page.on('requestfailed', r => errors.push('[requestfailed] ' + r.url()));
   await page.goto(PAGE_URL, { waitUntil: 'networkidle' });
-  await page.waitForFunction(() => window.__game);
+  // Kare başına (raf) yoklama, efektler açıkken yazılımsal GPU'da çok seyrek kalır; zamanlayıcıyla yokla.
+  await page.waitForFunction(() => window.__game, null, { polling: 200, timeout: 90000 });
   await page.waitForTimeout(600);
   return page;
 }
@@ -25,7 +26,7 @@ await page.screenshot({ path: SHOTS + '00-baslik.png' });
 await page.evaluate(() => window.__game.setGfx(0));
 const n = await page.evaluate(() => window.__game.count);
 const results = [];
-const settled = () => page.waitForFunction(() => ['paused', 'ended', 'won'].includes(window.__game.mode()) && !window.__game.busy(), null, { timeout: 30000 });
+const settled = () => page.waitForFunction(() => ['paused', 'ended', 'won'].includes(window.__game.mode()) && !window.__game.busy(), null, { polling: 100, timeout: 30000 });
 for (let i = 0; i < n; i++) {
   await page.evaluate((i) => { const g = window.__game; g.setInstant(true); g.start(i); g.closeIntro(); g.setProgram(g.levels[i].solution); }, i);
   const ops = await page.evaluate((i) => window.__game.levels[i].solution.ops || [], i);
