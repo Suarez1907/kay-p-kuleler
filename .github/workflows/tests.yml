@@ -23,7 +23,7 @@ jobs:
       - name: Tüm seviyeler doğrulanıyor mu? (program yorumlayıcısı + BFS çözücü)
         run: node build.mjs
       - name: Derlenmiş seviye dosyaları güncel mi?
-        run: git diff --exit-code -- ../web/js/levels.js ../godot/data/levels.json ../SOLUTIONS.md
+        run: git diff --exit-code -- ../web/js/levels.js ../godot/data/levels.json ../godot-program/data/levels.json ../SOLUTIONS.md
       - name: Tarayıcıda uçtan uca test (headless Chrome)
         run: |
           (cd ../web && python3 -m http.server 8765 >/dev/null 2>&1 &)

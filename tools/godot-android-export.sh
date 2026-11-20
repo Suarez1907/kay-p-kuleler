@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Godot projesini Android APK olarak dışa aktarır (yerelde ve GitHub Actions'ta aynı betik).
+# PROJECT: proje klasörü (varsayılan godot; programlama prototipi için godot-program).
+# RELEASE_KEYSTORE / RELEASE_KEY_ALIAS / RELEASE_KEY_PASS: sürüm imzası için kalıcı anahtar (verilmezse debug anahtarı).
 # Gerekenler: GODOT (Godot 4.3 çalıştırılabilir yolu), ANDROID_HOME (veya ANDROID_SDK_ROOT), JAVA_HOME (JDK 17),
 # ~/.local/share/godot/export_templates/4.3.stable/android_{debug,release}.apk
 set -euo pipefail
@@ -19,7 +21,8 @@ if [ ! -f "$KS" ]; then
 fi
 # Editör ayarlarını oluştur (bir kez başsız editör açılır) ve Android yollarını yaz
 CFG="$HOME/.config/godot/editor_settings-4.3.tres"
-if [ ! -f "$CFG" ]; then (cd "$ROOT/godot" && timeout 180 "$GODOT" --headless --editor --quit >/dev/null 2>&1 || true); fi
+PROJECT="${PROJECT:-godot}"
+if [ ! -f "$CFG" ]; then (cd "$ROOT/$PROJECT" && timeout 180 "$GODOT" --headless --editor --quit >/dev/null 2>&1 || true); fi
 [ -f "$CFG" ] || { mkdir -p "$(dirname "$CFG")"; printf '[gd_resource type="EditorSettings" format=3]\n\n[resource]\n' > "$CFG"; }
 set_cfg() { if grep -q "^$1 = " "$CFG"; then sed -i "s|^$1 = .*|$1 = $2|" "$CFG"; else echo "$1 = $2" >> "$CFG"; fi; }
 set_cfg 'export/android/android_sdk_path' "\"$SDK\""
@@ -27,11 +30,13 @@ set_cfg 'export/android/java_sdk_path' "\"$JAVA_HOME\""
 set_cfg 'export/android/debug_keystore' "\"$KS\""
 set_cfg 'export/android/debug_keystore_user' '"androiddebugkey"'
 set_cfg 'export/android/debug_keystore_pass' '"android"'
-cd "$ROOT/godot"
+cd "$ROOT/$PROJECT"
 timeout 300 "$GODOT" --headless --import >/dev/null 2>&1 || true
 if [ "$MODE" = release ]; then
   # Sürüm APK'sı da hata ayıklama anahtarıyla imzalanır (Play Store için kendi anahtarınızı kullanın)
-  export GODOT_ANDROID_KEYSTORE_RELEASE_PATH="$KS" GODOT_ANDROID_KEYSTORE_RELEASE_USER=androiddebugkey GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD=android
+  export GODOT_ANDROID_KEYSTORE_RELEASE_PATH="${RELEASE_KEYSTORE:-$KS}" \
+    GODOT_ANDROID_KEYSTORE_RELEASE_USER="${RELEASE_KEY_ALIAS:-androiddebugkey}" \
+    GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD="${RELEASE_KEY_PASS:-android}"
   "$GODOT" --headless --export-release "Android" "$OUT" 2>&1 | grep -vE 'mesh_storage|Parameter "m" is null' || true
 else
   "$GODOT" --headless --export-debug "Android" "$OUT" 2>&1 | grep -vE 'mesh_storage|Parameter "m" is null' || true

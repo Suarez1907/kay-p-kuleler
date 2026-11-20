@@ -21,6 +21,7 @@ asansörleri kaldırır, kamerayı çevirip imkânsız geçitleri birleştirirsi
 |---|---|---|
 | **Android uygulaması (ana sürüm)** | `android/` | Kotlin, AndroidX WebView + `WebViewAssetLoader`; oyun `web/` klasöründen derleme sırasında kopyalanır |
 | Tarayıcı | `web/` | Three.js r170 + cannon-es (yerel olarak paketlendi, CDN yok) |
+| Godot 4 prototipi (programlama) | `godot-program/` | Godot 4.3 Mobile (Vulkan) renderer, GDScript — 27 seviyelik programlama oyununun yerel motor sürümü |
 | Godot (klasik mod) | `godot/` | Godot 4.3, GDScript — programlama öncesi "dokun-yürü" sürümü ve 15 klasik seviyesi |
 
 Android ve tarayıcı sürümü **25 el yapımı seviyelik, 7 bölümlük programlama kampanyasını** içerir; her seviyenin
@@ -172,10 +173,30 @@ cd web
 python3 -m http.server 8765
 # tarayıcıda: http://localhost:8765
 ```
-İnternet bağlantısı gerekmez — three.js, RoundedBoxGeometry ve cannon-es `web/vendor/` içindedir.
+İnternet bağlantısı gerekmez — three.js, RoundedBoxGeometry, son işleme eklentileri ve cannon-es `web/vendor/` içindedir.
 Doğrudan bir seviyeyi açmak için: `http://localhost:8765/?level=9`
 
-### Godot sürümü
+**Grafik kalitesi** (Seviyeler ekranındaki *Grafik* düğmesi; seçim saklanır):
+*Düşük* = efekt yok · *Orta* (telefonlarda varsayılan) = parıltı (bloom) + renk düzenleme + vinyet ·
+*Yüksek* (masaüstünde varsayılan) = Orta + tam çözünürlük + 4096 px gölge haritası.
+
+### Godot 4 prototipi (`godot-program/`)
+Programlama oyununun yerel motor sürümü: aynı 27 seviye (`data/levels.json`, `tools/build.mjs` üretir), aynı kurallar
+(`scripts/logic.gd` fizik motoru + `scripts/program.gd` yorumlayıcı — web sürümüyle birebir), aynı `KK1:` yedek kodu.
+Mobile (Vulkan) renderer, parıltı, sis, yumuşak gölgeler; Vulkan olmayan cihazlarda OpenGL'e düşer.
+* **Android APK:** *Actions → Android APK (Godot 4 prototipi)* (her `godot-program/` değişikliğinde) ya da *Run workflow* ile
+  `release_tag` vererek Releases sayfasına ön sürüm olarak. Uygulama kimliği `com.akin.kayipkuleler.godot4`: asıl oyunun
+  **yanına ayrı uygulama** olarak kurulur, ona dokunmaz. Aynı kalıcı anahtarla imzalanır. Yalnızca yatay ekran.
+* **Testler:**
+  ```bash
+  godot --headless --path godot-program --script res://tests/run_programs.gd   # yorumlayıcı: 27/27
+  godot --headless --path godot-program -- --autotest                          # tam sahne: 27/27
+  godot --path godot-program -- --shot=12:/tmp/seviye12.png:60                # ekran görüntüsü
+  ```
+* **Prototipte henüz yok:** ses, sürükle-bırak (bloklar dokunarak eklenir, seçilen blok taşınır/silinir), dikey ekran,
+  kamerayı sürükleyerek çevirme dışında dokunmatik hareketler (iki parmakla yakınlaştırma).
+
+### Godot sürümü (klasik)
 * **Editörde:** Godot 4.3 (veya daha yeni 4.x) ile `godot/project.godot` dosyasını açıp F5'e basın.
 * **Android APK (Godot):** Godot 4.3 + Android dışa aktarım şablonları + Android SDK ile
   ```bash

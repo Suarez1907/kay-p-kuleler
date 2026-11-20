@@ -66,6 +66,8 @@ PROGRAM.forEach((src, i) => {
 });
 const pjson = JSON.stringify(progOut);
 fs.writeFileSync(path.join(root, 'web/js/levels.js'), '// Otomatik üretildi: tools/build.mjs (kaynak: tools/program-levels.src.mjs)\nexport const LEVELS = ' + pjson + ';\n');
+fs.mkdirSync(path.join(root, 'godot-program/data'), { recursive: true });
+fs.writeFileSync(path.join(root, 'godot-program/data/levels.json'), pjson);
 
 // ---------- 2) Klasik seviyeler (Godot) ----------
 md += '## Klasik seviyeler (Godot sürümü, dokun-yürü)\n\nBu çözümler tam (BFS) çözücü tarafından otomatik bulunmuştur ve en kısa eylem dizileridir.\n\n';
