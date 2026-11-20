@@ -154,6 +154,18 @@ Gösterim: `İleri`, `Sola`, `Sağa`, `Zıpla`, `Kullan`, `Mola`, `F1`, `F2`; `[
 * 1. molada: döner platform #1 +90°
 * 2. molada: kaydırıcı #1 ileri/yukarı, kaydırıcı #1 ileri/yukarı, kamera sağa
 
+#### 26. Paralel Çark — par 8
+
+* Ana: İleri → İleri → Sola → Kullan → Sağa → F1
+* F1: İleri[açıksa] → F1
+
+#### 27. Zamanlama Köprüsü — par 10
+
+* Ana: F1 → İleri → Mola → İleri → Zıpla → Mola → Sağa → F1
+* F1: İleri → İleri
+* 1. molada: döner platform #1 +90°
+* 2. molada: kamera sağa
+
 ## Klasik seviyeler (Godot sürümü, dokun-yürü)
 
 Bu çözümler tam (BFS) çözücü tarafından otomatik bulunmuştur ve en kısa eylem dizileridir.
