@@ -77,38 +77,59 @@ var cam_size := 12.0
 var cam_spin := false
 var ptr = null
 
-# ---------- arayüz ----------
+# ---------- arayüz (bkz. "Arayüz" bölümü) ----------
+var audio: GameAudio
+var gfx := 1                # 0 düşük, 1 orta, 2 yüksek
 var ui: CanvasLayer
+var ui_root: Control
+var fx_layer: CanvasLayer
 var hud: Control
 var panel: PanelContainer
 var palette_box: HFlowContainer
 var rows_box: VBoxContainer
+var rows_scroll: ScrollContainer
 var sel_bar: HBoxContainer
 var btn_cond: Button
 var btn_run: Button
 var btn_step: Button
 var btn_stop: Button
 var btn_speed: Button
+var btn_clear: Button
+var top_bar: HBoxContainer
+var tools_box: BoxContainer
 var lbl_chap: Label
 var lbl_name: Label
 var lbl_blocks: Label
+var mini_stars: HBoxContainer
+var status_pill: PanelContainer
 var lbl_status: Label
-var lbl_toast: Label
-var hint_panel: PanelContainer
+var hint_card: PanelContainer
 var lbl_hint: Label
-var scr_title: Control
-var scr_levels: Control
-var scr_win: Control
-var scr_intro: Control
-var scr_backup: Control
+var toast_pill: PanelContainer
+var lbl_toast: Label
+var veil: ColorRect
+var screens := {}
 var levels_list: VBoxContainer
+var title_logo: Control
+var title_play: Button
+var _play_tw: Tween = null
+var win_card: PanelContainer
+var win_stars: Array = []
+var lbl_win_title: Label
 var lbl_win: Label
-var lbl_stars: Label
 var btn_next: Button
 var lbl_intro_title: Label
 var lbl_intro_text: RichTextLabel
 var backup_edit: TextEdit
-var toast_t := 0.0
+var btn_sound: Button
+var btn_music: Button
+var btn_gfx: Button
+var lbl_title_stars: Label
+var tile_nodes := {}        # row -> [Button]
+var _run_tw: Tween = null
+var _toast_tw: Tween = null
+var _insert_anim = null     # {row, idx}
+var portrait := false
 
 
 # =====================================================================
@@ -116,11 +137,18 @@ func _ready() -> void:
 	var f := FileAccess.open("res://data/levels.json", FileAccess.READ)
 	levels = JSON.parse_string(f.get_as_text())
 	_load_progress()
+	UIKit.init_fonts()
+	audio = GameAudio.new()
+	add_child(audio)
+	audio.sound_on = progress.get("sound", true)
+	gfx = int(progress.get("gfx", 1))
 	rbox_mesh = _rounded_box(Vector3.ONE, 0.08, 4)
 	crate_mesh = _rounded_box(Vector3(0.84, 0.84, 0.84), 0.08, 3)
 	_setup_world()
 	_setup_ui()
+	_apply_gfx()
 	get_viewport().size_changed.connect(_on_resize)
+	_on_resize()
 	var args := OS.get_cmdline_user_args()
 	if "--autotest" in args:
 		_autotest.call_deferred()
@@ -129,7 +157,11 @@ func _ready() -> void:
 		if a.begins_with("--shot="):
 			_shot.call_deferred(a.substr(7))
 			return
+	var migrated := _migrate_webview()
 	_show_title()
+	audio.set_music(progress.get("music", true))
+	if migrated:
+		_toast.call_deferred("Önceki sürümdeki ilerlemen taşındı")
 
 
 # ---------- kayıt ----------
@@ -145,6 +177,79 @@ func _save_progress() -> void:
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f:
 		f.store_string(JSON.stringify(progress))
+
+## Ana sürüm eskiden bir WebView uygulamasıydı (aynı paket adı). Güncellemeden sonra eski ilerleme
+## WebView'in localStorage'ında (LevelDB dosyaları) kalır; ilk açılışta oradan okunup birleştirilir.
+func _migrate_webview() -> bool:
+	if progress.get("webview_checked", false):
+		return false
+	progress["webview_checked"] = true
+	var dir := OS.get_user_data_dir().get_base_dir().path_join("app_webview/Default/Local Storage/leveldb")
+	var found := _scan_leveldb(dir)
+	var ok := false
+	if found != "":
+		ok = _import_code("KK1:" + Marshalls.utf8_to_base64(found))
+	_save_progress()
+	return ok
+
+## LevelDB dosyalarında ilerleme JSON'unu arar (Latin-1 ya da UTF-16LE kodlu); en ileri olanı döndürür.
+static func _scan_leveldb(dir: String) -> String:
+	var d := DirAccess.open(dir)
+	if d == null:
+		return ""
+	var best := ""
+	var best_score := -1
+	for fn in d.get_files():
+		if not (fn.ends_with(".log") or fn.ends_with(".ldb")):
+			continue
+		var bytes := FileAccess.get_file_as_bytes(dir.path_join(fn))
+		for cand in _json_candidates(bytes):
+			var data = JSON.parse_string(cand)
+			if data is Dictionary and data.has("unlocked") and data.has("best"):
+				var score := int(data["unlocked"]) * 1000 + (data["best"] as Dictionary).size()
+				if score > best_score:
+					best_score = score
+					best = cand
+	return best
+
+static func _json_candidates(bytes: PackedByteArray) -> Array:
+	var out := []
+	var pats := [["{\"unlocked\":".to_ascii_buffer(), 1], ["{\"unlocked\":".to_utf16_buffer(), 2]]
+	for pat in pats:
+		var needle: PackedByteArray = pat[0]
+		var step: int = pat[1]
+		var i := 0
+		while true:
+			i = _find_bytes(bytes, needle, i)
+			if i < 0:
+				break
+			var depth := 0
+			var j := i
+			var chars := PackedByteArray()
+			while j < bytes.size():
+				var c := bytes[j]
+				chars.append(c)
+				if c == 0x7B:
+					depth += 1
+				elif c == 0x7D:
+					depth -= 1
+					if depth == 0:
+						break
+				j += step
+			if depth == 0:
+				out.append(chars.get_string_from_utf8())
+			i += needle.size()
+	return out
+
+static func _find_bytes(hay: PackedByteArray, needle: PackedByteArray, from: int) -> int:
+	var n := needle.size()
+	var first := needle[0]
+	var i := hay.find(first, from)
+	while i >= 0 and i + n <= hay.size():
+		if hay.slice(i, i + n) == needle:
+			return i
+		i = hay.find(first, i + 1)
+	return -1
 
 func _export_code() -> String:
 	return "KK1:" + Marshalls.utf8_to_base64(JSON.stringify(progress))
@@ -192,6 +297,23 @@ func _setup_world() -> void:
 	bg_tex.height = 256
 	bg.texture = bg_tex
 	bg_layer.add_child(bg)
+	# güneş parıltısı (üstte yumuşak ışık)
+	var glow := TextureRect.new()
+	glow.set_anchors_preset(Control.PRESET_FULL_RECT)
+	glow.stretch_mode = TextureRect.STRETCH_SCALE
+	var gt := GradientTexture2D.new()
+	gt.fill = GradientTexture2D.FILL_RADIAL
+	gt.fill_from = Vector2(0.5, -0.15)
+	gt.fill_to = Vector2(0.5, 0.75)
+	var gg := Gradient.new()
+	gg.set_color(0, Color(1, 1, 1, 0.55))
+	gg.set_color(1, Color(1, 1, 1, 0.0))
+	gt.gradient = gg
+	gt.width = 128
+	gt.height = 128
+	glow.texture = gt
+	glow.set_meta("sun", true)
+	bg_layer.add_child(glow)
 
 	var we := WorldEnvironment.new()
 	env = Environment.new()
@@ -199,9 +321,9 @@ func _setup_world() -> void:
 	env.background_canvas_max_layer = -1
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color("#f4ecff")
-	env.ambient_light_energy = 0.32
+	env.ambient_light_energy = 0.42
 	env.tonemap_mode = Environment.TONE_MAPPER_AGX
-	env.tonemap_exposure = 1.3
+	env.tonemap_exposure = 1.12
 	env.tonemap_white = 2.5
 	env.glow_enabled = true
 	env.glow_intensity = 0.6
@@ -210,11 +332,11 @@ func _setup_world() -> void:
 	env.glow_hdr_threshold = 2.2
 	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_SCREEN
 	env.fog_enabled = true
-	env.fog_density = 0.006
+	env.fog_density = 0.0028
 	env.fog_light_energy = 1.0
 	env.adjustment_enabled = true
-	env.adjustment_saturation = 1.3
-	env.adjustment_contrast = 1.04
+	env.adjustment_saturation = 1.38
+	env.adjustment_contrast = 1.1
 	we.environment = env
 	add_child(we)
 
@@ -224,7 +346,8 @@ func _setup_world() -> void:
 	sun.shadow_bias = 0.08
 	sun.shadow_normal_bias = 2.0
 	sun.shadow_enabled = true
-	sun.shadow_blur = 1.6
+	sun.shadow_blur = 2.2
+	sun.shadow_opacity = 0.82
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
 	sun.directional_shadow_max_distance = 120.0
 	sun.rotation_degrees = Vector3(-58, 32, 0)
@@ -267,6 +390,16 @@ func _rounded_box(size: Vector3, r: float, seg: int) -> ArrayMesh:
 	arr[Mesh.ARRAY_VERTEX] = verts
 	arr[Mesh.ARRAY_NORMAL] = norms
 	arr[Mesh.ARRAY_TANGENT] = null
+	# sahte ortam gölgesi: blok dibe doğru hafifçe koyulaşır, üst kenarlar parlar
+	var cols := PackedColorArray()
+	cols.resize(verts.size())
+	for i in verts.size():
+		var h := clampf(verts[i].y / size.y + 0.5, 0.0, 1.0)
+		var k := lerpf(0.74, 1.0, pow(h, 0.7))
+		if norms[i].y > 0.5:
+			k = 1.04
+		cols[i] = Color(k, k, k)
+	arr[Mesh.ARRAY_COLOR] = cols
 	var m := ArrayMesh.new()
 	m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
 	return m
@@ -286,6 +419,12 @@ func _mat(color, opts := {}) -> StandardMaterial3D:
 		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	if opts.get("unshaded", false):
 		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	if opts.get("vc", false):
+		m.vertex_color_use_as_albedo = true
+	if opts.get("rim", false):
+		m.rim_enabled = true
+		m.rim = 0.12
+		m.rim_tint = 0.8
 	if not opts.get("unique", false):
 		mat_cache[key] = m
 	return m
@@ -354,7 +493,12 @@ func build_level(i: int, as_preview := false) -> void:
 	g.set_color(1, Color(pal["bg"][1]))
 	bg_tex.gradient = g
 	env.fog_light_color = Color(pal["bg"][1])
-	env.ambient_light_color = Color("#3d3a66") if pal.get("dark", false) else Color("#f4ecff")
+	# gölgeler palete göre renklenir (Monument Valley tarzı renkli gölgeler)
+	var dark: bool = pal.get("dark", false)
+	env.ambient_light_color = Color(pal["bg"][1]).lerp(Color("#3d3a66") if dark else Color.WHITE, 0.45)
+	env.ambient_light_energy = 0.5 if dark else 0.42
+	sun.light_color = Color("#dfe6ff") if dark else Color("#fff0da")
+	sun.light_energy = 0.65 if dark else 0.78
 	if level_root:
 		level_root.queue_free()
 	level_root = Node3D.new()
@@ -379,7 +523,7 @@ func build_level(i: int, as_preview := false) -> void:
 		var v: Dictionary = L.statics[p]
 		grow.call(p)
 		if v["t"] == "b":
-			_mesh(rbox_mesh, _mat(_block_color(p)), Vector3(p))
+			_mesh(rbox_mesh, _mat(_block_color(p), {"vc": true, "rim": true}), Vector3(p))
 			_add_window(p)
 		else:
 			var sg := Node3D.new()
@@ -408,7 +552,7 @@ func build_level(i: int, as_preview := false) -> void:
 		for b in r["blocks"]:
 			grow.call(b)
 			var local := Vector3(b.x - r["pivot"].x, b.y, b.z - r["pivot"].y)
-			_mesh(rbox_mesh, _mat(pal["mech"]), local, rg)
+			_mesh(rbox_mesh, _mat(pal["mech"], {"vc": true, "rim": true}), local, rg)
 			_mesh(_cyl(0.13, 0.13, 0.02), _mat("#ffffff", {"unshaded": true}), local + Vector3(0, 0.51, 0), rg)
 			_pick(rg, Vector3.ONE, {"kind": "rot", "i": ri}, local)
 			grow.call(Vector3i(r["pivot"].x + (b.z - r["pivot"].y), b.y, r["pivot"].y + (b.x - r["pivot"].x)))
@@ -454,7 +598,7 @@ func build_level(i: int, as_preview := false) -> void:
 			grow.call(b)
 			grow.call(b + s["axis"] * s["max"])
 			grow.call(b + s["axis"] * s["min"])
-			_mesh(rbox_mesh, _mat(col), Vector3(b), sg)
+			_mesh(rbox_mesh, _mat(col, {"vc": true, "rim": true}), Vector3(b), sg)
 			_mesh(_box(Vector3(1.01, 0.12, 1.01)), _mat("#ffffff", {"rough": 0.5}), Vector3(b) + Vector3(0, 0.25, 0), sg)
 			_pick(sg, Vector3.ONE, {"kind": "slide", "i": si}, Vector3(b))
 		if L.is_manual(si):
@@ -474,7 +618,7 @@ func build_level(i: int, as_preview := false) -> void:
 	# çöken taşlar
 	for c in L.crumbles:
 		grow.call(c)
-		objs["crumbles"].append(_mesh(rbox_mesh, _mat("#e2cfb2", {"rough": 0.95}), Vector3(c)))
+		objs["crumbles"].append(_mesh(rbox_mesh, _mat("#e2cfb2", {"rough": 0.95, "vc": true}), Vector3(c)))
 	# plakalar
 	for pl in L.plates:
 		var m := _mesh(_cyl(0.36, 0.4, 0.08), _mat(pal["mech"], {"emit": 0.0, "unique": true, "rough": 0.4}), Vector3(pl["p"]) + Vector3(0, -0.46, 0))
@@ -520,6 +664,14 @@ func build_level(i: int, as_preview := false) -> void:
 	beam.material_override.albedo_color.a = 0.22
 	beam.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	objs["gem"] = gem
+	# kristal çevresini palet rengiyle aydınlatır
+	var gl := OmniLight3D.new()
+	gl.light_color = Color(pal["accent"])
+	gl.light_energy = 1.4
+	gl.omni_range = 2.6
+	gl.position = gp + Vector3(0, 0.3, 0)
+	level_root.add_child(gl)
+	objs["gem_light"] = gl
 	objs["goal_ring"] = ring
 	# varlıklar
 	for c in state["crates"]:
@@ -535,6 +687,7 @@ func build_level(i: int, as_preview := false) -> void:
 	level_root.add_child(objs["player"])
 	var aabb: AABB = bb["box"]
 	_build_clouds(aabb)
+	_build_motes(aabb)
 	# kamera
 	cam_target = aabb.get_center()
 	var sz := aabb.size
@@ -596,6 +749,43 @@ func _build_clouds(aabb: AABB) -> void:
 			var scl := 0.6 + rng.randf() * 0.8
 			m.scale = Vector3(scl * 1.4, scl * 0.8, scl)
 			m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+## Havada süzülen ışık zerreleri
+func _build_motes(aabb: AABB) -> void:
+	var pm := CPUParticles3D.new()
+	pm.amount = 70
+	pm.lifetime = 9.0
+	pm.preprocess = 9.0
+	pm.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
+	pm.emission_box_extents = aabb.size * 0.5 + Vector3(4, 2, 4)
+	pm.position = aabb.get_center()
+	pm.direction = Vector3(0, 1, 0)
+	pm.spread = 40.0
+	pm.gravity = Vector3.ZERO
+	pm.initial_velocity_min = 0.05
+	pm.initial_velocity_max = 0.25
+	pm.scale_amount_min = 0.5
+	pm.scale_amount_max = 1.3
+	var curve := Curve.new()
+	curve.add_point(Vector2(0, 0))
+	curve.add_point(Vector2(0.2, 1))
+	curve.add_point(Vector2(0.8, 1))
+	curve.add_point(Vector2(1, 0))
+	pm.scale_amount_curve = curve
+	var q := QuadMesh.new()
+	q.size = Vector2(0.07, 0.07)
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.albedo_color = Color("#fff4c2") if pal.get("dark", false) else Color(1, 1, 1, 0.85)
+	m.emission_enabled = true
+	m.emission = m.albedo_color
+	m.emission_energy_multiplier = 1.5
+	q.material = m
+	pm.mesh = q
+	pm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	level_root.add_child(pm)
 
 func _make_robot() -> Node3D:
 	var g := Node3D.new()
@@ -778,7 +968,7 @@ func _enqueue(frames: Array, kind: String, bump := false) -> void:
 	var prev = queue[queue.size() - 1]["to"] if queue.size() > 0 else (anim["to"] if anim != null else displayed)
 	for k in frames.size():
 		var f: Dictionary = frames[k]
-		queue.append({"from": prev, "to": f, "dur": _frame_dur(prev, f, k == 0, kind), "t": 0.0, "bump": bump and k == 0})
+		queue.append({"from": prev, "to": f, "dur": _frame_dur(prev, f, k == 0, kind), "t": 0.0, "bump": bump and k == 0, "first": k == 0, "kind": kind})
 		prev = f
 
 func _update_queue(dt: float) -> void:
@@ -791,6 +981,8 @@ func _update_queue(dt: float) -> void:
 					continue
 				return
 			anim = queue.pop_front()
+			if not instant:
+				_sound_for(anim)
 		anim["t"] += dt / anim["dur"] if anim["dur"] > 0 else 1.0
 		dt = 0.0
 		if anim["t"] >= 1.0:
@@ -802,6 +994,34 @@ func _update_queue(dt: float) -> void:
 		else:
 			_apply_visual(anim["from"], anim["to"], anim["t"], anim["bump"])
 			return
+
+func _sound_for(a: Dictionary) -> void:
+	var sa: Dictionary = a["from"]
+	var sb: Dictionary = a["to"]
+	if a["bump"]:
+		audio.play("bump")
+	elif a.get("first", false):
+		match a.get("kind", ""):
+			"F": audio.play("step", randf_range(0.94, 1.08))
+			"J": audio.play("jump")
+			"L", "R": audio.play("turn")
+			"rot", "slide": audio.play("mech")
+			"A":
+				if sa["crates"] != sb["crates"]:
+					audio.play("push")
+				elif sa["rots"] != sb["rots"]:
+					audio.play("mech")
+				else:
+					audio.play("click")
+	if sa["bridges"] != sb["bridges"]:
+		audio.play("bridge")
+	if sa["levers"] != sb["levers"] and not a.get("first", false):
+		audio.play("click")
+	for i in sb["crumbles"].size():
+		if sb["crumbles"][i] != 0 and sa["crumbles"][i] == 0:
+			audio.play("crumble")
+	if sb["dead"] and not sa["dead"]:
+		audio.play("fail")
 
 func _tick() -> bool:
 	if L.is_win(state):
@@ -848,9 +1068,9 @@ func _start_run(step := false) -> void:
 	for c in objs["trail"].get_children():
 		c.queue_free()
 	step_once = "true" if step else false
-	hint_panel.visible = false
+	_hide_hint()
+	audio.play("run")
 	_set_mode("running")
-	_render_rows()
 
 func _run_toggle() -> void:
 	if win_shown:
@@ -892,23 +1112,13 @@ func _reset_to_setup() -> void:
 
 func _end_run(reason: String) -> void:
 	end_reason = reason
+	if not instant and reason != "dead":
+		audio.play("fail")
 	_set_mode("ended")
 
 func _set_mode(m: String, quiet := false) -> void:
 	mode = m
-	btn_run.text = {"running": "❚❚  Duraklat", "paused": "▶  Devam"}.get(m, "▶  Çalıştır")
-	_style_button(btn_run, "#f5a524" if m == "running" else "#2fb36f", 20)
-	lbl_status.visible = m == "paused" or m == "ended"
-	if m == "paused":
-		lbl_status.text = "Adım adım: ⏭ sonraki komut, ▶ devam" if quiet else "Mola — platformları çevir, kamerayı döndür, sonra ▶"
-	elif m == "ended":
-		lbl_status.text = {
-			"end": "Program bitti ama Robo kristale ulaşmadı.",
-			"dead": "Robo düştü! Programı düzenle ve tekrar dene.",
-			"limit": "Robo yoruldu: %d komut sınırı aşıldı." % Program.MAX_STEPS,
-			"depth": "Çok fazla iç içe fonksiyon çağrısı.",
-			"loop": "Program boş bir döngüde dönüp duruyor.",
-		}.get(end_reason, "Program durdu.")
+	_ui_mode_changed(m, quiet)
 	if objs.has("player"):
 		var pl: Node3D = objs["player"]
 		pl.get_meta("arrow").visible = m != "running"
@@ -920,7 +1130,6 @@ func _set_mode(m: String, quiet := false) -> void:
 	if m == "edit":
 		_mark_exec(null, [])
 	_update_hud()
-	_render_rows()
 
 
 # =====================================================================
@@ -960,6 +1169,7 @@ func _rotate_view(s: int) -> bool:
 		return false
 	if _world_op({"t": "view", "s": s}):
 		cam_az += 90.0 * s
+		audio.play("whoosh")
 		return true
 	return false
 
@@ -1003,18 +1213,12 @@ func _on_win() -> void:
 	_save_progress()
 	if not instant:
 		_confetti(Vector3(L.goal))
-	lbl_stars.text = "★".repeat(stars) + "☆".repeat(3 - stars)
-	var txt := "%d blokla çözdün · par %d" % [blocks, par]
-	if blocks < par:
-		txt += "\nPar'dan da kısa — usta programcı!"
-	elif stars < 3:
-		txt += "\n3 yıldız için en fazla %d blok kullan." % par
-	lbl_win.text = txt
-	btn_next.visible = level_idx < levels.size() - 1
+		audio.play("win")
+	_prepare_win(stars, blocks, par)
 	if instant:
 		_show("win")
 	else:
-		get_tree().create_timer(1.3).timeout.connect(func(): if win_shown: _show("win"))
+		get_tree().create_timer(1.2).timeout.connect(func(): if win_shown: _show("win"))
 
 func _confetti(at: Vector3) -> void:
 	var cols := [pal["accent"], pal["mech"], pal["slide"], pal["bridge"], "#ffffff"]
@@ -1049,7 +1253,8 @@ func _process(dt: float) -> void:
 	var a := deg_to_rad(cam_az_cur)
 	cam.position = cam_target + Vector3(cos(EL) * cos(a), sin(EL), cos(EL) * sin(a)) * 60.0
 	cam.look_at(cam_target, Vector3.UP)
-	cam.size = lerpf(cam.size, cam_size / cam_zoom, minf(1.0, dt * 8.0))
+	var want_size := cam_size / cam_zoom * (1.02 if portrait else 1.0)
+	cam.size = lerpf(cam.size, want_size, minf(1.0, dt * 8.0))
 	_update_offset()
 	if L != null and objs.has("player"):
 		_update_queue(dt)
@@ -1062,19 +1267,31 @@ func _process(dt: float) -> void:
 		pl.get_meta("eyes").scale.y = 0.15 if fmod(time, 3.7) < 0.12 else 1.0
 		for p in objs["portals"]:
 			p["ring"].rotation.y = time * 1.4
-	if toast_t > 0:
-		toast_t -= dt
-		lbl_toast.visible = toast_t > 0
+		var gl: OmniLight3D = objs["gem_light"]
+		gl.light_energy = 1.3 + sin(time * 2.4) * 0.25
 
+## Sahne, program panelinin kaplamadığı alana ortalanır (yatayda sağ panel, dikeyde alt panel).
 func _update_offset() -> void:
 	var vs := get_viewport().get_visible_rect().size
 	if vs.y <= 0:
 		return
-	var px := (PANEL_W + 20.0) * 0.5 if hud.visible else 0.0
-	cam.h_offset = px * cam.size / vs.y
+	if portrait:
+		cam.keep_aspect = Camera3D.KEEP_WIDTH
+		var ph := panel.size.y + 20.0 if hud.visible else 0.0
+		var top := 70.0 if hud.visible else 0.0
+		cam.h_offset = 0.0
+		cam.v_offset = -(ph - top) * 0.5 * cam.size / vs.x
+	else:
+		cam.keep_aspect = Camera3D.KEEP_HEIGHT
+		var px := (panel.size.x + 24.0) * 0.5 if hud.visible else 0.0
+		cam.v_offset = 0.0
+		cam.h_offset = px * cam.size / vs.y
 
 func _on_resize() -> void:
-	pass
+	var vs := get_viewport().get_visible_rect().size
+	portrait = vs.x < vs.y * 0.95
+	if ui_root != null:
+		_layout()
 
 func _unhandled_input(ev: InputEvent) -> void:
 	if preview or L == null or not hud.visible:
@@ -1108,7 +1325,8 @@ func _unhandled_input(ev: InputEvent) -> void:
 		match ev.keycode:
 			KEY_SPACE: _run_toggle()
 			KEY_N: _step_btn()
-			KEY_S, KEY_ESCAPE: _reset_to_setup()
+			KEY_S: _reset_to_setup()
+			KEY_ESCAPE: _on_back()
 			KEY_Q: _rotate_view(-1)
 			KEY_E: _rotate_view(1)
 			KEY_UP: _insert("F")
@@ -1117,6 +1335,36 @@ func _unhandled_input(ev: InputEvent) -> void:
 			KEY_BACKSPACE:
 				if sel != null:
 					_delete_sel()
+
+## Android geri tuşu: açık kart / ipucu / seçim kapanır → oyun duraklatılır → seviyeler → başlık → çıkış
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_GO_BACK_REQUEST:
+		_on_back()
+
+func _on_back() -> void:
+	if _current in ["intro", "backup", "settings"]:
+		if _current == "settings":
+			_close_settings()
+		elif _current == "backup":
+			_show("settings")
+		else:
+			_show("")
+	elif hint_card.visible:
+		_hide_hint()
+	elif sel != null and _current == "":
+		sel = null
+		_render_rows()
+	elif _current == "":
+		_open_pause()
+	elif _current == "pause":
+		_show("")
+	elif _current in ["win", "levels"]:
+		if _current == "levels":
+			_show_title()
+		else:
+			_open_levels()
+	else:
+		get_tree().quit()
 
 func _click(pos: Vector2) -> void:
 	var from := cam.project_ray_origin(pos)
@@ -1138,384 +1386,767 @@ func _click(pos: Vector2) -> void:
 
 
 # =====================================================================
-# Arayüz
-func _style_button(b: Button, color: String, radius := 14, font_color := "#ffffff") -> void:
-	for st in ["normal", "hover", "pressed", "focus", "disabled"]:
-		var sb := StyleBoxFlat.new()
-		var c := Color(color)
-		if st == "hover":
-			c = c.lightened(0.08)
-		elif st == "pressed":
-			c = c.darkened(0.12)
-		elif st == "disabled":
-			c.a = 0.4
-		sb.bg_color = c
-		sb.set_corner_radius_all(radius)
-		sb.content_margin_left = 10
-		sb.content_margin_right = 10
-		sb.content_margin_top = 6
-		sb.content_margin_bottom = 6
-		if st != "pressed":
-			sb.shadow_color = Color(0, 0, 0, 0.12)
-			sb.shadow_size = 3
-			sb.shadow_offset = Vector2(0, 3)
-		if st == "focus":
-			sb.draw_center = false
-			sb.shadow_size = 0
-		b.add_theme_stylebox_override(st, sb)
-	for fc in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
-		b.add_theme_color_override(fc, Color(font_color))
-
-func _btn(text: String, color := "#ffffff", fc := "#3f3656", size := 18, cb = null) -> Button:
-	var b := Button.new()
-	b.text = text
-	b.focus_mode = Control.FOCUS_NONE
-	b.add_theme_font_size_override("font_size", size)
-	_style_button(b, color, 14, fc)
-	if cb != null:
-		b.pressed.connect(cb)
-	return b
-
-func _card(color := Color(1, 1, 1, 0.92), radius := 26) -> PanelContainer:
-	var p := PanelContainer.new()
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = color
-	sb.set_corner_radius_all(radius)
-	sb.content_margin_left = 22
-	sb.content_margin_right = 22
-	sb.content_margin_top = 18
-	sb.content_margin_bottom = 18
-	sb.shadow_color = Color(0.25, 0.2, 0.35, 0.2)
-	sb.shadow_size = 18
-	sb.shadow_offset = Vector2(0, 8)
-	p.add_theme_stylebox_override("panel", sb)
-	return p
-
-func _label(text: String, size := 18, color := "#3f3656") -> Label:
-	var l := Label.new()
-	l.text = text
-	l.add_theme_font_size_override("font_size", size)
-	l.add_theme_color_override("font_color", Color(color))
-	return l
-
-func _screen() -> Control:
-	var c := Control.new()
-	c.set_anchors_preset(Control.PRESET_FULL_RECT)
-	var dim := ColorRect.new()
-	dim.color = Color(1, 1, 1, 0.12)
-	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
-	c.add_child(dim)
-	ui.add_child(c)
-	return c
-
-func _center(parent: Control, child: Control) -> void:
-	var cc := CenterContainer.new()
-	cc.set_anchors_preset(Control.PRESET_FULL_RECT)
-	parent.add_child(cc)
-	cc.add_child(child)
-
+# Arayüz — modern mobil oyun tasarım dili: kalın "basılabilir" butonlar, cam kartlar,
+# vektör ikonlar, yaylı animasyonlar. Dikey ve yatay ekrana uyumlu (_layout).
 func _setup_ui() -> void:
 	ui = CanvasLayer.new()
+	ui.layer = 1
 	add_child(ui)
+	ui_root = Control.new()
+	ui_root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	ui_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ui_root.theme = UIKit.make_theme()
+	ui.add_child(ui_root)
+	# hafif vinyet (kenarlar yumuşakça koyulaşır)
+	var vig := TextureRect.new()
+	vig.set_anchors_preset(Control.PRESET_FULL_RECT)
+	vig.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vig.stretch_mode = TextureRect.STRETCH_SCALE
+	var vt := GradientTexture2D.new()
+	vt.fill = GradientTexture2D.FILL_RADIAL
+	vt.fill_from = Vector2(0.5, 0.45)
+	vt.fill_to = Vector2(1.15, 1.1)
+	var vg := Gradient.new()
+	vg.set_color(0, Color(0, 0, 0, 0))
+	vg.set_color(1, Color(0.12, 0.05, 0.25, 0.1))
+	vt.gradient = vg
+	vig.texture = vt
+	ui_root.add_child(vig)
+	_build_hud()
+	_build_screens()
+	fx_layer = CanvasLayer.new()
+	fx_layer.layer = 5
+	add_child(fx_layer)
+	var fx_root := Control.new()
+	fx_root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	fx_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	fx_root.theme = ui_root.theme
+	fx_layer.add_child(fx_root)
+	veil = ColorRect.new()
+	veil.set_anchors_preset(Control.PRESET_FULL_RECT)
+	veil.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	veil.color = Color(1, 1, 1, 0)
+	fx_root.add_child(veil)
+	lbl_toast = UIKit.label("", 20, Color.WHITE, UIKit.font_bold)
+	toast_pill = UIKit.pill(lbl_toast, Color("#3a3152e8"), 16)
+	toast_pill.visible = false
+	fx_root.add_child(toast_pill)
+
+
+# ---------- oyun içi ekran ----------
+func _build_hud() -> void:
 	hud = Control.new()
 	hud.set_anchors_preset(Control.PRESET_FULL_RECT)
 	hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	ui.add_child(hud)
-	# üst çubuk
-	var top := HBoxContainer.new()
-	top.position = Vector2(14, 12)
-	top.add_theme_constant_override("separation", 12)
-	hud.add_child(top)
-	top.add_child(_btn("☰", "#ffffffcc", "#3f3656", 22, _open_levels))
+	ui_root.add_child(hud)
+	# üst çubuk: menü, başlık, puan
+	top_bar = HBoxContainer.new()
+	top_bar.add_theme_constant_override("separation", 14)
+	top_bar.position = Vector2(16, 14)
+	hud.add_child(top_bar)
+	top_bar.add_child(UIKit.round_button("menu", _open_pause, 58))
 	var tv := VBoxContainer.new()
-	tv.add_theme_constant_override("separation", -4)
-	lbl_chap = _label("", 12, "#6f6687")
-	lbl_name = _label("", 22)
+	tv.add_theme_constant_override("separation", -6)
+	tv.alignment = BoxContainer.ALIGNMENT_CENTER
+	lbl_chap = UIKit.label("", 14, UIKit.INK_SOFT, UIKit.font_black)
+	lbl_name = UIKit.label("", 28, UIKit.INK, UIKit.font_black)
+	for l in [lbl_chap, lbl_name]:
+		l.add_theme_color_override("font_outline_color", Color(1, 1, 1, 0.75))
+		l.add_theme_constant_override("outline_size", 6)
 	tv.add_child(lbl_chap)
 	tv.add_child(lbl_name)
-	top.add_child(tv)
-	lbl_blocks = _label("", 16)
-	var bc := _card(Color(1, 1, 1, 0.75), 14)
-	bc.add_child(lbl_blocks)
-	top.add_child(bc)
-	# sol alt: kamera ve yardımcılar
-	var side := HBoxContainer.new()
-	side.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	side.position = Vector2(14, -66)
-	side.add_theme_constant_override("separation", 8)
-	hud.add_child(side)
-	side.add_child(_btn("⟲ Kamera", "#ffffffcc", "#3f3656", 16, func(): _rotate_view(-1)))
-	side.add_child(_btn("Kamera ⟳", "#ffffffcc", "#3f3656", 16, func(): _rotate_view(1)))
-	side.add_child(_btn("İpucu", "#ffffffcc", "#3f3656", 16, func(): hint_panel.visible = not hint_panel.visible))
-	side.add_child(_btn("Dünyayı sıfırla", "#ffffffcc", "#3f3656", 16, _reset_world))
-	# program paneli (sağ)
-	panel = _card(Color(1, 1, 1, 0.82), 26)
-	panel.set_anchors_preset(Control.PRESET_RIGHT_WIDE)
-	panel.offset_left = -PANEL_W - 10
-	panel.offset_right = -10
-	panel.offset_top = 10
-	panel.offset_bottom = -10
+	top_bar.add_child(tv)
+	var sc := HBoxContainer.new()
+	sc.add_theme_constant_override("separation", 6)
+	lbl_blocks = UIKit.label("", 20, UIKit.INK, UIKit.font_black)
+	sc.add_child(lbl_blocks)
+	mini_stars = HBoxContainer.new()
+	mini_stars.add_theme_constant_override("separation", 1)
+	for k in 3:
+		var st := UIKit.Icon.new()
+		st.kind = "star"
+		st.color = UIKit.GOLD
+		st.custom_minimum_size = Vector2(22, 22)
+		mini_stars.add_child(st)
+	sc.add_child(mini_stars)
+	top_bar.add_child(UIKit.pill(sc))
+	# araçlar: kamera, ipucu, dünyayı sıfırla
+	tools_box = BoxContainer.new()
+	tools_box.add_theme_constant_override("separation", 10)
+	hud.add_child(tools_box)
+	tools_box.add_child(UIKit.round_button("cam_l", func(): _rotate_view(-1), 58))
+	tools_box.add_child(UIKit.round_button("cam_r", func(): _rotate_view(1), 58))
+	tools_box.add_child(UIKit.round_button("bulb", _toggle_hint, 58, Color("#fff4cf"), Color("#b5820f")))
+	tools_box.add_child(UIKit.round_button("reset", func(): _reset_world(); audio.play("mech"), 58))
+	# durum bandı (mola / hata)
+	lbl_status = UIKit.label("", 19, Color.WHITE, UIKit.font_bold)
+	status_pill = UIKit.pill(lbl_status, Color("#e8648aee"), 16)
+	status_pill.visible = false
+	hud.add_child(status_pill)
+	# ipucu balonu
+	hint_card = UIKit.card(0.96, 24, 18)
+	var hh := HBoxContainer.new()
+	hh.add_theme_constant_override("separation", 12)
+	var hb := UIKit.Icon.new()
+	hb.kind = "bulb"
+	hb.color = Color("#e0a21a")
+	hb.custom_minimum_size = Vector2(34, 34)
+	hh.add_child(hb)
+	lbl_hint = UIKit.label("", 19)
+	lbl_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	lbl_hint.custom_minimum_size = Vector2(380, 0)
+	hh.add_child(lbl_hint)
+	hint_card.add_child(hh)
+	hint_card.visible = false
+	hint_card.gui_input.connect(func(e): if e is InputEventMouseButton and e.pressed: _hide_hint())
+	hud.add_child(hint_card)
+	_build_panel()
+
+func _build_panel() -> void:
+	panel = UIKit.card(0.86, 30, 14)
 	hud.add_child(panel)
 	var pv := VBoxContainer.new()
 	pv.add_theme_constant_override("separation", 10)
 	panel.add_child(pv)
 	palette_box = HFlowContainer.new()
-	palette_box.add_theme_constant_override("h_separation", 6)
-	palette_box.add_theme_constant_override("v_separation", 6)
+	palette_box.alignment = FlowContainer.ALIGNMENT_CENTER
+	palette_box.add_theme_constant_override("h_separation", 8)
+	palette_box.add_theme_constant_override("v_separation", 8)
 	pv.add_child(palette_box)
-	pv.add_child(HSeparator.new())
-	var sc := ScrollContainer.new()
-	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	pv.add_child(sc)
+	var sep := ColorRect.new()
+	sep.color = Color(UIKit.INK, 0.08)
+	sep.custom_minimum_size = Vector2(0, 2)
+	pv.add_child(sep)
+	rows_scroll = ScrollContainer.new()
+	rows_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	rows_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	pv.add_child(rows_scroll)
 	rows_box = VBoxContainer.new()
 	rows_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	rows_box.add_theme_constant_override("separation", 8)
-	sc.add_child(rows_box)
+	rows_scroll.add_child(rows_box)
+	# seçili blok araçları
 	sel_bar = HBoxContainer.new()
-	sel_bar.add_theme_constant_override("separation", 6)
-	sel_bar.add_child(_btn("◀", "#f3effa", "#3f3656", 18, func(): _move_sel(-1)))
-	btn_cond = _btn("Her zaman", "#f3effa", "#3f3656", 15, _cycle_cond)
+	sel_bar.add_theme_constant_override("separation", 8)
+	sel_bar.add_child(UIKit.round_button("back", func(): _move_sel(-1), 50, Color("#f1ecfb")))
+	btn_cond = UIKit.button("Her zaman", Color("#f1ecfb"), _cycle_cond, 17, "", UIKit.INK, 50)
 	btn_cond.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	sel_bar.add_child(btn_cond)
-	sel_bar.add_child(_btn("▶", "#f3effa", "#3f3656", 18, func(): _move_sel(1)))
-	sel_bar.add_child(_btn("Sil", "#ffe3e6", "#d8435c", 16, _delete_sel))
+	var fwd := UIKit.round_button("back", func(): _move_sel(1), 50, Color("#f1ecfb"))
+	var fic: Control = fwd.get_meta("icon")
+	fic.scale = Vector2(-1, 1)
+	fic.resized.connect(func(): fic.pivot_offset = fic.size / 2)
+	sel_bar.add_child(fwd)
+	sel_bar.add_child(UIKit.round_button("trash", _delete_sel, 50, Color("#ffe1e6"), Color("#d8435c")))
 	sel_bar.visible = false
 	pv.add_child(sel_bar)
+	# çalıştırma kontrolleri
 	var ctl := HBoxContainer.new()
 	ctl.add_theme_constant_override("separation", 8)
 	pv.add_child(ctl)
-	ctl.add_child(_btn("Temizle", "#ffffff", "#3f3656", 15, _clear_prog))
-	btn_stop = _btn("■", "#ffffff", "#3f3656", 18, _reset_to_setup)
+	btn_clear = UIKit.round_button("trash", _clear_prog, 54)
+	ctl.add_child(btn_clear)
+	btn_stop = UIKit.round_button("stop", _reset_to_setup, 54)
 	ctl.add_child(btn_stop)
-	btn_step = _btn("⏭", "#ffffff", "#3f3656", 18, _step_btn)
+	btn_step = UIKit.round_button("step", _step_btn, 54)
 	ctl.add_child(btn_step)
-	btn_run = _btn("▶  Çalıştır", "#2fb36f", "#ffffff", 20, _run_toggle)
+	btn_run = _make_run_button()
 	btn_run.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	ctl.add_child(btn_run)
-	btn_speed = _btn("1×", "#ffffff", "#3f3656", 16, _cycle_speed)
+	btn_speed = UIKit.button("1×", Color.WHITE, _cycle_speed, 19, "", UIKit.INK, 54)
+	btn_speed.custom_minimum_size = Vector2(58, 54)
 	ctl.add_child(btn_speed)
-	# durum, ipucu, toast
-	lbl_status = _label("", 16, "#ffffff")
-	var stc := _card(Color("#e8648ae6"), 14)
-	stc.add_child(lbl_status)
-	stc.position = Vector2(20, 84)
-	hud.add_child(stc)
-	lbl_status.visibility_changed.connect(func(): stc.visible = lbl_status.visible)
-	lbl_status.visible = false
-	stc.visible = false
-	hint_panel = _card(Color(1, 1, 1, 0.95), 18)
-	lbl_hint = _label("", 17)
-	lbl_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	lbl_hint.custom_minimum_size = Vector2(460, 0)
-	hint_panel.add_child(lbl_hint)
-	hint_panel.position = Vector2(20, 84)
-	hint_panel.visible = false
-	hud.add_child(hint_panel)
-	lbl_toast = _label("", 18, "#ffffff")
-	var tc := _card(Color("#3f3656e6"), 16)
-	tc.add_child(lbl_toast)
-	tc.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	tc.position = Vector2(300, 260)
-	hud.add_child(tc)
-	lbl_toast.visibility_changed.connect(func(): tc.visible = lbl_toast.visible)
-	lbl_toast.visible = false
-	tc.visible = false
-	_build_screens()
+
+func _make_run_button() -> Button:
+	var b := Button.new()
+	b.focus_mode = Control.FOCUS_NONE
+	b.custom_minimum_size = Vector2(136, 62)
+	UIKit.style_chunky(b, UIKit.GREEN, 31, 6)
+	var hb := HBoxContainer.new()
+	hb.alignment = BoxContainer.ALIGNMENT_CENTER
+	hb.add_theme_constant_override("separation", 10)
+	hb.set_anchors_preset(Control.PRESET_FULL_RECT)
+	hb.offset_bottom = -4
+	hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var ic := UIKit.Icon.new()
+	ic.kind = "play"
+	ic.color = Color.WHITE
+	ic.custom_minimum_size = Vector2(26, 26)
+	ic.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	hb.add_child(ic)
+	var lb := UIKit.label("Çalıştır", 22, Color.WHITE, UIKit.font_black)
+	hb.add_child(lb)
+	b.add_child(hb)
+	b.set_meta("icon", ic)
+	b.set_meta("label", lb)
+	b.pressed.connect(_run_toggle)
+	UIKit.juicy(b)
+	return b
+
+func _ui_mode_changed(m: String, quiet: bool) -> void:
+	var ic: UIKit.Icon = btn_run.get_meta("icon")
+	var lb: Label = btn_run.get_meta("label")
+	ic.kind = "pause" if m == "running" else "play"
+	ic.queue_redraw()
+	lb.text = {"running": "Duraklat", "paused": "Devam"}.get(m, "Çalıştır")
+	UIKit.style_chunky(btn_run, Color("#f5a524") if m == "running" else UIKit.GREEN, 31, 6)
+	var show_status := m == "paused" or m == "ended"
+	if show_status:
+		var col := Color("#e8648aee") if m == "paused" else Color("#d8435cee")
+		(status_pill.get_theme_stylebox("panel") as StyleBoxFlat).bg_color = col
+		if m == "paused":
+			lbl_status.text = "Adım adım: sonraki komut için ⏭, devam için ▶" if quiet else "Mola — platformları çevir, kamerayı döndür, sonra Devam"
+		else:
+			lbl_status.text = {
+				"end": "Program bitti ama Robo kristale ulaşmadı",
+				"dead": "Robo düştü! Programı düzenle ve tekrar dene",
+				"limit": "Robo yoruldu: %d komut sınırı aşıldı" % Program.MAX_STEPS,
+				"depth": "Çok fazla iç içe fonksiyon çağrısı",
+				"loop": "Program boş bir döngüde dönüp duruyor",
+			}.get(end_reason, "Program durdu")
+		if not status_pill.visible and not instant:
+			status_pill.visible = true
+			_layout()
+			UIKit.slide_in(status_pill, Vector2(0, -30))
+	status_pill.visible = show_status
+	if m == "paused" and not quiet and not instant:
+		audio.play("pause")
+	var editing := m == "edit" or m == "ended"
+	palette_box.modulate.a = 1.0 if editing else 0.45
+	btn_clear.disabled = not editing
+	btn_stop.disabled = m == "edit"
+	if not instant:
+		_render_rows()
+	_layout()
+
+
+# ---------- ekranlar ----------
+func _overlay(dim := 0.35) -> Control:
+	var c := Control.new()
+	c.set_anchors_preset(Control.PRESET_FULL_RECT)
+	var d := ColorRect.new()
+	d.set_anchors_preset(Control.PRESET_FULL_RECT)
+	d.color = Color(0.12, 0.06, 0.22, dim)
+	c.add_child(d)
+	c.visible = false
+	ui_root.add_child(c)
+	return c
+
+func _center_box(parent: Control, child: Control) -> void:
+	var cc := CenterContainer.new()
+	cc.set_anchors_preset(Control.PRESET_FULL_RECT)
+	parent.add_child(cc)
+	cc.add_child(child)
+
+func _logo_label(text: String, size: int) -> Label:
+	var l := UIKit.label(text, size, Color.WHITE, UIKit.font_black)
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.add_theme_color_override("font_outline_color", Color("#8a5ce0"))
+	l.add_theme_constant_override("outline_size", int(size * 0.22))
+	l.add_theme_color_override("font_shadow_color", Color("#4a2b9a"))
+	l.add_theme_constant_override("shadow_offset_x", 0)
+	l.add_theme_constant_override("shadow_offset_y", int(size * 0.09))
+	l.add_theme_constant_override("shadow_outline_size", int(size * 0.22))
+	return l
 
 func _build_screens() -> void:
-	# başlık
-	scr_title = _screen()
+	# --- başlık ---
+	var t := Control.new()
+	t.set_anchors_preset(Control.PRESET_FULL_RECT)
+	t.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ui_root.add_child(t)
+	screens["title"] = t
 	var tv := VBoxContainer.new()
+	tv.set_anchors_preset(Control.PRESET_FULL_RECT)
 	tv.alignment = BoxContainer.ALIGNMENT_CENTER
-	tv.add_theme_constant_override("separation", 14)
-	var logo := _label("Kayıp Kuleler", 72, "#c46ad8")
-	logo.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	logo.add_theme_color_override("font_outline_color", Color(1, 1, 1, 0.9))
-	logo.add_theme_constant_override("outline_size", 14)
+	tv.add_theme_constant_override("separation", 8)
+	t.add_child(tv)
+	var logo := VBoxContainer.new()
+	logo.add_theme_constant_override("separation", -26)
+	logo.add_child(_logo_label("KAYIP", 92))
+	logo.add_child(_logo_label("KULELER", 112))
+	title_logo = logo
 	tv.add_child(logo)
-	var sub := _label("Robo'yu programla. Dünyayı döndür.\nİmkânsız kulelerin tepesindeki kristallere ulaş.", 20)
+	var sub := UIKit.label("Robo'yu programla · Dünyayı döndür", 22, Color.WHITE, UIKit.font_black)
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	sub.add_theme_color_override("font_outline_color", Color(1, 1, 1, 0.9))
+	sub.add_theme_color_override("font_outline_color", Color("#6a4bc4cc"))
 	sub.add_theme_constant_override("outline_size", 8)
 	tv.add_child(sub)
-	var play := _btn("Oyna", "#ff8a7a", "#ffffff", 28, _play)
-	play.custom_minimum_size = Vector2(240, 64)
+	var spacer := Control.new()
+	spacer.custom_minimum_size = Vector2(0, 180)
+	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tv.add_child(spacer)
+	var play := UIKit.button("OYNA", UIKit.GREEN, _play, 40, "play", Color.WHITE, 92)
+	play.custom_minimum_size = Vector2(320, 92)
+	UIKit.style_chunky(play, UIKit.GREEN, 46, 8)
+	title_play = play
 	var pc := CenterContainer.new()
 	pc.add_child(play)
 	tv.add_child(pc)
-	var small := _label("Godot 4 prototipi", 14, "#6f6687")
-	small.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	tv.add_child(small)
-	var tc := MarginContainer.new()
-	tc.set_anchors_preset(Control.PRESET_FULL_RECT)
-	tc.add_theme_constant_override("margin_top", 300)
-	scr_title.add_child(tc)
-	tc.add_child(tv)
-	# seviyeler
-	scr_levels = _screen()
-	var lc := _card()
-	lc.custom_minimum_size = Vector2(860, 620)
-	var lv := VBoxContainer.new()
-	lv.add_theme_constant_override("separation", 10)
-	lc.add_child(lv)
-	var head := HBoxContainer.new()
-	head.add_child(_btn("‹", "#f3effa", "#3f3656", 22, _show_title))
-	var ht := _label("  Kuleler", 30)
-	ht.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	head.add_child(ht)
-	head.add_child(_btn("Yedekle / geri yükle", "#f3effa", "#3f3656", 15, _open_backup))
-	lv.add_child(head)
-	var ls := ScrollContainer.new()
-	ls.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	ls.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	lv.add_child(ls)
+	var tr := HBoxContainer.new()
+	tr.alignment = BoxContainer.ALIGNMENT_CENTER
+	tr.add_theme_constant_override("separation", 18)
+	tr.add_child(UIKit.round_button("grid", _open_levels, 66, Color.WHITE, UIKit.PURPLE))
+	tr.add_child(UIKit.round_button("gear", _open_settings, 66, Color.WHITE, UIKit.INK))
+	tv.add_child(tr)
+	lbl_title_stars = UIKit.label("", 22, UIKit.INK, UIKit.font_black)
+	var tsp := HBoxContainer.new()
+	tsp.add_theme_constant_override("separation", 6)
+	var tsi := UIKit.Icon.new()
+	tsi.kind = "star"
+	tsi.color = UIKit.GOLD
+	tsi.custom_minimum_size = Vector2(26, 26)
+	tsp.add_child(tsi)
+	tsp.add_child(lbl_title_stars)
+	var tpill := UIKit.pill(tsp)
+	tpill.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	tpill.position = Vector2(-150, 18)
+	tpill.set_meta("anchor_right", true)
+	t.add_child(tpill)
+	t.set_meta("star_pill", tpill)
+
+	# --- seviye haritası ---
+	var lv := Control.new()
+	lv.set_anchors_preset(Control.PRESET_FULL_RECT)
+	ui_root.add_child(lv)
+	screens["levels"] = lv
+	var lbg := ColorRect.new()
+	lbg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	lbg.color = Color(1, 1, 1, 0.18)
+	lv.add_child(lbg)
+	var lscroll := ScrollContainer.new()
+	lscroll.set_anchors_preset(Control.PRESET_FULL_RECT)
+	lscroll.offset_top = 96
+	lscroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	lv.add_child(lscroll)
+	var lcenter := CenterContainer.new()
+	lcenter.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lscroll.add_child(lcenter)
 	levels_list = VBoxContainer.new()
-	levels_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	ls.add_child(levels_list)
-	_center(scr_levels, lc)
-	# kazanma
-	scr_win = _screen()
-	var wc := _card()
-	wc.custom_minimum_size = Vector2(440, 0)
+	levels_list.add_theme_constant_override("separation", 14)
+	lcenter.add_child(levels_list)
+	var lhead := HBoxContainer.new()
+	lhead.position = Vector2(16, 16)
+	lhead.add_theme_constant_override("separation", 16)
+	lhead.add_child(UIKit.round_button("back", _show_title, 62))
+	var lt := _logo_label("KULELER", 46)
+	lhead.add_child(lt)
+	lv.add_child(lhead)
+	lv.set_meta("scroll", lscroll)
+
+	# --- kazanma ---
+	var w := _overlay(0.28)
+	screens["win"] = w
+	win_card = UIKit.card(0.97, 36, 30)
+	win_card.custom_minimum_size = Vector2(480, 0)
 	var wv := VBoxContainer.new()
 	wv.alignment = BoxContainer.ALIGNMENT_CENTER
-	wv.add_theme_constant_override("separation", 10)
-	wc.add_child(wv)
-	var wt := _label("Kristal bulundu!", 30)
-	wt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	wv.add_child(wt)
-	lbl_stars = _label("★★★", 54, "#ffb400")
-	lbl_stars.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	wv.add_child(lbl_stars)
-	lbl_win = _label("", 18)
+	wv.add_theme_constant_override("separation", 14)
+	win_card.add_child(wv)
+	lbl_win_title = _logo_label("HARİKA!", 54)
+	wv.add_child(lbl_win_title)
+	var sr := HBoxContainer.new()
+	sr.alignment = BoxContainer.ALIGNMENT_CENTER
+	sr.add_theme_constant_override("separation", 10)
+	win_stars = []
+	for k in 3:
+		var holder := Control.new()
+		holder.custom_minimum_size = Vector2(96, 96) if k != 1 else Vector2(118, 118)
+		var st := UIKit.Icon.new()
+		st.kind = "star"
+		st.color = UIKit.GOLD
+		st.set_anchors_preset(Control.PRESET_FULL_RECT)
+		holder.add_child(st)
+		sr.add_child(holder)
+		win_stars.append(st)
+	wv.add_child(sr)
+	lbl_win = UIKit.label("", 20, UIKit.INK_SOFT, UIKit.font_bold)
 	lbl_win.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl_win.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	lbl_win.custom_minimum_size = Vector2(420, 0)
 	wv.add_child(lbl_win)
 	var wr := HBoxContainer.new()
 	wr.alignment = BoxContainer.ALIGNMENT_CENTER
-	wr.add_theme_constant_override("separation", 10)
-	wr.add_child(_btn("Seviyeler", "#f3effa", "#3f3656", 18, _open_levels))
-	wr.add_child(_btn("Programa dön", "#f3effa", "#3f3656", 18, _retry))
-	btn_next = _btn("Sonraki ▸", "#ff8a7a", "#ffffff", 18, func(): _start_level(mini(levels.size() - 1, level_idx + 1)))
+	wr.add_theme_constant_override("separation", 14)
+	wr.add_child(UIKit.round_button("reset", _retry, 66))
+	wr.add_child(UIKit.round_button("grid", _open_levels, 66, Color.WHITE, UIKit.PURPLE))
+	btn_next = UIKit.button("Sonraki", UIKit.GREEN, func(): _start_level(mini(levels.size() - 1, level_idx + 1)), 28, "play", Color.WHITE, 72)
+	btn_next.custom_minimum_size = Vector2(220, 72)
 	wr.add_child(btn_next)
 	wv.add_child(wr)
-	_center(scr_win, wc)
-	# tanıtım kartı
-	scr_intro = _screen()
-	var ic := _card()
-	ic.custom_minimum_size = Vector2(500, 0)
-	var iv := VBoxContainer.new()
-	iv.add_theme_constant_override("separation", 10)
-	ic.add_child(iv)
-	var badge := _label("YENİ", 13, "#ff8e72")
-	iv.add_child(badge)
-	lbl_intro_title = _label("", 26)
-	iv.add_child(lbl_intro_title)
+	_center_box(w, win_card)
+
+	# --- duraklatma menüsü ---
+	var pz := _overlay(0.4)
+	screens["pause"] = pz
+	var pcard := UIKit.card(0.97, 36, 30)
+	pcard.custom_minimum_size = Vector2(400, 0)
+	var pvb := VBoxContainer.new()
+	pvb.add_theme_constant_override("separation", 14)
+	pcard.add_child(pvb)
+	var ptitle := _logo_label("DURAKLATILDI", 40)
+	pvb.add_child(ptitle)
+	pvb.add_child(UIKit.button("Devam et", UIKit.GREEN, func(): _show(""), 26, "play", Color.WHITE, 70))
+	pvb.add_child(UIKit.button("Seviyeler", UIKit.PURPLE, _open_levels, 26, "grid", Color.WHITE, 70))
+	pvb.add_child(UIKit.button("Ayarlar", Color.WHITE, _open_settings, 24, "gear", UIKit.INK, 64))
+	pvb.add_child(UIKit.button("Ana menü", UIKit.CORAL, _show_title, 24, "home", Color.WHITE, 64))
+	_center_box(pz, pcard)
+
+	# --- ayarlar ---
+	var st_o := _overlay(0.4)
+	screens["settings"] = st_o
+	var scard := UIKit.card(0.97, 36, 30)
+	scard.custom_minimum_size = Vector2(420, 0)
+	var svb := VBoxContainer.new()
+	svb.add_theme_constant_override("separation", 16)
+	scard.add_child(svb)
+	svb.add_child(_logo_label("AYARLAR", 42))
+	var tg := HBoxContainer.new()
+	tg.alignment = BoxContainer.ALIGNMENT_CENTER
+	tg.add_theme_constant_override("separation", 22)
+	btn_sound = UIKit.round_button("sound", _toggle_sound, 78, UIKit.PURPLE, Color.WHITE)
+	btn_music = UIKit.round_button("music", _toggle_music, 78, UIKit.PURPLE, Color.WHITE)
+	tg.add_child(btn_sound)
+	tg.add_child(btn_music)
+	svb.add_child(tg)
+	btn_gfx = UIKit.button("Grafik: Orta", Color.WHITE, _cycle_gfx, 22, "sparkle", UIKit.INK, 62)
+	svb.add_child(btn_gfx)
+	svb.add_child(UIKit.button("İlerleme yedeği", Color.WHITE, _open_backup, 22, "save", UIKit.INK, 62))
+	svb.add_child(UIKit.button("Kapat", UIKit.CORAL, _close_settings, 24, "close", Color.WHITE, 64))
+	_center_box(st_o, scard)
+
+	# --- yeni kavram kartı ---
+	var io := _overlay(0.3)
+	screens["intro"] = io
+	var icard := UIKit.card(0.98, 34, 28)
+	icard.custom_minimum_size = Vector2(500, 0)
+	var ivb := VBoxContainer.new()
+	ivb.add_theme_constant_override("separation", 12)
+	icard.add_child(ivb)
+	var badge := UIKit.pill(UIKit.label("YENİ", 15, Color.WHITE, UIKit.font_black), UIKit.CORAL, 10)
+	badge.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	ivb.add_child(badge)
+	lbl_intro_title = UIKit.label("", 32, UIKit.INK, UIKit.font_black)
+	ivb.add_child(lbl_intro_title)
 	lbl_intro_text = RichTextLabel.new()
 	lbl_intro_text.bbcode_enabled = true
 	lbl_intro_text.fit_content = true
-	lbl_intro_text.custom_minimum_size = Vector2(456, 0)
-	lbl_intro_text.add_theme_font_size_override("normal_font_size", 17)
-	lbl_intro_text.add_theme_font_size_override("bold_font_size", 17)
-	lbl_intro_text.add_theme_color_override("default_color", Color("#3f3656"))
-	iv.add_child(lbl_intro_text)
-	iv.add_child(_btn("Anladım", "#ff8a7a", "#ffffff", 18, func():
+	lbl_intro_text.custom_minimum_size = Vector2(444, 0)
+	lbl_intro_text.add_theme_font_size_override("normal_font_size", 20)
+	lbl_intro_text.add_theme_font_size_override("bold_font_size", 20)
+	lbl_intro_text.add_theme_constant_override("line_separation", 4)
+	ivb.add_child(lbl_intro_text)
+	ivb.add_child(UIKit.button("Anladım", UIKit.CORAL, func():
 		progress["seen"][str(level_idx)] = 1
 		_save_progress()
-		scr_intro.visible = false))
-	_center(scr_intro, ic)
-	# yedek
-	scr_backup = _screen()
-	var bk := _card()
-	bk.custom_minimum_size = Vector2(560, 0)
-	var bv := VBoxContainer.new()
-	bv.add_theme_constant_override("separation", 10)
-	bk.add_child(bv)
-	bv.add_child(_label("İlerleme yedeği", 26))
-	var bl := _label("Web/Android sürümündeki KK1 koduyla aynıdır. Kodu buraya yapıştırıp Geri yükle'ye bas.", 15, "#6f6687")
+		_show(""), 24, "check", Color.WHITE, 64))
+	_center_box(io, icard)
+
+	# --- yedek ---
+	var bo := _overlay(0.4)
+	screens["backup"] = bo
+	var bcard := UIKit.card(0.98, 34, 26)
+	bcard.custom_minimum_size = Vector2(560, 0)
+	var bvb := VBoxContainer.new()
+	bvb.add_theme_constant_override("separation", 12)
+	bcard.add_child(bvb)
+	bvb.add_child(UIKit.label("İlerleme yedeği", 32, UIKit.INK, UIKit.font_black))
+	var bl := UIKit.label("Bu kod tüm ilerlemeni içerir. Başka bir cihazda ya da yeniden kurulumdan sonra buraya yapıştırıp Geri yükle'ye bas.", 17, UIKit.INK_SOFT)
 	bl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	bl.custom_minimum_size = Vector2(516, 0)
-	bv.add_child(bl)
+	bl.custom_minimum_size = Vector2(508, 0)
+	bvb.add_child(bl)
 	backup_edit = TextEdit.new()
-	backup_edit.custom_minimum_size = Vector2(516, 120)
+	backup_edit.custom_minimum_size = Vector2(508, 120)
 	backup_edit.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
-	bv.add_child(backup_edit)
+	bvb.add_child(backup_edit)
 	var br := HBoxContainer.new()
 	br.add_theme_constant_override("separation", 10)
-	br.add_child(_btn("Kopyala", "#f3effa", "#3f3656", 16, func():
+	var b1 := UIKit.button("Kopyala", Color.WHITE, func():
 		DisplayServer.clipboard_set(_export_code())
-		_toast("Yedek kodu kopyalandı")))
-	br.add_child(_btn("Geri yükle", "#ff8a7a", "#ffffff", 16, func():
+		_toast("Yedek kodu kopyalandı"), 20, "", UIKit.INK, 58)
+	var b2 := UIKit.button("Geri yükle", UIKit.CORAL, func():
 		if _import_code(backup_edit.text):
-			scr_backup.visible = false
 			_toast("İlerleme geri yüklendi")
 			_open_levels()
 		else:
-			_toast("Geçersiz yedek kodu")))
-	br.add_child(_btn("Kapat", "#ffffff", "#6f6687", 16, func(): scr_backup.visible = false))
-	bv.add_child(br)
-	_center(scr_backup, bk)
+			_toast("Geçersiz yedek kodu")
+			UIKit.shake(bcard), 20, "", Color.WHITE, 58)
+	var b3 := UIKit.button("Kapat", Color.WHITE, func(): _show(screens.get("_back", "settings")), 20, "", UIKit.INK_SOFT, 58)
+	for b in [b1, b2, b3]:
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		br.add_child(b)
+	bvb.add_child(br)
+	_center_box(bo, bcard)
+
+
+# ---------- ekran geçişleri ----------
+var _current := "title"
+var _settings_from := ""
 
 func _show(which: String) -> void:
-	scr_title.visible = which == "title"
-	scr_levels.visible = which == "levels"
-	scr_win.visible = which == "win"
-	scr_backup.visible = false
-	scr_intro.visible = false
-	hud.visible = which == ""
+	var overlays := ["pause", "intro", "settings", "backup"]
+	var prev := _current
+	_current = which
+	for k in screens:
+		if typeof(screens[k]) != TYPE_OBJECT:
+			continue
+		var sc: Control = screens[k]
+		var on: bool = k == which
+		if on and not sc.visible:
+			sc.visible = true
+			sc.modulate.a = 0.0
+			var tw := sc.create_tween()
+			tw.tween_property(sc, "modulate:a", 1.0, 0.22)
+			_animate_enter(k)
+		elif not on and sc.visible:
+			if instant:
+				sc.visible = false
+			else:
+				var tw2 := sc.create_tween()
+				tw2.tween_property(sc, "modulate:a", 0.0, 0.16)
+				tw2.tween_callback(func(): if _current != k: sc.visible = false)
+	hud.visible = which == "" or which in overlays and prev in ["", "pause", "intro", "settings", "backup"] and L != null and not preview
 	cam_spin = which == "title"
+	if which != "" and which not in overlays:
+		_hide_hint()
+	_layout()
 
+func _animate_enter(k: String) -> void:
+	if instant:
+		return
+	match k:
+		"title":
+			UIKit.pop_in(title_logo, 0.05, 0.6)
+			if _play_tw:
+				_play_tw.kill()
+			title_play.scale = Vector2.ONE
+			_play_tw = UIKit.pulse(title_play, 1.05, 1.4)
+			var tw := title_logo.create_tween().set_loops()
+			tw.tween_property(title_logo, "position:y", title_logo.position.y - 10, 1.6).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+			tw.tween_property(title_logo, "position:y", title_logo.position.y, 1.6).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		"win":
+			win_card.pivot_offset = win_card.size / 2
+			win_card.scale = Vector2(0.6, 0.6)
+			var tw := win_card.create_tween()
+			tw.tween_property(win_card, "scale", Vector2.ONE, 0.5).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+			var n: int = win_card.get_meta("stars", 0)
+			for i in 3:
+				var st: UIKit.Icon = win_stars[i]
+				st.color = UIKit.GOLD if i < n else Color("#e6e0f0")
+				st.pivot_offset = st.size / 2
+				st.scale = Vector2.ZERO
+				st.rotation = -0.6
+				var stw := st.create_tween().set_parallel(true)
+				var d := 0.45 + i * 0.28
+				stw.tween_property(st, "scale", Vector2.ONE, 0.5).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT).set_delay(d)
+				stw.tween_property(st, "rotation", 0.0, 0.5).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT).set_delay(d)
+				if i < n:
+					get_tree().create_timer(d).timeout.connect(func(): audio.play("star", 1.0 + i * 0.12))
+		"levels":
+			var k2 := 0
+			for ch in levels_list.get_children():
+				UIKit.pop_in(ch, minf(0.6, k2 * 0.05), 0.85)
+				k2 += 1
+		"pause", "intro", "settings", "backup":
+			var box: Control = screens[k].get_child(1).get_child(0)
+			box.pivot_offset = box.size / 2
+			box.scale = Vector2(0.85, 0.85)
+			var tw := box.create_tween()
+			tw.tween_property(box, "scale", Vector2.ONE, 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+func _fade_veil() -> void:
+	if instant:
+		return
+	veil.color = Color(pal["bg"][0])
+	veil.color.a = 1.0
+	var tw := veil.create_tween()
+	tw.tween_property(veil, "color:a", 0.0, 0.55).set_trans(Tween.TRANS_SINE).set_delay(0.05)
+
+func _layout() -> void:
+	if ui_root == null:
+		return
+	var vs := get_viewport().get_visible_rect().size
+	portrait = vs.x < vs.y * 0.95
+	var m := 12.0
+	if portrait:
+		var ph := clampf(vs.y * 0.44, 320.0, 620.0)
+		panel.position = Vector2(m, vs.y - ph - m)
+		panel.size = Vector2(vs.x - 2 * m, ph)
+		tools_box.vertical = false
+		tools_box.position = Vector2(16, panel.position.y - 76)
+		lbl_hint.custom_minimum_size = Vector2(minf(560, vs.x - 120), 0)
+	else:
+		var pw := clampf(vs.x * 0.33, 430.0, 500.0)
+		panel.position = Vector2(vs.x - pw - m, m)
+		panel.size = Vector2(pw, vs.y - 2 * m)
+		tools_box.vertical = true
+		tools_box.reset_size()
+		tools_box.position = Vector2(16, vs.y - tools_box.size.y - 16)
+		lbl_hint.custom_minimum_size = Vector2(minf(460, vs.x - pw - 80), 0)
+	status_pill.reset_size()
+	var free_w := vs.x if portrait else panel.position.x
+	status_pill.position = Vector2((free_w - status_pill.size.x) / 2, 92)
+	hint_card.position = Vector2(16, 90)
+	toast_pill.reset_size()
+	toast_pill.position.x = (vs.x - toast_pill.size.x) / 2
+	var tp: Control = screens["title"].get_meta("star_pill")
+	tp.reset_size()
+	tp.position = Vector2(vs.x - tp.size.x - 18, 18)
+	var lsc: ScrollContainer = screens["levels"].get_meta("scroll")
+	levels_list.custom_minimum_size.x = minf(820, vs.x - 32)
+
+
+# ---------- seviye haritası ----------
 func _show_title() -> void:
+	if L != null and not preview:
+		_fade_veil()
 	build_level(5, true)
 	cam_az = 20.0
 	cam_az_cur = 20.0
 	cam_zoom = 0.85
+	var got := 0
+	for k in progress["best"]:
+		got += int(progress["best"][k]["stars"])
+	lbl_title_stars.text = "%d / %d" % [got, levels.size() * 3]
 	_show("title")
 
 func _play() -> void:
+	audio.play("tap")
 	var n := int(progress["unlocked"]) - 1
 	if not progress["best"].has(str(n)) and n < levels.size():
 		_start_level(n)
 	else:
 		_open_levels()
 
-func _open_backup() -> void:
-	backup_edit.text = _export_code()
-	scr_backup.visible = true
-
 func _open_levels() -> void:
 	if mode == "running":
 		_set_mode("paused", true)
+	if L == null or not preview:
+		build_level(5, true)
+		cam_az = 20.0
+		cam_zoom = 0.85
 	for c in levels_list.get_children():
 		c.queue_free()
 	var chapter := ""
-	var grid: GridContainer
+	var flow: HFlowContainer
 	var ch_i := 0
+	var cur := int(progress["unlocked"]) - 1
 	for i in levels.size():
 		var lv: Dictionary = levels[i]
+		var p: Dictionary = PALETTES[int(lv.get("palette", i)) % PALETTES.size()]
 		if lv["chapter"] != chapter:
 			chapter = lv["chapter"]
 			ch_i += 1
-			levels_list.add_child(_label("Bölüm %d · %s" % [ch_i, chapter], 18, "#9a7cf0"))
-			grid = GridContainer.new()
-			grid.columns = 6
-			grid.add_theme_constant_override("h_separation", 8)
-			grid.add_theme_constant_override("v_separation", 8)
-			levels_list.add_child(grid)
-		var locked := i >= int(progress["unlocked"])
-		var best = progress["best"].get(str(i))
-		var p: Dictionary = PALETTES[int(lv.get("palette", i)) % PALETTES.size()]
-		var stars := ""
-		if best != null:
-			stars = "\n" + "★".repeat(int(best["stars"])) + "☆".repeat(3 - int(best["stars"]))
-		var b := _btn(("🔒" if locked else str(i + 1)) + "\n" + lv["name"] + stars, "#cfc8dd" if locked else p["bg"][0], "#3f3656", 14)
-		b.custom_minimum_size = Vector2(128, 96)
-		b.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		b.disabled = locked
-		var idx := i
-		b.pressed.connect(func(): _start_level(idx))
-		grid.add_child(b)
+			var got := 0
+			var tot := 0
+			for j in levels.size():
+				if levels[j]["chapter"] == chapter:
+					tot += 3
+					if progress["best"].has(str(j)):
+						got += int(progress["best"][str(j)]["stars"])
+			var banner := PanelContainer.new()
+			var bsb := UIKit.box(Color(p["accent"]), 22, 10)
+			bsb.border_color = Color(p["accent"]).darkened(0.2)
+			bsb.border_width_bottom = 6
+			bsb.content_margin_left = 22
+			bsb.content_margin_right = 22
+			bsb.content_margin_top = 10
+			bsb.content_margin_bottom = 12
+			banner.add_theme_stylebox_override("panel", bsb)
+			var bh := HBoxContainer.new()
+			bh.add_theme_constant_override("separation", 10)
+			var bn := UIKit.label("BÖLÜM %d" % ch_i, 16, Color(1, 1, 1, 0.8), UIKit.font_black)
+			bn.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			bh.add_child(bn)
+			var bt := UIKit.label(chapter, 28, Color.WHITE, UIKit.font_black)
+			bt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			bh.add_child(bt)
+			var si := UIKit.Icon.new()
+			si.kind = "star"
+			si.color = Color.WHITE
+			si.custom_minimum_size = Vector2(24, 24)
+			si.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			bh.add_child(si)
+			bh.add_child(UIKit.label("%d/%d" % [got, tot], 20, Color.WHITE, UIKit.font_black))
+			banner.add_child(bh)
+			levels_list.add_child(banner)
+			flow = HFlowContainer.new()
+			flow.alignment = FlowContainer.ALIGNMENT_CENTER
+			flow.add_theme_constant_override("h_separation", 14)
+			flow.add_theme_constant_override("v_separation", 14)
+			levels_list.add_child(flow)
+		flow.add_child(_level_bubble(i, p, i >= int(progress["unlocked"]), i == cur and not progress["best"].has(str(i))))
 	_show("levels")
+	var lsc: ScrollContainer = screens["levels"].get_meta("scroll")
+	# geçerli seviyeye kaydır
+	await get_tree().process_frame
+	await get_tree().process_frame
+	for ch in levels_list.get_children():
+		if ch is HFlowContainer:
+			for b in ch.get_children():
+				if b.has_meta("current"):
+					lsc.scroll_vertical = int(maxf(0.0, ch.position.y + b.position.y - 200))
+
+func _level_bubble(i: int, p: Dictionary, locked: bool, current: bool) -> Control:
+	var holder := VBoxContainer.new()
+	holder.add_theme_constant_override("separation", 4)
+	var b := Button.new()
+	b.focus_mode = Control.FOCUS_NONE
+	b.custom_minimum_size = Vector2(100, 100)
+	var base := Color("#d8d2e4") if locked else Color(p["accent"]).lerp(Color.WHITE, 0.3)
+	UIKit.style_chunky(b, base, 50, 7, Color.WHITE)
+	if current:
+		for st in ["normal", "hover"]:
+			var sb: StyleBoxFlat = b.get_theme_stylebox(st)
+			sb.border_color = UIKit.GOLD
+			sb.border_width_left = 5
+			sb.border_width_right = 5
+			sb.border_width_top = 5
+		b.set_meta("current", true)
+	if locked:
+		var ic := UIKit.Icon.new()
+		ic.kind = "lock"
+		ic.color = Color("#9a92ad")
+		ic.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		ic.set_anchors_preset(Control.PRESET_FULL_RECT)
+		ic.offset_left = 32
+		ic.offset_right = -32
+		ic.offset_top = 28
+		ic.offset_bottom = -36
+		b.add_child(ic)
+		b.disabled = true
+	else:
+		b.text = str(i + 1)
+		b.add_theme_font_override("font", UIKit.font_black)
+		b.add_theme_font_size_override("font_size", 38)
+		b.add_theme_color_override("font_outline_color", Color(p["accent"]).darkened(0.35))
+		b.add_theme_constant_override("outline_size", 10)
+		b.pressed.connect(func(): audio.play("tap"); _start_level(i))
+	UIKit.juicy(b)
+	holder.add_child(b)
+	var stars := HBoxContainer.new()
+	stars.alignment = BoxContainer.ALIGNMENT_CENTER
+	stars.add_theme_constant_override("separation", 0)
+	var best = progress["best"].get(str(i))
+	var n := int(best["stars"]) if best != null else 0
+	for k in 3:
+		var st := UIKit.Icon.new()
+		st.kind = "star"
+		st.color = UIKit.GOLD if k < n else Color(1, 1, 1, 0.55 if not locked else 0.0)
+		st.custom_minimum_size = Vector2(26, 26)
+		stars.add_child(st)
+	holder.add_child(stars)
+	var name := UIKit.label(levels[i]["name"], 13, UIKit.INK, UIKit.font_bold)
+	name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	name.custom_minimum_size = Vector2(100, 0)
+	name.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	name.add_theme_color_override("font_outline_color", Color(1, 1, 1, 0.7))
+	name.add_theme_constant_override("outline_size", 5)
+	name.modulate.a = 0.4 if locked else 1.0
+	holder.add_child(name)
+	if current:
+		get_tree().process_frame.connect(func(): UIKit.pulse(b, 1.06, 1.1), CONNECT_ONE_SHOT)
+	return holder
 
 func _start_level(i: int) -> void:
 	build_level(i)
@@ -1528,21 +2159,37 @@ func _start_level(i: int) -> void:
 			prog[r] = prog[r].slice(0, cap)
 	active_row = "main"
 	sel = null
-	_show("")
-	lbl_hint.text = "İpucu: " + levels[i].get("hint", "")
-	hint_panel.visible = false
+	lbl_hint.text = levels[i].get("hint", "")
+	_hide_hint()
 	_render_palette()
 	_set_mode("edit")
+	_show("")
+	_fade_veil()
+	if not instant:
+		_animate_hud_in()
 	var intro = levels[i].get("intro")
 	if intro is Dictionary and not progress["seen"].has(str(i)) and not instant:
 		lbl_intro_title.text = intro["title"]
 		lbl_intro_text.text = _html_to_bb(intro["text"])
-		scr_intro.visible = true
+		get_tree().create_timer(0.35).timeout.connect(func(): if _current == "": _show("intro"))
+
+func _animate_hud_in() -> void:
+	_layout()
+	var vs := get_viewport().get_visible_rect().size
+	UIKit.slide_in(panel, Vector2(0, 260) if portrait else Vector2(260, 0), 0.05, 0.55)
+	UIKit.slide_in(top_bar, Vector2(0, -60), 0.1)
+	UIKit.slide_in(tools_box, Vector2(-80, 0) if not portrait else Vector2(0, 60), 0.15)
+	var k := 0
+	for t in palette_box.get_children():
+		UIKit.pop_in(t, 0.25 + k * 0.04)
+		k += 1
 
 func _html_to_bb(s: String) -> String:
 	var re := RegEx.new()
-	re.compile("<span class=\"cond (o|x)\">(.*?)</span>")
-	var out := re.sub(s, "[color=#2fc37a]$2[/color]", true)
+	re.compile("<span class=\"cond o\">(.*?)</span>")
+	var out := re.sub(s, "[color=#2fc37a][b]$1[/b][/color]", true)
+	re.compile("<span class=\"cond x\">(.*?)</span>")
+	out = re.sub(out, "[color=#ff7a45][b]$1[/b][/color]", true)
 	return out.replace("<b>", "[b]").replace("</b>", "[/b]").replace("<i>", "[i]").replace("</i>", "[/i]")
 
 func _retry() -> void:
@@ -1551,6 +2198,66 @@ func _retry() -> void:
 	_reset_to_setup()
 	_set_mode("edit")
 
+func _open_pause() -> void:
+	audio.play("tap")
+	if mode == "running":
+		_set_mode("paused", true)
+	_show("pause")
+
+func _open_settings() -> void:
+	_settings_from = _current
+	_update_settings_buttons()
+	_show("settings")
+
+func _close_settings() -> void:
+	_show(_settings_from if _settings_from in ["pause", "title", "levels"] else ("pause" if L != null and not preview else "title"))
+
+func _open_backup() -> void:
+	backup_edit.text = _export_code()
+	screens["_back"] = "settings"
+	_show("backup")
+
+func _update_settings_buttons() -> void:
+	UIKit.set_icon(btn_sound, "sound" if audio.sound_on else "sound_off")
+	UIKit.set_icon(btn_music, "music" if audio.music_on else "music_off")
+	UIKit.style_chunky(btn_sound, UIKit.PURPLE if audio.sound_on else Color("#bdb5cf"), 39, 5)
+	UIKit.style_chunky(btn_music, UIKit.PURPLE if audio.music_on else Color("#bdb5cf"), 39, 5)
+	UIKit.set_text(btn_gfx, "Grafik: " + ["Düşük", "Orta", "Yüksek"][gfx])
+
+func _toggle_sound() -> void:
+	audio.sound_on = not audio.sound_on
+	progress["sound"] = audio.sound_on
+	_save_progress()
+	audio.play("tap")
+	_update_settings_buttons()
+
+func _toggle_music() -> void:
+	audio.set_music(not audio.music_on)
+	progress["music"] = audio.music_on
+	_save_progress()
+	_update_settings_buttons()
+
+func _cycle_gfx() -> void:
+	gfx = (gfx + 1) % 3
+	progress["gfx"] = gfx
+	_save_progress()
+	_apply_gfx()
+	_update_settings_buttons()
+	audio.play("tap")
+
+## Grafik kalitesi: Düşük = efekt yok, Orta = parıltı + gölge + 2x MSAA, Yüksek = + 4x MSAA, sis, yumuşak gölge
+func _apply_gfx() -> void:
+	var vp := get_viewport()
+	env.glow_enabled = gfx >= 1
+	env.fog_enabled = gfx >= 1
+	sun.shadow_enabled = gfx >= 1
+	sun.shadow_blur = 2.4 if gfx == 2 else 1.6
+	vp.msaa_3d = [Viewport.MSAA_DISABLED, Viewport.MSAA_2X, Viewport.MSAA_4X][gfx]
+	vp.scaling_3d_scale = 0.85 if gfx == 0 else 1.0
+	RenderingServer.directional_shadow_atlas_set_size(4096 if gfx == 2 else 2048, true)
+
+
+# ---------- HUD ----------
 func _update_hud() -> void:
 	if L == null or preview:
 		return
@@ -1562,199 +2269,267 @@ func _update_hud() -> void:
 			last = levels[k]["chapter"]
 			ch += 1
 	lbl_chap.text = ("BÖLÜM %d · %s" % [ch, def["chapter"]]).to_upper()
+	lbl_name.text = "%d. %s" % [level_idx + 1, def["name"]]
 	var dark: bool = pal.get("dark", false)
-	lbl_chap.add_theme_color_override("font_color", Color("#cfc6ee") if dark else Color("#6f6687"))
-	lbl_name.add_theme_color_override("font_color", Color("#f5efff") if dark else Color("#3f3656"))
-	lbl_name.text = "%d · %s" % [level_idx + 1, def["name"]]
+	lbl_chap.add_theme_color_override("font_color", Color("#cfc6ee") if dark else UIKit.INK_SOFT)
+	lbl_name.add_theme_color_override("font_color", Color("#f5efff") if dark else UIKit.INK)
+	for l in [lbl_chap, lbl_name]:
+		l.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.25) if dark else Color(1, 1, 1, 0.75))
 	var blocks := Program.block_count(prog)
 	var st := _stars_for(blocks, int(def["par"])) if blocks > 0 else 3
-	lbl_blocks.text = "%d / par %d   %s" % [blocks, int(def["par"]), "★".repeat(st) + "☆".repeat(3 - st)]
-	btn_stop.disabled = mode == "edit"
+	lbl_blocks.text = "%d / %d" % [blocks, int(def["par"])]
+	for k in 3:
+		var ic: UIKit.Icon = mini_stars.get_child(k)
+		ic.color = UIKit.GOLD if k < st else Color("#d9d2e6")
+		ic.queue_redraw()
+
+func _toggle_hint() -> void:
+	audio.play("tap")
+	if hint_card.visible:
+		_hide_hint()
+	else:
+		hint_card.visible = true
+		_layout()
+		UIKit.pop_in(hint_card, 0.0, 0.7)
+
+func _hide_hint() -> void:
+	if hint_card != null:
+		hint_card.visible = false
 
 func _toast(msg: String) -> void:
 	if instant:
 		return
 	lbl_toast.text = msg
-	lbl_toast.visible = true
-	toast_t = 2.0
+	toast_pill.visible = true
+	toast_pill.reset_size()
+	var vs := get_viewport().get_visible_rect().size
+	toast_pill.position = Vector2((vs.x - toast_pill.size.x) / 2, -80)
+	if _toast_tw:
+		_toast_tw.kill()
+	_toast_tw = toast_pill.create_tween()
+	_toast_tw.tween_property(toast_pill, "position:y", 22.0, 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	_toast_tw.tween_interval(1.8)
+	_toast_tw.tween_property(toast_pill, "position:y", -80.0, 0.25).set_trans(Tween.TRANS_SINE)
+	_toast_tw.tween_callback(func(): toast_pill.visible = false)
+
+func _prepare_win(stars: int, blocks: int, par: int) -> void:
+	win_card.set_meta("stars", stars)
+	lbl_win_title.text = ["İYİ İŞ!", "GÜZEL!", "HARİKA!"][stars - 1]
+	var txt := "%d blokla çözdün · par %d" % [blocks, par]
+	if blocks < par:
+		txt += "\nPar'dan da kısa — usta programcı!"
+	elif stars < 3:
+		txt += "\n3 yıldız için en fazla %d blok kullan." % par
+	lbl_win.text = txt
+	btn_next.visible = level_idx < levels.size() - 1
 
 
 # ---------- program editörü ----------
-class CmdIcon extends Control:
-	var c := "F"
-	func _draw() -> void:
-		var s := size
-		var w := maxf(2.5, s.x * 0.075)
-		var col := Color.WHITE
-		var P := func(x, y): return Vector2(x * s.x, y * s.y)
-		match c:
-			"F":
-				draw_line(P.call(0.5, 0.8), P.call(0.5, 0.22), col, w, true)
-				draw_polyline([P.call(0.26, 0.46), P.call(0.5, 0.22), P.call(0.74, 0.46)], col, w, true)
-			"L", "R":
-				var m := -1.0 if c == "L" else 1.0
-				var X := func(x): return 0.5 + (x - 0.5) * m
-				var pts := [P.call(X.call(0.32), 0.84), P.call(X.call(0.32), 0.55)]
-				for k in range(1, 9):
-					var a := PI + PI * 0.5 * k / 8.0
-					pts.append(P.call(X.call(0.55 + 0.23 * cos(a)), 0.55 + 0.23 * sin(a)))
-				pts.append(P.call(X.call(0.76), 0.32))
-				draw_polyline(PackedVector2Array(pts), col, w, true)
-				draw_polyline([P.call(X.call(0.62), 0.18), P.call(X.call(0.77), 0.32), P.call(X.call(0.62), 0.46)], col, w, true)
-			"J":
-				var pts := []
-				for k in 13:
-					var a := PI * k / 12.0
-					pts.append(P.call(0.2 + 0.6 * k / 12.0, 0.78 - 0.5 * sin(a)))
-				draw_polyline(PackedVector2Array(pts), col, w, true)
-				draw_polyline([P.call(0.66, 0.66), P.call(0.8, 0.78), P.call(0.88, 0.6)], col, w, true)
-			"A":
-				draw_arc(P.call(0.5, 0.5), s.x * 0.13, 0, TAU, 20, col, w, true)
-				for k in 8:
-					var a := TAU * k / 8.0
-					var d := Vector2(cos(a), sin(a))
-					draw_line(P.call(0.5, 0.5) + d * s.x * 0.24, P.call(0.5, 0.5) + d * s.x * 0.36, col, w, true)
-			"W":
-				draw_line(P.call(0.38, 0.25), P.call(0.38, 0.75), col, w * 1.3, true)
-				draw_line(P.call(0.62, 0.25), P.call(0.62, 0.75), col, w * 1.3, true)
-			_:
-				var f := ThemeDB.fallback_font
-				var fs := int(s.y * 0.36)
-				var t := "F" + c
-				var tw := f.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-				draw_string(f, Vector2((s.x - tw) / 2, s.y * 0.62), t, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, col)
-
-func _tile(ins: Dictionary, size := 46.0, state_flag := "") -> Button:
+func _tile(ins: Dictionary, size := 52.0) -> Button:
 	var b := Button.new()
 	b.custom_minimum_size = Vector2(size, size)
 	b.focus_mode = Control.FOCUS_NONE
-	var col: String = CMD_COLOR.get(ins["c"], "#888888")
-	_style_button(b, col, 12)
-	if ins["k"] != "":
-		for st in ["normal", "hover", "pressed"]:
-			var sb: StyleBoxFlat = b.get_theme_stylebox(st)
-			sb.border_color = Color(COND_COLOR[ins["k"]])
-			sb.set_border_width_all(4)
-	if state_flag == "sel":
-		for st in ["normal", "hover"]:
-			var sb: StyleBoxFlat = b.get_theme_stylebox(st)
-			sb.border_color = Color("#9a7cf0")
-			sb.set_border_width_all(4)
-			sb.expand_margin_top = 4
-	elif state_flag == "run":
-		var sb: StyleBoxFlat = b.get_theme_stylebox("normal")
-		sb.border_color = Color("#ffb400")
-		sb.set_border_width_all(4)
-		sb.shadow_color = Color("#ffb40099")
-		sb.shadow_size = 10
-	elif state_flag == "skip":
-		b.modulate = Color(1, 1, 1, 0.45)
-	var ic := CmdIcon.new()
-	ic.c = ins["c"]
+	UIKit.style_chunky(b, Color(CMD_COLOR.get(ins["c"], "#888888")), 16, 5)
+	for st in ["normal", "hover", "pressed"]:
+		var sb: StyleBoxFlat = b.get_theme_stylebox(st)
+		sb.content_margin_left = 0
+		sb.content_margin_right = 0
+	var ic := UIKit.Icon.new()
+	ic.kind = ins["c"]
+	ic.color = Color.WHITE
 	ic.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	ic.set_anchors_preset(Control.PRESET_FULL_RECT)
+	ic.offset_left = size * 0.2
+	ic.offset_right = -size * 0.2
+	ic.offset_top = size * 0.16
+	ic.offset_bottom = -size * 0.26
 	b.add_child(ic)
+	# seçim / çalışma halkası
+	var ring := Panel.new()
+	ring.set_anchors_preset(Control.PRESET_FULL_RECT)
+	ring.offset_left = -5
+	ring.offset_top = -5
+	ring.offset_right = 5
+	ring.offset_bottom = 5
+	ring.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var rsb := StyleBoxFlat.new()
+	rsb.draw_center = false
+	rsb.set_border_width_all(4)
+	rsb.set_corner_radius_all(20)
+	rsb.border_color = UIKit.GOLD
+	rsb.shadow_color = Color(1, 0.76, 0.24, 0.5)
+	rsb.shadow_size = 10
+	ring.add_theme_stylebox_override("panel", rsb)
+	ring.visible = false
+	b.add_child(ring)
+	b.set_meta("ring", ring)
 	if ins["k"] != "":
-		var dot := _label("✓" if ins["k"] == "o" else "✕", 11, "#ffffff")
-		var dp := PanelContainer.new()
-		var sb := StyleBoxFlat.new()
-		sb.bg_color = Color(COND_COLOR[ins["k"]])
-		sb.set_corner_radius_all(9)
-		sb.content_margin_left = 4
-		sb.content_margin_right = 4
-		dp.add_theme_stylebox_override("panel", sb)
-		dp.add_child(dot)
-		dp.position = Vector2(-6, -6)
-		dp.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		b.add_child(dp)
+		var dot := PanelContainer.new()
+		var dsb := UIKit.box(Color(COND_COLOR[ins["k"]]), 12)
+		dsb.border_color = Color.WHITE
+		dsb.set_border_width_all(3)
+		dot.add_theme_stylebox_override("panel", dsb)
+		dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var di := UIKit.Icon.new()
+		di.kind = "check" if ins["k"] == "o" else "close"
+		di.color = Color.WHITE
+		di.custom_minimum_size = Vector2(14, 14)
+		di.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		dot.add_child(di)
+		dot.position = Vector2(-8, -8)
+		b.add_child(dot)
+		for st in ["normal", "hover", "pressed"]:
+			var sb: StyleBoxFlat = b.get_theme_stylebox(st)
+			sb.border_width_left = 3
+			sb.border_width_right = 3
+			sb.border_width_top = 3
+			sb.border_color = Color(COND_COLOR[ins["k"]])
+	UIKit.juicy(b)
 	return b
 
 func _render_palette() -> void:
 	for c in palette_box.get_children():
 		c.queue_free()
+	var prev_cmds: Array = levels[level_idx - 1]["cmds"] if level_idx > 0 else []
 	for c in levels[level_idx]["cmds"]:
-		var b := _tile({"c": c, "k": ""}, 52)
+		var b := _tile({"c": c, "k": ""}, 60)
 		b.tooltip_text = Program.COMMANDS[c]["name"] + " — " + Program.COMMANDS[c]["desc"]
 		var cc: String = c
 		b.pressed.connect(func(): _insert(cc))
+		if level_idx > 0 and not (c in prev_cmds):
+			# yeni komut: altın halka nabzı
+			var ring: Panel = b.get_meta("ring")
+			ring.visible = true
+			UIKit.pulse(ring, 1.08, 1.0)
 		palette_box.add_child(b)
 
 var _exec := {"proc": "", "idx": -1}
 var _skipped := []
+var _run_tile: Button = null
 
 func _mark_exec(n, skipped: Array) -> void:
 	_exec = {"proc": n["proc"], "idx": n["idx"]} if n != null else {"proc": "", "idx": -1}
 	_skipped = skipped
-	if not instant:
-		_render_rows()
+	if instant:
+		return
+	if _run_tile != null and is_instance_valid(_run_tile):
+		(_run_tile.get_meta("ring") as Panel).visible = false
+		_run_tile.scale = Vector2.ONE
+	_run_tile = null
+	for row in tile_nodes:
+		for t in tile_nodes[row]:
+			t.modulate.a = 1.0
+	for row in tile_nodes:
+		(rows_box.get_node_or_null(NodePath(row)) as Control)
+	for sk in skipped:
+		if tile_nodes.has(sk["proc"]) and sk["idx"] < tile_nodes[sk["proc"]].size():
+			tile_nodes[sk["proc"]][sk["idx"]].modulate.a = 0.35
+	if n != null and tile_nodes.has(n["proc"]) and n["idx"] < tile_nodes[n["proc"]].size():
+		var t: Button = tile_nodes[n["proc"]][n["idx"]]
+		(t.get_meta("ring") as Panel).visible = true
+		t.pivot_offset = t.size / 2
+		t.scale = Vector2(1.18, 1.18)
+		var tw := t.create_tween()
+		tw.tween_property(t, "scale", Vector2(1.08, 1.08), 0.18).set_trans(Tween.TRANS_BACK)
+		_run_tile = t
+		rows_scroll.ensure_control_visible(t)
+	for row in ROWS:
+		var rp = rows_box.get_node_or_null(row)
+		if rp:
+			_style_row(rp, row)
+
+func _style_row(rp: PanelContainer, row: String) -> void:
+	var rsb := UIKit.box(Color(1, 1, 1, 0), 18)
+	rsb.set_content_margin_all(8)
+	if _exec["proc"] == row:
+		rsb.bg_color = Color("#ffc83c2e")
+		rsb.border_color = Color("#ffc23d")
+		rsb.set_border_width_all(2)
+	elif row == active_row and mode == "edit":
+		rsb.bg_color = Color("#8a6cf01c")
+		rsb.border_color = Color("#8a6cf066")
+		rsb.set_border_width_all(2)
+	else:
+		rsb.bg_color = Color(1, 1, 1, 0.35)
+	rp.add_theme_stylebox_override("panel", rsb)
 
 func _render_rows() -> void:
-	if rows_box == null or L == null:
+	if rows_box == null or L == null or preview:
 		return
 	for c in rows_box.get_children():
+		rows_box.remove_child(c)
 		c.queue_free()
+	tile_nodes = {}
+	_run_tile = null
 	var slots: Dictionary = levels[level_idx]["slots"]
 	for row in ROWS:
 		var cap := int(slots.get(row, 0))
 		if cap <= 0:
 			continue
 		var rp := PanelContainer.new()
-		var rsb := StyleBoxFlat.new()
-		rsb.set_corner_radius_all(14)
-		rsb.content_margin_left = 6
-		rsb.content_margin_right = 6
-		rsb.content_margin_top = 6
-		rsb.content_margin_bottom = 6
-		rsb.bg_color = Color("#9a7cf01a") if row == active_row and mode == "edit" else Color(0, 0, 0, 0)
-		if _exec["proc"] == row:
-			rsb.bg_color = Color("#ffc83c22")
-		rp.add_theme_stylebox_override("panel", rsb)
+		rp.name = row
+		_style_row(rp, row)
 		var h := HBoxContainer.new()
-		h.add_theme_constant_override("separation", 8)
+		h.add_theme_constant_override("separation", 10)
 		rp.add_child(h)
-		var lbl := _btn(ROW_LABEL[row], ROW_COLOR[row], "#ffffff", 15)
-		lbl.custom_minimum_size = Vector2(52, 46)
+		var chip := UIKit.button(ROW_LABEL[row], Color(ROW_COLOR[row]), func(): pass, 17, "", Color.WHITE, 52)
+		chip.custom_minimum_size = Vector2(58, 52)
 		var rr: String = row
-		lbl.pressed.connect(func():
+		chip.pressed.connect(func():
 			active_row = rr
 			sel = null
+			audio.play("tap")
 			_render_rows())
-		h.add_child(lbl)
+		chip.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+		h.add_child(chip)
 		var flow := HFlowContainer.new()
 		flow.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		flow.add_theme_constant_override("h_separation", 6)
-		flow.add_theme_constant_override("v_separation", 6)
+		flow.add_theme_constant_override("h_separation", 7)
+		flow.add_theme_constant_override("v_separation", 7)
 		h.add_child(flow)
+		tile_nodes[row] = []
 		for idx in prog[row].size():
-			var flag := ""
-			if sel != null and sel["row"] == row and sel["idx"] == idx:
-				flag = "sel"
-			if _exec["proc"] == row and _exec["idx"] == idx:
-				flag = "run"
-			for sk in _skipped:
-				if sk["proc"] == row and sk["idx"] == idx:
-					flag = "skip"
-			var t := _tile(prog[row][idx], 46, flag)
+			var t := _tile(prog[row][idx], 52)
 			var ii: int = idx
 			t.pressed.connect(func(): _select(rr, ii))
+			if sel != null and sel["row"] == row and sel["idx"] == idx:
+				var ring: Panel = t.get_meta("ring")
+				(ring.get_theme_stylebox("panel") as StyleBoxFlat).border_color = UIKit.PURPLE
+				(ring.get_theme_stylebox("panel") as StyleBoxFlat).shadow_color = Color(0.54, 0.42, 0.94, 0.4)
+				ring.visible = true
 			flow.add_child(t)
+			tile_nodes[row].append(t)
+			if _insert_anim != null and _insert_anim["row"] == row and _insert_anim["idx"] == idx:
+				UIKit.pop_in(t, 0.0, 0.3)
 		for k in range(prog[row].size(), cap):
 			var e := Panel.new()
-			e.custom_minimum_size = Vector2(46, 46)
+			e.custom_minimum_size = Vector2(52, 52)
 			var esb := StyleBoxFlat.new()
-			esb.bg_color = Color(0, 0, 0, 0)
-			esb.border_color = Color("#3f365624")
+			esb.bg_color = Color(UIKit.INK, 0.035)
+			esb.border_color = Color(UIKit.INK, 0.1)
 			esb.set_border_width_all(2)
-			esb.set_corner_radius_all(12)
+			esb.set_corner_radius_all(16)
 			e.add_theme_stylebox_override("panel", esb)
 			e.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			flow.add_child(e)
 		rows_box.add_child(rp)
-	sel_bar.visible = sel != null and mode == "edit"
+	_insert_anim = null
+	var show_sel := sel != null and mode == "edit"
+	if show_sel != sel_bar.visible:
+		sel_bar.visible = show_sel
+		if show_sel:
+			UIKit.pop_in(sel_bar, 0.0, 0.8)
 	if sel != null and sel["idx"] < prog[sel["row"]].size():
 		var ins: Dictionary = prog[sel["row"]][sel["idx"]]
-		btn_cond.text = "Koşul: " + COND_NAME[ins["k"]]
-		btn_cond.visible = levels[level_idx].get("conds", false) and ins["c"] != "W"
+		var cname: String = COND_NAME[ins["k"]]
+		btn_cond.text = "Koşul: " + cname
+		btn_cond.disabled = not levels[level_idx].get("conds", false) or ins["c"] == "W"
+		if btn_cond.disabled:
+			btn_cond.text = "Koşul yok"
+	if _exec["proc"] != "" and tile_nodes.has(_exec["proc"]) and _exec["idx"] < tile_nodes[_exec["proc"]].size():
+		var t: Button = tile_nodes[_exec["proc"]][_exec["idx"]]
+		(t.get_meta("ring") as Panel).visible = true
+		_run_tile = t
 	_update_hud()
 
 func _editable() -> bool:
@@ -1770,9 +2545,15 @@ func _insert(c: String) -> void:
 	var cap := int(levels[level_idx]["slots"].get(active_row, 0))
 	if prog[active_row].size() >= cap:
 		_toast("%s satırı dolu (%d blok)" % [ROW_LABEL[active_row], cap])
+		audio.play("bump")
+		var rp = rows_box.get_node_or_null(active_row)
+		if rp:
+			UIKit.shake(rp)
 		return
 	prog[active_row].append({"c": c, "k": ""})
+	_insert_anim = {"row": active_row, "idx": prog[active_row].size() - 1}
 	sel = null
+	audio.play("pop", randf_range(0.95, 1.1))
 	_prog_changed()
 
 func _select(row: String, idx: int) -> void:
@@ -1783,6 +2564,7 @@ func _select(row: String, idx: int) -> void:
 	else:
 		sel = {"row": row, "idx": idx}
 	active_row = row
+	audio.play("tap")
 	_render_rows()
 
 func _delete_sel() -> void:
@@ -1790,6 +2572,7 @@ func _delete_sel() -> void:
 		return
 	prog[sel["row"]].remove_at(sel["idx"])
 	sel = null
+	audio.play("del")
 	_prog_changed()
 
 func _move_sel(d: int) -> void:
@@ -1798,11 +2581,13 @@ func _move_sel(d: int) -> void:
 	var row: Array = prog[sel["row"]]
 	var j: int = sel["idx"] + d
 	if j < 0 or j >= row.size():
+		audio.play("bump")
 		return
 	var t = row[sel["idx"]]
 	row[sel["idx"]] = row[j]
 	row[j] = t
 	sel["idx"] = j
+	audio.play("tap")
 	_prog_changed()
 
 func _cycle_cond() -> void:
@@ -1810,18 +2595,21 @@ func _cycle_cond() -> void:
 		return
 	var ins: Dictionary = prog[sel["row"]][sel["idx"]]
 	ins["k"] = {"": "o", "o": "x", "x": ""}[ins["k"]]
+	audio.play("pop")
 	_prog_changed()
 
 func _clear_prog() -> void:
-	if not _editable():
+	if not _editable() or Program.block_count(prog) == 0:
 		return
 	prog = {"main": [], "p1": [], "p2": []}
 	sel = null
+	audio.play("del")
 	_prog_changed()
 
 func _cycle_speed() -> void:
 	speed_idx = (speed_idx + 1) % SPEEDS.size()
-	btn_speed.text = "%d×" % int(SPEEDS[speed_idx])
+	UIKit.set_text(btn_speed, "%d×" % int(SPEEDS[speed_idx]))
+	audio.play("tap")
 
 func _prog_changed() -> void:
 	progress["progs"][str(level_idx)] = Program.program_to_src(prog)
@@ -1865,18 +2653,58 @@ func _autotest() -> void:
 		if good:
 			ok += 1
 		print("autotest #%d %s: %s" % [i + 1, levels[i]["name"], "TAMAM" if good else "HATA (" + mode + ")"])
+	# WebView ilerleme taşıma: sahte bir LevelDB günlüğünden okuma
+	var fake := PackedByteArray([0x01, 0x02])
+	fake.append_array("_https://appassets.androidplatform.net".to_ascii_buffer())
+	fake.append_array(PackedByteArray([0, 1]))
+	fake.append_array("kayipKuleler.v2".to_ascii_buffer())
+	fake.append(1)
+	fake.append_array("{\"unlocked\":7,\"best\":{\"0\":{\"blocks\":4,\"stars\":3}},\"progs\":{},\"seen\":{}}".to_ascii_buffer())
+	fake.append_array(PackedByteArray([0, 9, 9]))
+	fake.append_array("{\"unlocked\":9,\"best\":{\"0\":{\"blocks\":4,\"stars\":3},\"3\":{\"blocks\":8,\"stars\":3}},\"progs\":{},\"seen\":{}}".to_utf16_buffer())
+	var tmp := "user://_mig_test"
+	DirAccess.make_dir_recursive_absolute(tmp)
+	var fw := FileAccess.open(tmp + "/000003.log", FileAccess.WRITE)
+	fw.store_buffer(fake)
+	fw.close()
+	var found := _scan_leveldb(ProjectSettings.globalize_path(tmp))
+	var mig_ok := found != "" and int(JSON.parse_string(found)["unlocked"]) == 9
+	print("autotest göç (WebView localStorage): %s" % ("TAMAM" if mig_ok else "HATA"))
+	DirAccess.remove_absolute(tmp + "/000003.log")
+	DirAccess.remove_absolute(tmp)
 	print("autotest: %d/%d" % [ok, levels.size()])
-	get_tree().quit(0 if ok == levels.size() else 1)
+	get_tree().quit(0 if ok == levels.size() and mig_ok else 1)
 
-## Ekran görüntüsü: godot --path godot-program -- --shot=<seviye>:<dosya>
+## Ekran görüntüsü: godot --path godot-program -- --shot=<seviye>:<dosya>[:<kare>]
+## seviye 0 = başlık, -1 = seviye haritası, -2 = kazanma ekranı (seviye 12), -3 = duraklatma menüsü
 func _shot(spec: String) -> void:
 	var parts := spec.split(":")
 	var i := int(parts[0]) - 1
-	if i < 0:
+	if i == -1:
 		_show_title()
+	elif i == -2:
+		progress["unlocked"] = 19
+		for j in 18:
+			progress["best"][str(j)] = {"blocks": 1, "stars": 3 - int(j % 4 == 3)}
+		_open_levels()
+	elif i == -3 or i == -4:
+		_start_level(11)
+		_show("")
+		prog = Program.parse_program(levels[11]["solution"])
+		_render_rows()
+		if i == -3:
+			for f in 30:
+				await get_tree().process_frame
+			win_shown = true
+			_prepare_win(3, 4, 4)
+			_show("win")
+		else:
+			for f in 30:
+				await get_tree().process_frame
+			_open_pause()
 	else:
+		progress["seen"][str(i)] = 1
 		_start_level(i)
-		scr_intro.visible = false
 		var sol: Dictionary = levels[i]["solution"]
 		prog = Program.parse_program(sol)
 		_render_rows()
