@@ -113,7 +113,22 @@
     </div>
     <div class="stats-bar" id="levelStats"></div>
     <div id="levelGrid"></div>
-    <div class="row"><button id="btnWipe" class="ghost">İlerlemeyi sıfırla</button></div>
+    <div class="row"><button id="btnBackup">İlerlemeyi yedekle / geri yükle</button><button id="btnWipe" class="ghost">İlerlemeyi sıfırla</button></div>
+  </div>
+</div>
+
+<!-- İlerleme yedeği -->
+<div id="backup" class="overlay hidden">
+  <div class="card intro backup">
+    <h3>İlerleme yedeği</h3>
+    <p>Bu kod tüm ilerlemeni (açılan seviyeler, yıldızlar, programların) içerir. Kopyalayıp bir yere kaydet;
+      yeni bir telefonda ya da uygulamayı yeniden kurduktan sonra buraya yapıştırıp <b>Geri yükle</b>'ye bas.</p>
+    <textarea id="backupText" spellcheck="false" autocomplete="off"></textarea>
+    <div class="row">
+      <button id="btnBackupCopy">Kopyala</button>
+      <button id="btnBackupRestore" class="primary">Geri yükle</button>
+      <button id="btnBackupClose" class="ghost">Kapat</button>
+    </div>
   </div>
 </div>
 

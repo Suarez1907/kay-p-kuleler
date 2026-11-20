@@ -119,8 +119,14 @@ Tüm referans çözümler `SOLUTIONS.md` dosyasındadır.
 | `KayipKuleler-<sürüm>-debug.apk` | Debug derlemesi (`com.akin.kayipkuleler.debug`, release ile yan yana kurulabilir) |
 | `KayipKuleler-godot.apk` / `KayipKuleler-godot-debug.apk` | Godot motoruyla derlenen alternatif sürüm (`godot-android.yml`, `com.akin.kayipkuleler.godot`) |
 
-> Release APK, kurulabilir olması için **debug anahtarıyla** imzalanır. Google Play'e yüklemek için kendi
-> anahtarınızı oluşturup `android/app/build.gradle.kts` içindeki `signingConfigs` bölümüne (GitHub Secrets ile) bağlayın.
+> **Güncellemeler:** Tüm APK'lar depodaki kalıcı `android/keystore/kayipkuleler.jks` anahtarıyla imzalanır ve her
+> derlemede sürüm kodu artar. Bu sayede yeni APK eskisinin **üstüne güncelleme olarak kurulur, ilerleme silinmez**.
+> (v1.3.0 öncesi APK'lar her derlemede değişen rastgele bir anahtarla imzalanmıştı; onlardan geçişte bir kerelik
+> kaldırıp yeniden kurmak gerekir.) Anahtar herkese açık olduğundan Google Play için `KEYSTORE_FILE`, `KEYSTORE_PASSWORD`,
+> `KEY_ALIAS`, `KEY_PASSWORD` ortam değişkenleriyle (GitHub Secrets) kendi gizli anahtarınızı verin.
+>
+> **İlerleme yedeği:** Seviyeler ekranındaki *İlerlemeyi yedekle / geri yükle* düğmesi tüm ilerlemeyi bir koda dönüştürür;
+> kod başka bir cihazda ya da yeniden kurulumdan sonra yapıştırılarak geri yüklenir (mevcut ilerlemeyle birleştirilir).
 
 ### Uygulamanın özellikleri
 * Tam ekran (immersive) — sistem çubukları kenardan kaydırınca geçici olarak görünür; çentik alanı kullanılır.
@@ -281,7 +287,7 @@ SOLUTIONS.md    tüm seviyelerin çözümleri
 ```
 
 ## 7. Bilinen sınırlamalar
-* Release APK debug anahtarıyla imzalıdır (yan yükleme için yeterli; Play Store için kendi anahtarınız gerekir).
+* Release APK depodaki herkese açık kalıcı anahtarla imzalıdır (yan yükleme ve güncellemeler için yeterli; Play Store için kendi gizli anahtarınız gerekir).
 * Android uygulaması sistem WebView'ini (WebGL 2) kullanır; çok eski / güncellenmemiş WebView'li cihazlarda performans düşük olabilir.
 * Godot sürümü programlama modunu içermez: aynı fizik motorunun GDScript karşılığıyla klasik "dokun-yürü" modunu ve 15 klasik seviyeyi oynatır.
 * Godot Android APK'sı ~70 MB'tır (motor dahil). Android emülatörünün yazılımsal GPU'sunda (SwiftShader, GLES 3.0)
