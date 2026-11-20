@@ -1,7 +1,8 @@
-name: Android APK (Godot 4 prototipi)
+name: Android APK (Godot — ana sürüm)
 
-# godot-program/ projesini (programlama oyununun Godot 4 sürümü) Android'e aktarır.
-# Uygulama kimliği com.akin.kayipkuleler.godot4: asıl oyunun yanına ayrı uygulama olarak kurulur.
+# godot-program/ projesini (oyunun ana sürümü) Android'e aktarır.
+# Uygulama kimliği com.akin.kayipkuleler ve kalıcı anahtar: eski WebView sürümünün (v1.x) üstüne
+# güncelleme olarak kurulur. Sürüm kodu 2000 + çalıştırma no (WebView sürüm kodlarından her zaman büyük).
 on:
   push:
     branches: [main]
@@ -11,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: "Sürüm etiketi (ör. g4-v0.1.0). Doluysa APK Releases sayfasına yüklenir."
+        description: "Sürüm etiketi (ör. v2.0.0). Doluysa APK Releases sayfasına yüklenir."
         required: false
         default: ''
 
@@ -71,17 +72,22 @@ jobs:
 
       - name: Android APK dışa aktar
         shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           export GODOT="$HOME/godot48/godot" PROJECT=godot-program
           export RELEASE_KEYSTORE="$PWD/android/keystore/kayipkuleler.jks" RELEASE_KEY_ALIAS=kayipkuleler RELEASE_KEY_PASS=kayipkuleler
           chmod +x "$GODOT" tools/godot-android-export.sh
-          sed -i "s/^version\/code=.*/version\/code=${GITHUB_RUN_NUMBER}/" godot-program/export_presets.cfg
-          tools/godot-android-export.sh "$PWD/dist/KayipKuleler-G4-debug.apk" debug
-          tools/godot-android-export.sh "$PWD/dist/KayipKuleler-G4.apk" release
+          VER="${RELEASE_TAG#v}"; [ -n "$VER" ] || VER="2.0.${GITHUB_RUN_NUMBER}"
+          sed -i "s/^version\/code=.*/version\/code=$((2000 + GITHUB_RUN_NUMBER))/" godot-program/export_presets.cfg
+          sed -i "s/^version\/name=.*/version\/name=\"$VER\"/" godot-program/export_presets.cfg
+          tools/godot-android-export.sh "$PWD/dist/KayipKuleler-$VER-debug.apk" debug
+          tools/godot-android-export.sh "$PWD/dist/KayipKuleler-$VER.apk" release
+          echo "VER=$VER" >> "$GITHUB_ENV"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: KayipKuleler-G4-apk
+          name: KayipKuleler-apk
           path: dist/*.apk
           if-no-files-found: error
 
@@ -91,6 +97,7 @@ jobs:
         with:
           tag_name: ${{ inputs.release_tag }}
           target_commitish: ${{ github.sha }}
-          name: Kayıp Kuleler G4 (Godot prototipi) ${{ inputs.release_tag }}
-          prerelease: true
-          files: dist/KayipKuleler-G4.apk
+          name: Kayıp Kuleler ${{ inputs.release_tag }}
+          prerelease: ${{ startsWith(inputs.release_tag, 'g4-') }}
+          files: dist/KayipKuleler-${{ env.VER }}.apk
+          generate_release_notes: true

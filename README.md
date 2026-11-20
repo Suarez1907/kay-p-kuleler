@@ -9,19 +9,20 @@ fonksiyonlar, döngüler ve koşullar. Bu sırada Monument Valley'deki gibi **d�
 asansörleri kaldırır, kamerayı çevirip imkânsız geçitleri birleştirirsin. Hedef: her kulenin tepesindeki parlayan kristal.
 
 <p align="center">
-  <img src="screenshots/android-fonksiyon.png" width="220" alt="Fonksiyonlar">
-  <img src="screenshots/android-kosul.png" width="220" alt="Koşullar">
-  <img src="screenshots/android-baslik.png" width="220" alt="Başlık ekranı">
+  <img src="screenshots/v2-p_title.png" width="200" alt="Başlık">
+  <img src="screenshots/v2-p_levels.png" width="200" alt="Seviye haritası">
+  <img src="screenshots/v2-p_l25.png" width="200" alt="Oyun ekranı (dikey)">
 </p>
 <p align="center">
-  <img src="screenshots/07-son-kule.png" width="680" alt="Son Kule">
+  <img src="screenshots/v2-n_l12.png" width="420" alt="Oyun ekranı (yatay)">
+  <img src="screenshots/v2-n_win.png" width="420" alt="Kazanma ekranı">
 </p>
 
 | Sürüm | Klasör | Teknoloji |
 |---|---|---|
-| **Android uygulaması (ana sürüm)** | `android/` | Kotlin, AndroidX WebView + `WebViewAssetLoader`; oyun `web/` klasöründen derleme sırasında kopyalanır |
+| **Android uygulaması (ana sürüm, v2+)** | `godot-program/` | **Godot 4.8 beta 4**, Mobile (Vulkan) renderer, AgX ton eşleme, GDScript; modern mobil arayüz, ses ve müzik |
 | Tarayıcı | `web/` | Three.js r170 + cannon-es (yerel olarak paketlendi, CDN yok) |
-| Godot 4 prototipi (programlama) | `godot-program/` | **Godot 4.8 beta 4**, Mobile (Vulkan) renderer, AgX ton eşleme, GDScript — 27 seviyelik programlama oyununun yerel motor sürümü |
+| Eski Android (v1.x, WebView) | `android/` | Kotlin + WebView; `web/` klasörünü paketler. Artık sürüm olarak yayınlanmaz |
 | Godot (klasik mod) | `godot/` | Godot 4.3, GDScript — programlama öncesi "dokun-yürü" sürümü ve 15 klasik seviyesi |
 
 Android ve tarayıcı sürümü **25 el yapımı seviyelik, 7 bölümlük programlama kampanyasını** içerir; her seviyenin
@@ -107,37 +108,27 @@ Tüm referans çözümler `SOLUTIONS.md` dosyasındadır.
 ## 1. Android
 
 ### APK'yı indirip kurma
-* **Her push'tan sonra:** GitHub → **Actions** → *Android APK (Three.js + WebView)* → son çalıştırma → **Artifacts** → `KayipKuleler-apk-<sürüm>` (zip içinde iki APK). Godot sürümü için *Android APK (Godot sürümü)* → `KayipKuleler-godot-apk`.
-* **Sürümler:** `v1.0.0` gibi bir etiket gönderildiğinde APK'lar otomatik olarak **Releases** sayfasına eklenir:
-  ```bash
-  git tag v1.0.0 && git push origin v1.0.0
-  ```
+* **Sürümler:** [Releases](../../releases/latest) sayfasındaki `KayipKuleler-<sürüm>.apk`. Yeni sürüm yayınlamak için
+  *Actions → Android APK (Godot — ana sürüm) → Run workflow* ve `release_tag` alanına `v2.1.0` gibi bir etiket.
+* **Her push'tan sonra:** aynı iş akışının **Artifacts** bölümünde `KayipKuleler-apk`.
 * Telefonda APK'yı açın ("bilinmeyen kaynaklardan yükleme" izni istenir). Android 7.0 (API 24) ve üzeri desteklenir.
 
-| Dosya | Açıklama |
-|---|---|
-| `KayipKuleler-<sürüm>.apk` | Release derlemesi (küçültülmüş, `com.akin.kayipkuleler`) |
-| `KayipKuleler-<sürüm>-debug.apk` | Debug derlemesi (`com.akin.kayipkuleler.debug`, release ile yan yana kurulabilir) |
-| `KayipKuleler-godot.apk` / `KayipKuleler-godot-debug.apk` | Godot motoruyla derlenen alternatif sürüm (`godot-android.yml`, `com.akin.kayipkuleler.godot`) |
-
-> **Güncellemeler:** Tüm APK'lar depodaki kalıcı `android/keystore/kayipkuleler.jks` anahtarıyla imzalanır ve her
-> derlemede sürüm kodu artar. Bu sayede yeni APK eskisinin **üstüne güncelleme olarak kurulur, ilerleme silinmez**.
+> **Güncellemeler:** APK'lar depodaki kalıcı `android/keystore/kayipkuleler.jks` anahtarıyla imzalanır; uygulama kimliği
+> `com.akin.kayipkuleler`, sürüm kodu 2000 + çalıştırma no. Bu sayede Godot ana sürümü (v2+) eski WebView sürümünün (v1.3+)
+> **üstüne güncelleme olarak kurulur**. İlk açılışta eski sürümün ilerlemesi WebView'in localStorage dosyalarından
+> otomatik okunup taşınır; olmazsa Ayarlar → *İlerleme yedeği* ile `KK1:` kodu yapıştırılabilir.
 > (v1.3.0 öncesi APK'lar her derlemede değişen rastgele bir anahtarla imzalanmıştı; onlardan geçişte bir kerelik
-> kaldırıp yeniden kurmak gerekir.) Anahtar herkese açık olduğundan Google Play için `KEYSTORE_FILE`, `KEYSTORE_PASSWORD`,
-> `KEY_ALIAS`, `KEY_PASSWORD` ortam değişkenleriyle (GitHub Secrets) kendi gizli anahtarınızı verin.
->
-> **İlerleme yedeği:** Seviyeler ekranındaki *İlerlemeyi yedekle / geri yükle* düğmesi tüm ilerlemeyi bir koda dönüştürür;
-> kod başka bir cihazda ya da yeniden kurulumdan sonra yapıştırılarak geri yüklenir (mevcut ilerlemeyle birleştirilir).
+> kaldırıp yeniden kurmak gerekir.) Anahtar herkese açık olduğundan Google Play için kendi gizli anahtarınızı verin.
 
-### Uygulamanın özellikleri
-* Tam ekran (immersive) — sistem çubukları kenardan kaydırınca geçici olarak görünür; çentik alanı kullanılır.
-* Dikey **ve** yatay yönlendirme (yatayda yan menü sağ altta yatay bir sıraya dönüşür).
-* Oynarken ekran kapanmaz.
-* **Geri tuşu:** açık kart / ipucu / seçim kapanır → çalışan program durur → seviye seçimi → başlık → uygulamadan çıkış.
-* İlerleme ve her seviyedeki programın (`localStorage`) uygulama kapatılsa da korunur.
-* İnternet izni yok; tüm dosyalar APK içinde, `https://appassets.androidplatform.net/assets/web/` adresinden güvenli şekilde sunulur.
-* Dokunmatik: bloklara **dokun** / blokları **sürükle-bırak**; sahnede **sürükle** = platform döndür/kaydır ya da kamera, **iki parmak** = yakınlaştır.
-* Dikeyde program paneli altta, yatayda sağda durur; sahne her zaman boş alana ortalanır.
+### Uygulamanın özellikleri (Godot ana sürüm)
+* Modern mobil arayüz: Nunito yazı tipi, kalın "basılabilir" butonlar, cam kartlar, kodla çizilmiş vektör ikonlar.
+* Animasyonlar: buton basma yayları, ekran geçişleri, kart ve yıldız patlamaları, kademeli giriş efektleri, renk perdesi.
+* Ekranlar: animasyonlu başlık, bölüm bantlı seviye haritası, oyun içi ekran, duraklatma, ayarlar, kazanma, tanıtım, yedek.
+* Dikey **ve** yatay ekran: dikeyde program paneli altta, yatayda sağda; sahne her zaman boş alana ortalanır.
+* Görüntü: palete göre renklenen gölgeler, blok tabanlarında sahte ortam gölgesi, kristal ışığı, süzülen ışık zerreleri,
+  güneş parıltısı, vinyet, AgX ton eşleme. **Grafik: Düşük / Orta / Yüksek** (Ayarlar).
+* Kodla üretilen ses efektleri ve yumuşak ortam müziği (Ayarlar'dan açılıp kapanır).
+* İlerleme ve her seviyedeki program `user://ilerleme.json` içinde saklanır.
 
 ### Yerel derleme
 Gereken: JDK 17 ve Android SDK (platform 35). `ANDROID_HOME` ayarlı değilse `android/local.properties` içine `sdk.dir=/yol/android-sdk` yazın.
@@ -180,22 +171,20 @@ Doğrudan bir seviyeyi açmak için: `http://localhost:8765/?level=9`
 *Düşük* = efekt yok · *Orta* (telefonlarda varsayılan) = parıltı (bloom) + renk düzenleme + vinyet ·
 *Yüksek* (masaüstünde varsayılan) = Orta + tam çözünürlük + 4096 px gölge haritası.
 
-### Godot 4 prototipi (`godot-program/`)
+### Godot ana sürüm (`godot-program/`)
 **Motor sürümü: Godot 4.8 beta 4** (`4.8.beta4.official`; ön sürümler [godot-builds](https://github.com/godotengine/godot-builds/releases) deposundan). Klasik `godot/` projesi Godot 4.3'te kalır.
 Programlama oyununun yerel motor sürümü: aynı 27 seviye (`data/levels.json`, `tools/build.mjs` üretir), aynı kurallar
 (`scripts/logic.gd` fizik motoru + `scripts/program.gd` yorumlayıcı — web sürümüyle birebir), aynı `KK1:` yedek kodu.
 Mobile (Vulkan) renderer, AgX ton eşleme, parıltı, sis, yumuşak gölgeler; Vulkan olmayan cihazlarda OpenGL'e düşer.
-* **Android APK:** *Actions → Android APK (Godot 4 prototipi)* (her `godot-program/` değişikliğinde) ya da *Run workflow* ile
-  `release_tag` vererek Releases sayfasına ön sürüm olarak. Uygulama kimliği `com.akin.kayipkuleler.godot4`: asıl oyunun
-  **yanına ayrı uygulama** olarak kurulur, ona dokunmaz. Aynı kalıcı anahtarla imzalanır. Yalnızca yatay ekran.
+* **Android APK:** bkz. bölüm 1. Arayüz kiti `scripts/ui_kit.gd`, sesler `scripts/audio.gd`.
 * **Testler:**
   ```bash
   godot --headless --path godot-program --script res://tests/run_programs.gd   # yorumlayıcı: 27/27
   godot --headless --path godot-program -- --autotest                          # tam sahne: 27/27
-  godot --path godot-program -- --shot=12:/tmp/seviye12.png:60                # ekran görüntüsü
+  godot --path godot-program -- --shot=12:/tmp/seviye12.png:60                # ekran görüntüsü (0 başlık, -1 harita, -2 kazanma, -3 duraklatma)
   ```
-* **Prototipte henüz yok:** ses, sürükle-bırak (bloklar dokunarak eklenir, seçilen blok taşınır/silinir), dikey ekran,
-  kamerayı sürükleyerek çevirme dışında dokunmatik hareketler (iki parmakla yakınlaştırma).
+  `--autotest` ayrıca eski WebView ilerlemesinin taşınmasını sahte bir LevelDB günlüğüyle sınar.
+* **Henüz yok:** blok sürükle-bırak (bloklar dokunarak eklenir; seçilen blok taşınır/silinir), iki parmakla yakınlaştırma.
 
 ### Godot sürümü (klasik)
 * **Editörde:** Godot 4.3 (veya daha yeni 4.x) ile `godot/project.godot` dosyasını açıp F5'e basın.
