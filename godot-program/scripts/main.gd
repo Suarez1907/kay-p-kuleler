@@ -79,7 +79,7 @@ var ptr = null
 
 # ---------- arayüz (bkz. "Arayüz" bölümü) ----------
 var audio: GameAudio
-var gfx := 1                # 0 düşük, 1 orta, 2 yüksek
+var gfx := 2                # 0 düşük, 1 orta, 2 yüksek
 var ui: CanvasLayer
 var ui_root: Control
 var fx_layer: CanvasLayer
@@ -141,7 +141,7 @@ func _ready() -> void:
 	audio = GameAudio.new()
 	add_child(audio)
 	audio.sound_on = progress.get("sound", true)
-	gfx = int(progress.get("gfx", 1))
+	gfx = int(progress.get("gfx", 2))
 	rbox_mesh = _rounded_box(Vector3.ONE, 0.08, 4)
 	crate_mesh = _rounded_box(Vector3(0.84, 0.84, 0.84), 0.08, 3)
 	_setup_world()
@@ -2245,16 +2245,16 @@ func _cycle_gfx() -> void:
 	_update_settings_buttons()
 	audio.play("tap")
 
-## Grafik kalitesi: Düşük = efekt yok, Orta = parıltı + gölge + 2x MSAA, Yüksek = + 4x MSAA, sis, yumuşak gölge
+## Grafik kalitesi: Düşük = hafif çözünürlük, Orta = doğal çözünürlük + 4x MSAA, Yüksek = 1,5x süper örnekleme + 8x MSAA
 func _apply_gfx() -> void:
 	var vp := get_viewport()
 	env.glow_enabled = gfx >= 1
 	env.fog_enabled = gfx >= 1
 	sun.shadow_enabled = gfx >= 1
 	sun.shadow_blur = 2.4 if gfx == 2 else 1.6
-	vp.msaa_3d = [Viewport.MSAA_DISABLED, Viewport.MSAA_2X, Viewport.MSAA_4X][gfx]
-	vp.scaling_3d_scale = 0.85 if gfx == 0 else 1.0
-	RenderingServer.directional_shadow_atlas_set_size(4096 if gfx == 2 else 2048, true)
+	vp.msaa_3d = [Viewport.MSAA_DISABLED, Viewport.MSAA_4X, Viewport.MSAA_8X][gfx]
+	vp.scaling_3d_scale = [0.75, 1.0, 1.5][gfx]
+	RenderingServer.directional_shadow_atlas_set_size([1024, 4096, 4096][gfx], true)
 
 
 # ---------- HUD ----------

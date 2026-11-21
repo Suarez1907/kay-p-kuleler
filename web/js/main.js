@@ -88,9 +88,9 @@ function freeRect() {
   return { x: 0, y: top, w: W, h: Math.max(120, pr.top - top) };
 }
 // ---------- Grafik kalitesi ve son işleme (post-processing) ----------
-// 0 = Düşük (efekt yok), 1 = Orta (parıltı + renk düzenleme), 2 = Yüksek (+ tam çözünürlük, keskin gölgeler)
+// 0 = Düşük, 1 = Orta, 2 = Yüksek (3x DPR süper örnekleme + keskin gölgeler)
 const GFX_NAMES = ['Düşük', 'Orta', 'Yüksek'];
-let gfx = 1, composer = null, bloomPass = null;
+let gfx = 2, composer = null, bloomPass = null;
 const GradeShader = {
   uniforms: { tDiffuse: { value: null }, vignette: { value: 0.32 }, sat: { value: 1.08 }, tint: { value: new THREE.Vector3(1.02, 1.0, 0.98) } },
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
@@ -110,7 +110,7 @@ function setupPost() {
   const sm = gfx === 2 ? 4096 : 2048;
   if (sun.shadow.mapSize.x !== sm) { sun.shadow.mapSize.set(sm, sm); if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; } }
   if (gfx === 0) { resize(); return; }
-  const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
+  const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: gfx === 2 ? 8 : 4 });
   composer = new EffectComposer(renderer, rt);
   composer.addPass(new RenderPass(scene, camera));
   bloomPass = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.7, 0.55, 2.2);
@@ -134,9 +134,10 @@ function setSky(p) { if (scene.background && scene.background.dispose) scene.bac
 
 function resize() {
   const W = window.innerWidth, H = window.innerHeight;
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, gfx === 2 ? 3 : gfx === 1 ? 2 : 1));
   renderer.setSize(W, H, false);
   if (composer) {
-    const pr = Math.min(window.devicePixelRatio, gfx === 2 ? 2 : 1.5);
+    const pr = Math.min(window.devicePixelRatio, gfx === 2 ? 3 : gfx === 1 ? 2 : 1);
     composer.setPixelRatio(pr); composer.setSize(W, H);
     if (bloomPass) bloomPass.resolution.set(W * pr / 2, H * pr / 2);
   }
@@ -311,7 +312,7 @@ function loadProgress() {
 }
 function saveProgress() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(progress)); } catch (e) {} }
 setSound(progress.sound !== false);
-gfx = progress.gfx ?? (window.matchMedia('(pointer:coarse)').matches ? 1 : 2);
+gfx = progress.gfx ?? 2;
 setMusic(progress.music !== false);
 
 function addPick(mesh, info) { mesh.userData.pick = info; pickables.push(mesh); }
