@@ -20,7 +20,7 @@ asansörleri kaldırır, kamerayı çevirip imkânsız geçitleri birleştirirsi
 
 | Sürüm | Klasör | Teknoloji |
 |---|---|---|
-| **Android uygulaması (ana sürüm, v2.4.0)** | `godot-program/` | **Godot 4.8 beta 4**, Mobile (Vulkan) renderer, doğrusal ton eşleme, GDScript; modern mobil arayüz, ses ve müzik |
+| **Android uygulaması (ana sürüm, v2.4.1)** | `godot-program/` | **Godot 4.8 beta 4**, Mobile (Vulkan) renderer, doğrusal ton eşleme, GDScript; modern mobil arayüz, ses ve müzik |
 | Tarayıcı | `web/` | Three.js r170 + cannon-es (yerel olarak paketlendi, CDN yok) |
 | Eski Android (v1.x, WebView) | `android/` | Kotlin + WebView; `web/` klasörünü paketler. Artık sürüm olarak yayınlanmaz |
 | Godot (klasik mod) | `godot/` | Godot 4.3, GDScript — programlama öncesi "dokun-yürü" sürümü ve 15 klasik seviyesi |
@@ -129,8 +129,10 @@ Tüm referans çözümler `SOLUTIONS.md` dosyasındadır.
 ## 1. Android
 
 ### APK'yı indirip kurma
-* **Sürümler:** [Releases](../../releases/latest) sayfasındaki `KayipKuleler-<sürüm>.apk`. Yeni sürüm yayınlamak için
-  *Actions → Android APK (Godot — ana sürüm) → Run workflow* ve `release_tag` alanına `v2.1.0` gibi bir etiket.
+* **Sürümler:** [Releases](../../releases/latest) sayfasındaki `KayipKuleler-<sürüm>.apk`. Sürüm adı
+  `godot-program/project.godot` içindeki `config/version` değeridir. Bu dosya `main`'e birleşince Android iş akışı
+  `v2.4.1` gibi bir etiket ve yayındaki APK'yı oluşturur. Elle yayın için *Actions → Android APK (Godot — ana sürüm) → Run workflow*
+  ve `release_tag` alanına `v2.4.1` gibi bir etiket.
 * **Her push'tan sonra:** aynı iş akışının **Artifacts** bölümünde `KayipKuleler-apk`.
 * Telefonda APK'yı açın ("bilinmeyen kaynaklardan yükleme" izni istenir). Android 7.0 (API 24) ve üzeri desteklenir.
 
@@ -169,7 +171,7 @@ cd android
 `web/` tek doğruluk kaynağıdır: Gradle'daki `copyWebGame` görevi her derlemede `web/` klasörünü APK varlıklarına kopyalar —
 oyunda yapılan her değişiklik bir sonraki derlemede uygulamaya girer, kopya dosya tutmaya gerek yoktur.
 
-Uygulama simgesi (pastel izometrik küp, Robo ve kristal; uyarlanabilir + tek renkli) `python3 tools/make_icons.py` ile yeniden üretilir.
+Uygulama simgesi `art/icon-4096.png` kaynağından `python3 tools/make_icons.py` ile üretilir (Godot proje simgesi, Android başlatıcı ve uyarlanabilir katmanlar, tarayıcı favicon).
 
 ### GitHub Actions iş akışları
 | Dosya | Ne zaman | Ne üretir |
@@ -351,6 +353,7 @@ Godot testleri klasik seviyeleri kullanır (Godot sürümü programlama modunu i
 ## 6. Klasör yapısı
 
 ```
+art/            icon-4096.png — uygulama simgesinin kaynak görseli
 android/        Gradle (Kotlin DSL) projesi: app/src/main/{AndroidManifest.xml, java/.../MainActivity.kt, res/}
 web/            index.html, style.css, js/{engine,program,main,audio,fx,levels}.js, vendor/
                   engine.js  = ızgara fizik motoru, program.js = komutlar + yorumlayıcı

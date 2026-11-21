@@ -7,7 +7,7 @@ config/name="Kayıp Kuleler"
 config/description="Mekorama ve Monument Valley'den esinlenen 3B fizik tabanlı bulmaca oyunu"
 run/main_scene="res://scenes/main.tscn"
 config/features=PackedStringArray("4.3", "GL Compatibility")
-config/icon="res://icon.svg"
+config/icon="res://icon.png"
 
 [display]
 
