@@ -321,22 +321,23 @@ func _setup_world() -> void:
 	env.background_canvas_max_layer = -1
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color("#f4ecff")
-	env.ambient_light_energy = 0.42
+	env.ambient_light_energy = 0.38
 	env.tonemap_mode = Environment.TONE_MAPPER_AGX
-	env.tonemap_exposure = 1.12
+	env.tonemap_exposure = 1.05
 	env.tonemap_white = 2.5
 	env.glow_enabled = true
-	env.glow_intensity = 0.6
+	env.glow_intensity = 0.3
 	env.glow_strength = 1.0
-	env.glow_bloom = 0.04
-	env.glow_hdr_threshold = 2.2
+	env.glow_bloom = 0.05
+	env.glow_hdr_threshold = 1.6
 	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_SCREEN
-	env.fog_enabled = true
-	env.fog_density = 0.0028
+	# sis kapalı: sahne net ve kontrastlı kalsın (derinlik ışık ve temas gölgeleriyle verilir)
+	env.fog_enabled = false
+	env.fog_density = 0.0
 	env.fog_light_energy = 1.0
 	env.adjustment_enabled = true
-	env.adjustment_saturation = 1.38
-	env.adjustment_contrast = 1.1
+	env.adjustment_saturation = 1.25
+	env.adjustment_contrast = 1.12
 	we.environment = env
 	add_child(we)
 
@@ -350,13 +351,14 @@ func _setup_world() -> void:
 	sun.shadow_opacity = 0.82
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
 	sun.directional_shadow_max_distance = 120.0
-	sun.rotation_degrees = Vector3(-58, 32, 0)
 	add_child(sun)
+	# güneş: üst yüz en parlak, +x yüzü orta, +z yüzü koyu → izometrik bakışta 3 ayrı ton
+	sun.look_at_from_position(Vector3(7.0, 10.0, 3.0), Vector3.ZERO, Vector3.UP)
 	var fill := DirectionalLight3D.new()
-	fill.light_color = Color("#c9d6ff")
-	fill.light_energy = 0.35
-	fill.rotation_degrees = Vector3(-20, -140, 0)
+	fill.light_color = Color("#b9c4ff")
+	fill.light_energy = 0.22
 	add_child(fill)
+	fill.look_at_from_position(Vector3(-6.0, 4.0, -2.0), Vector3.ZERO, Vector3.UP)
 
 	cam = Camera3D.new()
 	cam.projection = Camera3D.PROJECTION_ORTHOGONAL
@@ -402,6 +404,55 @@ func _rounded_box(size: Vector3, r: float, seg: int) -> ArrayMesh:
 	arr[Mesh.ARRAY_COLOR] = cols
 	var m := ArrayMesh.new()
 	m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	return m
+
+## Blok başına temas gölgesi (Mobile renderer'da SSAO yok): üst yüzün, yanında/köşesinde bir üst katta
+## blok bulunan kenarları koyulaşır. Komşu düzenine göre (8 bit) önbelleğe alınır.
+var _ao_cache := {}
+var _rbox_arrays = null
+
+func _ao_box(p: Vector3i) -> Mesh:
+	var sides := [Vector3i(1, 1, 0), Vector3i(-1, 1, 0), Vector3i(0, 1, 1), Vector3i(0, 1, -1),
+		Vector3i(1, 1, 1), Vector3i(1, 1, -1), Vector3i(-1, 1, 1), Vector3i(-1, 1, -1)]
+	var mask := 0
+	for k in sides.size():
+		if L.statics.has(p + sides[k]):
+			mask |= 1 << k
+	if mask == 0:
+		return rbox_mesh
+	if _ao_cache.has(mask):
+		return _ao_cache[mask]
+	if _rbox_arrays == null:
+		_rbox_arrays = rbox_mesh.surface_get_arrays(0)
+	var arr: Array = _rbox_arrays.duplicate()
+	if arr.is_empty() or arr[Mesh.ARRAY_VERTEX] == null:
+		return rbox_mesh
+	var verts: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+	var cols: PackedColorArray = (arr[Mesh.ARRAY_COLOR] as PackedColorArray).duplicate()
+	for i in verts.size():
+		var v := verts[i]
+		if v.y < 0.3:
+			continue
+		var occ := 0.0
+		var wx := clampf((v.x - 0.0) / 0.5, 0.0, 1.0)
+		var wnx := clampf((-v.x) / 0.5, 0.0, 1.0)
+		var wz := clampf(v.z / 0.5, 0.0, 1.0)
+		var wnz := clampf((-v.z) / 0.5, 0.0, 1.0)
+		var e := 2.2
+		if mask & 1: occ += pow(wx, e)
+		if mask & 2: occ += pow(wnx, e)
+		if mask & 4: occ += pow(wz, e)
+		if mask & 8: occ += pow(wnz, e)
+		if mask & 16: occ += pow(minf(wx, wz), e) * 0.6
+		if mask & 32: occ += pow(minf(wx, wnz), e) * 0.6
+		if mask & 64: occ += pow(minf(wnx, wz), e) * 0.6
+		if mask & 128: occ += pow(minf(wnx, wnz), e) * 0.6
+		var k := 1.0 - minf(occ, 1.0) * 0.42
+		cols[i] = Color(cols[i].r * k, cols[i].g * k, cols[i].b * k)
+	arr[Mesh.ARRAY_COLOR] = cols
+	var m := ArrayMesh.new()
+	m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	_ao_cache[mask] = m
 	return m
 
 func _mat(color, opts := {}) -> StandardMaterial3D:
@@ -495,10 +546,11 @@ func build_level(i: int, as_preview := false) -> void:
 	env.fog_light_color = Color(pal["bg"][1])
 	# gölgeler palete göre renklenir (Monument Valley tarzı renkli gölgeler)
 	var dark: bool = pal.get("dark", false)
-	env.ambient_light_color = Color(pal["bg"][1]).lerp(Color("#3d3a66") if dark else Color.WHITE, 0.45)
-	env.ambient_light_energy = 0.5 if dark else 0.42
-	sun.light_color = Color("#dfe6ff") if dark else Color("#fff0da")
-	sun.light_energy = 0.65 if dark else 0.78
+	# ortam ışığı hafif soğuk mor-mavi, palete az miktar yaklaştırılır; düşük enerji → derin gölgeler
+	env.ambient_light_color = Color("#9aa2e0").lerp(Color(pal["bg"][1]), 0.25)
+	env.ambient_light_energy = 0.45 if dark else 0.38
+	sun.light_color = Color("#e6ebff") if dark else Color("#fff4e0")
+	sun.light_energy = 0.8 if dark else 1.0
 	if level_root:
 		level_root.queue_free()
 	level_root = Node3D.new()
@@ -523,14 +575,15 @@ func build_level(i: int, as_preview := false) -> void:
 		var v: Dictionary = L.statics[p]
 		grow.call(p)
 		if v["t"] == "b":
-			_mesh(rbox_mesh, _mat(_block_color(p), {"vc": true, "rim": true}), Vector3(p))
+			_mesh(_ao_box(p), _mat(_block_color(p), {"vc": true, "rim": true}), Vector3(p))
 			_add_window(p)
 		else:
 			var sg := Node3D.new()
 			sg.position = Vector3(p)
 			sg.rotation.y = [0.0, -PI / 2, PI, PI / 2][int(v["d"])]
 			level_root.add_child(sg)
-			var col := _block_color(p + Vector3i.UP)
+			# merdiven: bloklardan bir ton farklı (palet vurgusuna doğru) — okunabilirlik
+			var col := _block_color(p + Vector3i.UP).lerp(Color(pal["accent"]), 0.22).darkened(0.04)
 			for k in 3:
 				var h := (k + 1) / 3.0
 				_mesh(_box(Vector3(1.0 / 3.0, h, 1.0)), _mat(col), Vector3(-1.0 / 3.0 + k / 3.0, -0.5 + h / 2.0, 0), sg)
@@ -737,7 +790,9 @@ func _build_clouds(aabb: AABB) -> void:
 	rng.seed = 7
 	var cm := _mat("#ffffff", {"alpha": true, "rough": 1.0})
 	cm.albedo_color = Color("#8f88c4") if pal.get("dark", false) else Color("#ffffff")
-	cm.albedo_color.a = 0.4 if pal.get("dark", false) else 0.6
+	cm.albedo_color.a = 0.3 if pal.get("dark", false) else 0.42
+	cm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	cm.albedo_color = cm.albedo_color.lerp(Color(pal["bg"][0], cm.albedo_color.a), 0.35)
 	for i in 12:
 		var g := Node3D.new()
 		var a := i / 12.0 * TAU + rng.randf() * 0.3
@@ -789,23 +844,30 @@ func _build_motes(aabb: AABB) -> void:
 
 func _make_robot() -> Node3D:
 	var g := Node3D.new()
-	var body := _mesh(_rounded_box(Vector3(0.46, 0.42, 0.4), 0.1, 3), _mat("#fffaf2"), Vector3(0, 0.33, 0), g)
-	_mesh(_box(Vector3(0.36, 0.22, 0.04)), _mat("#3b3555", {"rough": 0.4}), Vector3(0, 0.04, 0.2), body)
+	var amber := _mat("#ff9a3c", {"rough": 0.55})
+	var dark := _mat("#2c2836", {"rough": 0.6})
+	# zemine oturan yumuşak gölge lekesi (robotu zeminden ayırır)
+	var blob := _mesh(_cyl(0.3, 0.3, 0.005), _mat("#140c28", {"alpha": true, "unshaded": true, "unique": true}), Vector3(0, 0.012, 0), g)
+	blob.material_override.albedo_color.a = 0.32
+	blob.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var body := _mesh(_rounded_box(Vector3(0.46, 0.42, 0.4), 0.1, 3), amber, Vector3(0, 0.33, 0), g)
+	_mesh(_box(Vector3(0.36, 0.22, 0.04)), _mat("#1e1b27", {"rough": 0.35}), Vector3(0, 0.04, 0.2), body)
+	_mesh(_box(Vector3(0.48, 0.05, 0.42)), dark, Vector3(0, -0.12, 0), body)
 	var eyes := Node3D.new()
 	eyes.position = Vector3(0, 0.05, 0.225)
 	body.add_child(eyes)
 	for x in [-0.08, 0.08]:
-		_mesh(_sphere(0.035), _mat("#7ff3ff", {"emit": 3.0, "unshaded": true}), Vector3(x, 0, 0), eyes)
-	_mesh(_cyl(0.015, 0.015, 0.16), _mat("#8a8299"), Vector3(0, 0.62, 0), g)
-	var bulb_mat := _mat(pal["accent"], {"emit": 3.0, "unique": true})
+		_mesh(_sphere(0.04), _mat("#6ff6ff", {"emit": 4.0, "unshaded": true}), Vector3(x, 0, 0), eyes)
+	_mesh(_cyl(0.018, 0.018, 0.16), dark, Vector3(0, 0.62, 0), g)
+	var bulb_mat := _mat("#6ff6ff", {"emit": 4.0, "unique": true})
 	_mesh(_sphere(0.05), bulb_mat, Vector3(0, 0.72, 0), g)
 	for x in [-0.12, 0.12]:
-		_mesh(_box(Vector3(0.12, 0.1, 0.18)), _mat("#8a8299"), Vector3(x, 0.06, 0.02), g)
+		_mesh(_box(Vector3(0.12, 0.1, 0.18)), dark, Vector3(x, 0.06, 0.02), g)
 	for x in [-0.27, 0.27]:
 		var cap := CapsuleMesh.new()
-		cap.radius = 0.04
+		cap.radius = 0.045
 		cap.height = 0.22
-		_mesh(cap, _mat(pal["accent"]), Vector3(x, 0.3, 0), g)
+		_mesh(cap, dark, Vector3(x, 0.3, 0), g)
 	# yön oku ve halka
 	var arrow := _mesh(_cyl(0.0, 0.16, 0.02), _mat("#ffffff", {"unshaded": true, "alpha": true, "unique": true}), Vector3(0, 0.03, 0.5), g)
 	arrow.rotation.x = PI / 2
@@ -849,8 +911,38 @@ func _entity_pos(pa, pb, t: float, sA: Dictionary, sB: Dictionary):
 			return Vector3(pv.x + dx * cos(th) + dz * sin(th), pa.y - 0.5, pv.y - dx * sin(th) + dz * cos(th))
 	return Vector3(pa).lerp(Vector3(pb), t) + Vector3(0, -0.5, 0)
 
+## Işınlayıcı / göz yanılması geçişi mi? Yalnızca yatayda 1 kareden uzağa ya da dikeyde 1 kattan fazla
+## sıçrayan hareketler. (Eskiden yatay + dikey toplanıyordu; merdiven adımı 1+1=2 olduğu için ışınlanma
+## sanılıp robot küçülüp öbür karede beliriyordu.)
 func _jumpy(a, b, sA: Dictionary, sB: Dictionary) -> bool:
-	return a != null and b != null and absi(a.x - b.x) + absi(a.z - b.z) + absi(a.y - b.y) > 1 and sA["rots"] == sB["rots"] and sA["slides"] == sB["slides"]
+	if a == null or b == null or sA["rots"] != sB["rots"] or sA["slides"] != sB["slides"]:
+		return false
+	return absi(a.x - b.x) + absi(a.z - b.z) > 1 or absi(a.y - b.y) > 1
+
+static func _smooth(e0: float, e1: float, x: float) -> float:
+	var t := clampf((x - e0) / (e1 - e0), 0.0, 1.0)
+	return t * t * (3.0 - 2.0 * t)
+
+## Robotun tabanının yolu. Kat değiştiren adımlarda düz çizgi yerine eğimi izler:
+## merdiven çıkarken erken yükselir (basamak kenarının içinden geçmez), inerken merdivenin üstünde kalıp
+## sonda alçalır; zıplamada blok kenarını aşan bir yay çizer. Her adımda hafif sekme (adım atma hissi).
+func _step_path(pa: Vector3i, pb: Vector3i, t: float) -> Vector3:
+	var horiz := Vector3(pa.x, 0, pa.z).lerp(Vector3(pb.x, 0, pb.z), t)
+	var dy := pb.y - pa.y
+	var y := float(pa.y) - 0.5
+	if dy == 0:
+		y += absf(sin(TAU * t)) * 0.07
+	else:
+		var below_a = L.statics.get(pa + Vector3i.DOWN)
+		var below_b = L.statics.get(pb + Vector3i.DOWN)
+		var stair: bool = (dy > 0 and below_b != null and below_b["t"] == "s") or (dy < 0 and below_a != null and below_a["t"] == "s")
+		if stair:
+			var k := _smooth(0.0, 0.72, t) if dy > 0 else _smooth(0.3, 1.0, t)
+			y += dy * k + absf(sin(TAU * t)) * 0.06
+		else:
+			var k2 := _smooth(0.0, 0.55, t) if dy > 0 else _smooth(0.45, 1.0, t)
+			y += dy * k2 + sin(PI * t) * 0.32
+	return Vector3(horiz.x, y, horiz.z)
 
 func _apply_visual(sA: Dictionary, sB: Dictionary, t: float, bump := false) -> void:
 	var te := _ease(t)
@@ -870,8 +962,8 @@ func _apply_visual(sA: Dictionary, sB: Dictionary, t: float, bump := false) -> v
 		if p != null:
 			pl.position = p
 			var carried: bool = sA["rots"] != sB["rots"] or sA["slides"] != sB["slides"]
-			if pa != null and pb != null and pa != pb and not carried:
-				pl.position.y += sin(PI * t) * (0.3 if pa.y != pb.y else 0.14)
+			if pa != null and pb != null and pa != pb and not carried and absi(pa.x - pb.x) + absi(pa.z - pb.z) == 1:
+				pl.position = _step_path(pa, pb, te)
 	if bump:
 		var dv := Vector3(DIRS[sB["f"]])
 		pl.position += dv * sin(PI * t) * 0.17
@@ -1123,7 +1215,7 @@ func _set_mode(m: String, quiet := false) -> void:
 		var pl: Node3D = objs["player"]
 		pl.get_meta("arrow").visible = m != "running"
 		pl.get_meta("ring").visible = m != "running"
-		var col: String = {"running": "#57e39a", "paused": "#ffd36e", "ended": "#ff6b7a"}.get(m, pal["accent"])
+		var col: String = {"running": "#57e39a", "paused": "#ffd36e", "ended": "#ff6b7a"}.get(m, "#6ff6ff")
 		var bm: StandardMaterial3D = pl.get_meta("bulb")
 		bm.albedo_color = Color(col)
 		bm.emission = Color(col)
@@ -1470,14 +1562,12 @@ func _build_hud() -> void:
 		mini_stars.add_child(st)
 	sc.add_child(mini_stars)
 	top_bar.add_child(UIKit.pill(sc))
-	# araçlar: kamera, ipucu, dünyayı sıfırla
-	tools_box = BoxContainer.new()
+	# üst sağ köşe: yalnızca ipucu ve kamerayı sıfırla (kamera parmakla sürüklenerek döner)
+	tools_box = HBoxContainer.new()
 	tools_box.add_theme_constant_override("separation", 10)
 	hud.add_child(tools_box)
-	tools_box.add_child(UIKit.round_button("cam_l", func(): _rotate_view(-1), 58))
-	tools_box.add_child(UIKit.round_button("cam_r", func(): _rotate_view(1), 58))
-	tools_box.add_child(UIKit.round_button("bulb", _toggle_hint, 58, Color("#fff4cf"), Color("#b5820f")))
-	tools_box.add_child(UIKit.round_button("reset", func(): _reset_world(); audio.play("mech"), 58))
+	tools_box.add_child(UIKit.round_button("bulb", _toggle_hint, 50, Color("#fff4cf"), Color("#b5820f")))
+	tools_box.add_child(UIKit.round_button("cam_r", _reset_camera, 50))
 	# durum bandı (mola / hata)
 	lbl_status = UIKit.label("", 19, Color.WHITE, UIKit.font_bold)
 	status_pill = UIKit.pill(lbl_status, Color("#e8648aee"), 16)
@@ -1508,23 +1598,19 @@ func _build_panel() -> void:
 	var pv := VBoxContainer.new()
 	pv.add_theme_constant_override("separation", 10)
 	panel.add_child(pv)
-	palette_box = HFlowContainer.new()
-	palette_box.alignment = FlowContainer.ALIGNMENT_CENTER
-	palette_box.add_theme_constant_override("h_separation", 8)
-	palette_box.add_theme_constant_override("v_separation", 8)
-	pv.add_child(palette_box)
-	var sep := ColorRect.new()
-	sep.color = Color(UIKit.INK, 0.08)
-	sep.custom_minimum_size = Vector2(0, 2)
-	pv.add_child(sep)
 	rows_scroll = ScrollContainer.new()
-	rows_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	rows_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	pv.add_child(rows_scroll)
 	rows_box = VBoxContainer.new()
 	rows_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	rows_box.add_theme_constant_override("separation", 8)
 	rows_scroll.add_child(rows_box)
+	# satırlar değişince panel yüksekliği içeriğe göre yeniden hesaplanır
+	rows_box.minimum_size_changed.connect(func(): _layout.call_deferred())
+	palette_box = HFlowContainer.new()
+	palette_box.alignment = FlowContainer.ALIGNMENT_CENTER
+	palette_box.add_theme_constant_override("h_separation", 8)
+	palette_box.add_theme_constant_override("v_separation", 8)
 	# seçili blok araçları
 	sel_bar = HBoxContainer.new()
 	sel_bar.add_theme_constant_override("separation", 8)
@@ -1540,6 +1626,11 @@ func _build_panel() -> void:
 	sel_bar.add_child(UIKit.round_button("trash", _delete_sel, 50, Color("#ffe1e6"), Color("#d8435c")))
 	sel_bar.visible = false
 	pv.add_child(sel_bar)
+	var sep := ColorRect.new()
+	sep.color = Color(UIKit.INK, 0.08)
+	sep.custom_minimum_size = Vector2(0, 2)
+	pv.add_child(sep)
+	pv.add_child(palette_box)
 	# çalıştırma kontrolleri
 	var ctl := HBoxContainer.new()
 	ctl.add_theme_constant_override("separation", 8)
@@ -1787,6 +1878,10 @@ func _build_screens() -> void:
 	var ptitle := _logo_label("DURAKLATILDI", 40)
 	pvb.add_child(ptitle)
 	pvb.add_child(UIKit.button("Devam et", UIKit.GREEN, func(): _show(""), 26, "play", Color.WHITE, 70))
+	pvb.add_child(UIKit.button("Dünyayı başa al", Color.WHITE, func():
+		_reset_world()
+		audio.play("mech")
+		_show(""), 24, "reset", UIKit.INK, 64))
 	pvb.add_child(UIKit.button("Seviyeler", UIKit.PURPLE, _open_levels, 26, "grid", Color.WHITE, 70))
 	pvb.add_child(UIKit.button("Ayarlar", Color.WHITE, _open_settings, 24, "gear", UIKit.INK, 64))
 	pvb.add_child(UIKit.button("Ana menü", UIKit.CORAL, _show_title, 24, "home", Color.WHITE, 64))
@@ -1968,21 +2063,19 @@ func _layout() -> void:
 	var vs := get_viewport().get_visible_rect().size
 	portrait = vs.x < vs.y * 0.95
 	var m := 12.0
-	if portrait:
-		var ph := clampf(vs.y * 0.44, 320.0, 620.0)
-		panel.position = Vector2(m, vs.y - ph - m)
-		panel.size = Vector2(vs.x - 2 * m, ph)
-		tools_box.vertical = false
-		tools_box.position = Vector2(16, panel.position.y - 76)
-		lbl_hint.custom_minimum_size = Vector2(minf(560, vs.x - 120), 0)
-	else:
-		var pw := clampf(vs.x * 0.33, 430.0, 500.0)
-		panel.position = Vector2(vs.x - pw - m, m)
-		panel.size = Vector2(pw, vs.y - 2 * m)
-		tools_box.vertical = true
-		tools_box.reset_size()
-		tools_box.position = Vector2(16, vs.y - tools_box.size.y - 16)
-		lbl_hint.custom_minimum_size = Vector2(minf(460, vs.x - pw - 80), 0)
+	# satır alanı içeriği kadar (çok satırda kaydırılır), panel içeriği sarar
+	var rows_h := rows_box.get_combined_minimum_size().y
+	var max_rows := vs.y * (0.3 if portrait else 0.55)
+	rows_scroll.custom_minimum_size.y = minf(rows_h, max_rows)
+	var pw := vs.x - 2 * m if portrait else clampf(vs.x * 0.33, 430.0, 500.0)
+	panel.size = Vector2(pw, 0)
+	var ph := panel.get_combined_minimum_size().y
+	panel.size = Vector2(pw, ph)
+	panel.position = Vector2(m if portrait else vs.x - pw - m, vs.y - ph - m)
+	tools_box.reset_size()
+	var right_edge := vs.x if portrait or panel.position.y > 90 else panel.position.x
+	tools_box.position = Vector2(right_edge - tools_box.size.x - 16, 16)
+	lbl_hint.custom_minimum_size = Vector2(minf(520, (vs.x if portrait else panel.position.x) - 80), 0)
 	status_pill.reset_size()
 	var free_w := vs.x if portrait else panel.position.x
 	status_pill.position = Vector2((free_w - status_pill.size.x) / 2, 92)
@@ -2178,7 +2271,7 @@ func _animate_hud_in() -> void:
 	var vs := get_viewport().get_visible_rect().size
 	UIKit.slide_in(panel, Vector2(0, 260) if portrait else Vector2(260, 0), 0.05, 0.55)
 	UIKit.slide_in(top_bar, Vector2(0, -60), 0.1)
-	UIKit.slide_in(tools_box, Vector2(-80, 0) if not portrait else Vector2(0, 60), 0.15)
+	UIKit.slide_in(tools_box, Vector2(0, -60), 0.15)
 	var k := 0
 	for t in palette_box.get_children():
 		UIKit.pop_in(t, 0.25 + k * 0.04)
@@ -2249,7 +2342,7 @@ func _cycle_gfx() -> void:
 func _apply_gfx() -> void:
 	var vp := get_viewport()
 	env.glow_enabled = gfx >= 1
-	env.fog_enabled = gfx >= 1
+	env.fog_enabled = false
 	sun.shadow_enabled = gfx >= 1
 	sun.shadow_blur = 2.4 if gfx == 2 else 1.6
 	vp.msaa_3d = [Viewport.MSAA_DISABLED, Viewport.MSAA_4X, Viewport.MSAA_8X][gfx]
@@ -2282,6 +2375,19 @@ func _update_hud() -> void:
 		var ic: UIKit.Icon = mini_stars.get_child(k)
 		ic.color = UIKit.GOLD if k < st else Color("#d9d2e6")
 		ic.queue_redraw()
+
+## Kamerayı sıfırla: yakınlaştırmayı ve (program çalışmıyorsa) seviyenin başlangıç bakış açısını geri getirir.
+func _reset_camera() -> void:
+	audio.play("whoosh")
+	cam_zoom = 1.0
+	var want := int(levels[level_idx].get("view", 0))
+	var d := ((want - int(state["view"])) % 4 + 4) % 4
+	if d != 0 and mode != "running":
+		var steps := d if d <= 2 else d - 4
+		for k in absi(steps):
+			_rotate_view(signi(steps))
+	else:
+		_sync_view()
 
 func _toggle_hint() -> void:
 	audio.play("tap")
@@ -2514,6 +2620,7 @@ func _render_rows() -> void:
 			flow.add_child(e)
 		rows_box.add_child(rp)
 	_insert_anim = null
+	_layout.call_deferred()
 	var show_sel := sel != null and mode == "edit"
 	if show_sel != sel_bar.visible:
 		sel_bar.visible = show_sel
