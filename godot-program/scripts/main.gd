@@ -6,6 +6,8 @@ extends Node3D
 const SAVE_PATH := "user://ilerleme.json"
 const DIRS := PuzzleLogic.DIRS
 const EL := 0.6154797
+## Bakış açılarının (0..3) renkleri: hayalet bloklar ve açı göstergesi aynı rengi kullanır.
+const VIEW_COLS := [Color("#5fc8ff"), Color("#b58cff"), Color("#4fe0a0"), Color("#ffb84d")]
 const ROWS := ["main", "p1", "p2"]
 const ROW_LABEL := {"main": "Ana", "p1": "F1", "p2": "F2"}
 const SPEEDS := [1.0, 2.0, 4.0]
@@ -46,6 +48,7 @@ var runner = null
 var step_once = false
 var speed_idx := 0
 var end_reason := ""
+var run_log := {}           # Nova analizi için: {last, first_bump, bumps}
 var prog := {"main": [], "p1": [], "p2": []}
 var active_row := "main"
 var sel = null              # {row, idx}
@@ -57,6 +60,9 @@ var preview := false
 var win_shown := false
 var progress := {"unlocked": 1, "best": {}, "progs": {}, "seen": {}}
 var time := 0.0
+# ---------- game feel (Faz 3) ----------
+var _tw := {}               # isimli tween'ler: yenisi başlamadan eskisi kill() edilir
+var cell_nodes := {}        # Vector3i -> Node3D (statik blok/merdiven hücresi; zıplama ve açılış için)
 
 # ---------- sahne ----------
 var world: Node3D
@@ -64,7 +70,7 @@ var level_root: Node3D
 var cam: Camera3D
 var sun: DirectionalLight3D
 var env: Environment
-var bg_tex: GradientTexture2D
+var weather: Weather
 var objs := {}
 var mat_cache := {}
 var rbox_mesh: ArrayMesh
@@ -105,6 +111,12 @@ var status_pill: PanelContainer
 var lbl_status: Label
 var hint_card: PanelContainer
 var lbl_hint: Label
+var nova_card: PanelContainer
+var lbl_nova_title: Label
+var lbl_nova: Label
+var view_dots: HBoxContainer
+var intro_badge: PanelContainer
+var intro_nova: Control
 var toast_pill: PanelContainer
 var lbl_toast: Label
 var veil: ColorRect
@@ -152,6 +164,8 @@ func _ready() -> void:
 	var args := OS.get_cmdline_user_args()
 	if "--autotest" in args:
 		_autotest.call_deferred()
+	if "--feeltest" in args:
+		_feeltest.call_deferred()
 		return
 	for a in args:
 		if a.begins_with("--shot="):
@@ -286,35 +300,6 @@ func _setup_world() -> void:
 	var bg_layer := CanvasLayer.new()
 	bg_layer.layer = -10
 	add_child(bg_layer)
-	var bg := TextureRect.new()
-	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	bg.stretch_mode = TextureRect.STRETCH_SCALE
-	bg_tex = GradientTexture2D.new()
-	bg_tex.gradient = Gradient.new()
-	bg_tex.fill_from = Vector2(0, 0)
-	bg_tex.fill_to = Vector2(0, 1)
-	bg_tex.width = 8
-	bg_tex.height = 256
-	bg.texture = bg_tex
-	bg_layer.add_child(bg)
-	# güneş parıltısı (üstte yumuşak ışık)
-	var glow := TextureRect.new()
-	glow.set_anchors_preset(Control.PRESET_FULL_RECT)
-	glow.stretch_mode = TextureRect.STRETCH_SCALE
-	var gt := GradientTexture2D.new()
-	gt.fill = GradientTexture2D.FILL_RADIAL
-	gt.fill_from = Vector2(0.5, -0.15)
-	gt.fill_to = Vector2(0.5, 0.75)
-	var gg := Gradient.new()
-	gg.set_color(0, Color(1, 1, 1, 0.22))
-	gg.set_color(1, Color(1, 1, 1, 0.0))
-	gt.gradient = gg
-	gt.width = 128
-	gt.height = 128
-	glow.texture = gt
-	glow.set_meta("sun", true)
-	bg_layer.add_child(glow)
-
 	var we := WorldEnvironment.new()
 	env = Environment.new()
 	env.background_mode = Environment.BG_CANVAS
@@ -370,6 +355,10 @@ func _setup_world() -> void:
 	add_child(cam)
 	world = Node3D.new()
 	add_child(world)
+	# gökyüzü + hava durumu (prosedürel shader, 3B yağış, şimşek, ortam sesi)
+	weather = Weather.new()
+	add_child(weather)
+	weather.setup(bg_layer, world, env, sun, audio)
 
 
 # ---------- geometri / malzeme ----------
@@ -558,6 +547,16 @@ func _block_color(p: Vector3i) -> Color:
 		c = c.lightened(0.03)
 	return c
 
+## Seviyenin bölüm sırası (0'dan)
+func _chapter_of(i: int) -> int:
+	var ch := -1
+	var last := ""
+	for k in i + 1:
+		if levels[k]["chapter"] != last:
+			last = levels[k]["chapter"]
+			ch += 1
+	return maxi(ch, 0)
+
 func _sky_colors() -> Array:
 	if pal.get("dark", false):
 		return [Color(pal["bg"][0]), Color(pal["bg"][1])]
@@ -580,19 +579,9 @@ func build_level(i: int, as_preview := false) -> void:
 	preview = as_preview
 	var def: Dictionary = levels[i]
 	pal = PALETTES[int(def.get("palette", i)) % PALETTES.size()]
-	var g := Gradient.new()
-	var sky := _sky_input()
-	g.set_color(0, sky[0])
-	g.set_color(1, sky[1])
-	bg_tex.gradient = g
-	env.fog_light_color = Color(pal["bg"][1])
-	# gölgeler palete göre renklenir (Monument Valley tarzı renkli gölgeler)
-	var dark: bool = pal.get("dark", false)
-	# ortam ışığı hafif soğuk mor-mavi, palete az miktar yaklaştırılır; düşük enerji → derin gölgeler
-	env.ambient_light_color = Color("#9aa2e0").lerp(_sky_colors()[0], 0.3)
-	env.ambient_light_energy = 0.4 if dark else 0.36
-	sun.light_color = Color("#e6ebff") if dark else Color("#ffecd2")
-	sun.light_energy = 0.5 if dark else 0.36
+	# hava durumu bölüme göre: gökyüzü, bulutlar, yağış, şimşek ve sahne ışığı
+	weather.apply(Weather.for_chapter(_chapter_of(i)), float(i) * 7.31 + 1.0)
+	_kill_all_tweens()
 	if level_root:
 		level_root.queue_free()
 	level_root = Node3D.new()
@@ -607,24 +596,37 @@ func build_level(i: int, as_preview := false) -> void:
 	mode = "edit"
 	runner = null
 	objs = {"crates": [], "balls": [], "levers": [], "plates": [], "bridges": [], "rotators": [], "sliders": [],
-		"crumbles": [], "links": [], "cranks": [], "portals": [], "trail": Node3D.new()}
+		"crumbles": [], "links": [], "cranks": [], "portals": [], "phantoms": [], "trail": Node3D.new()}
 	level_root.add_child(objs["trail"])
 	# Not: GDScript lambdaları yerel değişkenleri kopyalar; sınır kutusu bir sözlükte tutulur.
 	var bb := {"box": AABB(Vector3(L.start), Vector3.ZERO)}
 	var grow := func(p: Vector3i): bb["box"] = bb["box"].expand(Vector3(p))
 	# statik bloklar ve merdivenler
+	cell_nodes = {}
 	for p in L.statics:
 		var v: Dictionary = L.statics[p]
 		grow.call(p)
 		if v["t"] == "b":
+			var first := level_root.get_child_count()
 			_mesh(_ao_box(p), _mat(_block_color(p), {"vc": true, "rough": 0.9}), Vector3(p))
 			_add_tile(p, _block_color(p))
 			_add_window(p)
+			# bloğun tüm parçaları tek bir hücre düğümünde: zıplama/açılış animasyonu hepsini birlikte taşır
+			var made := level_root.get_children().slice(first)
+			var cell := Node3D.new()
+			cell.position = Vector3(p)
+			level_root.add_child(cell)
+			for nd in made:
+				level_root.remove_child(nd)
+				nd.position -= Vector3(p)
+				cell.add_child(nd)
+			cell_nodes[p] = cell
 		else:
 			var sg := Node3D.new()
 			sg.position = Vector3(p)
 			sg.rotation.y = [0.0, -PI / 2, PI, PI / 2][int(v["d"])]
 			level_root.add_child(sg)
+			cell_nodes[p] = sg
 			# merdiven: bloklardan bir ton farklı (palet vurgusuna doğru) — okunabilirlik
 			var col := _block_color(p + Vector3i.UP).lerp(Color(pal["accent"]), 0.22).darkened(0.04)
 			for k in 3:
@@ -738,6 +740,18 @@ func build_level(i: int, as_preview := false) -> void:
 			var m := _mesh(_torus(0.22, 0.34), _mat(pal["accent"], {"alpha": true, "unique": true, "unshaded": true}), Vector3(c) + Vector3(0, -0.47, 0))
 			m.scale = Vector3(1, 0.15, 1)
 			objs["links"].append({"m": m, "view": ln["view"]})
+	# hayalet bloklar: renk, katılaştıkları bakış açısını gösterir
+	for phi in L.phantoms.size():
+		var ph: Dictionary = L.phantoms[phi]
+		var col: Color = VIEW_COLS[int(ph["views"][0]) % 4]
+		var ms := []
+		for c in ph["cells"]:
+			grow.call(c)
+			var m := _mesh(rbox_mesh, _mat(col, {"alpha": true, "unique": true, "rough": 0.35, "emit": 0.0}), Vector3(c))
+			var edge := _mesh(_box(Vector3(1.04, 1.04, 1.04)), _mat(col, {"alpha": true, "unique": true, "unshaded": true}), Vector3.ZERO, m)
+			edge.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			ms.append({"m": m, "edge": edge})
+		objs["phantoms"].append({"ms": ms, "views": ph["views"], "col": col})
 	# ışınlayıcılar
 	var pcols := ["#5ef0ff", "#c58bff", "#7dffb0", "#ffd36e"]
 	for pi in L.portals.size():
@@ -787,13 +801,17 @@ func build_level(i: int, as_preview := false) -> void:
 	# kamera
 	cam_target = aabb.get_center()
 	var sz := aabb.size
-	cam_size = maxf(9.0, (maxf(sz.x, sz.z) * 0.62 + sz.y * 0.45) * 1.2 + 3.2)
+	weather.place(cam_target, sz)
+	cam_size = maxf(9.0, (maxf(sz.x, sz.z) * 0.62 + sz.y * 0.55) * 1.2 + 3.2)
 	cam_az = 45.0 + 90.0 * state["view"]
 	cam_az_cur = cam_az + 30.0
 	cam_zoom = 1.0
 	displayed = state
+	view_dots.get_meta("pill").visible = not L.phantoms.is_empty()
 	_apply_visual(state, state, 1.0)
 	_on_resize()
+	if not instant and not as_preview:
+		_cascade_in()
 
 ## Yürünebilir üst yüz karo detayı: bloğun üstünde açıkta kalan yüze biraz daha açık, kenarlardan içeri
 ## çekilmiş ince bir plaka. Aradaki şerit karo çerçevesi gibi okunur; ızgara kareleri anında sayılır.
@@ -885,7 +903,13 @@ func _make_robot() -> Node3D:
 	var blob := _mesh(_cyl(0.3, 0.3, 0.005), _mat("#140c28", {"alpha": true, "unshaded": true, "unique": true}), Vector3(0, 0.012, 0), g)
 	blob.material_override.albedo_color.a = 0.32
 	blob.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	var body := _mesh(_rounded_box(Vector3(0.46, 0.42, 0.4), 0.1, 3), amber, Vector3(0, 0.33, 0), g)
+	# vis: Tween'lerle sürülen katman (iniş ezilmesi, çarpma titremesi, zafer dönüşü)
+	# pose: her karede hesaplanan katman (nefes, adım esnemesi, dönüş zıplaması). Izgara konumu g'de kalır.
+	var vis := Node3D.new()
+	g.add_child(vis)
+	var pose := Node3D.new()
+	vis.add_child(pose)
+	var body := _mesh(_rounded_box(Vector3(0.46, 0.42, 0.4), 0.1, 3), amber, Vector3(0, 0.33, 0), pose)
 	_mesh(_box(Vector3(0.36, 0.22, 0.04)), _mat("#1e1b27", {"rough": 0.35}), Vector3(0, 0.04, 0.2), body)
 	_mesh(_box(Vector3(0.48, 0.05, 0.42)), dark, Vector3(0, -0.12, 0), body)
 	var eyes := Node3D.new()
@@ -893,16 +917,16 @@ func _make_robot() -> Node3D:
 	body.add_child(eyes)
 	for x in [-0.08, 0.08]:
 		_mesh(_sphere(0.04), _mat("#6ff6ff", {"emit": 4.0, "unshaded": true}), Vector3(x, 0, 0), eyes)
-	_mesh(_cyl(0.018, 0.018, 0.16), dark, Vector3(0, 0.62, 0), g)
+	_mesh(_cyl(0.018, 0.018, 0.16), dark, Vector3(0, 0.62, 0), pose)
 	var bulb_mat := _mat("#6ff6ff", {"emit": 4.0, "unique": true})
-	_mesh(_sphere(0.05), bulb_mat, Vector3(0, 0.72, 0), g)
+	_mesh(_sphere(0.05), bulb_mat, Vector3(0, 0.72, 0), pose)
 	for x in [-0.12, 0.12]:
-		_mesh(_box(Vector3(0.12, 0.1, 0.18)), dark, Vector3(x, 0.06, 0.02), g)
+		_mesh(_box(Vector3(0.12, 0.1, 0.18)), dark, Vector3(x, 0.06, 0.02), pose)
 	for x in [-0.27, 0.27]:
 		var cap := CapsuleMesh.new()
 		cap.radius = 0.045
 		cap.height = 0.22
-		_mesh(cap, dark, Vector3(x, 0.3, 0), g)
+		_mesh(cap, dark, Vector3(x, 0.3, 0), pose)
 	# yön oku ve halka
 	var arrow := _mesh(_cyl(0.0, 0.16, 0.02), _mat("#ffffff", {"unshaded": true, "alpha": true, "unique": true}), Vector3(0, 0.03, 0.5), g)
 	arrow.rotation.x = PI / 2
@@ -911,6 +935,8 @@ func _make_robot() -> Node3D:
 	ring.scale = Vector3(1, 0.05, 1)
 	ring.material_override.albedo_color.a = 0.55
 	g.set_meta("body", body)
+	g.set_meta("vis", vis)
+	g.set_meta("pose", pose)
 	g.set_meta("eyes", eyes)
 	g.set_meta("bulb", bulb_mat)
 	g.set_meta("arrow", arrow)
@@ -1057,6 +1083,26 @@ func _apply_visual(sA: Dictionary, sB: Dictionary, t: float, bump := false) -> v
 		objs["plates"][i].material_override.emission_enabled = down
 	for o in objs["links"]:
 		o["m"].material_override.albedo_color.a = 0.95 if sB["view"] == o["view"] else 0.22
+	if not objs["phantoms"].is_empty():
+		for k in 4:
+			var sb := StyleBoxFlat.new()
+			var cur: bool = k == int(sB["view"])
+			sb.bg_color = VIEW_COLS[k] if cur else Color(VIEW_COLS[k], 0.3)
+			sb.set_corner_radius_all(8)
+			if cur:
+				sb.border_color = Color.WHITE
+				sb.set_border_width_all(2)
+			view_dots.get_child(k).add_theme_stylebox_override("panel", sb)
+	for o in objs["phantoms"]:
+		var on := lerpf(1.0 if int(sA["view"]) in o["views"] else 0.0, 1.0 if int(sB["view"]) in o["views"] else 0.0, te)
+		for e in o["ms"]:
+			var mm: StandardMaterial3D = e["m"].material_override
+			mm.albedo_color = Color(o["col"]).lerp(Color("#f4f1ea"), 0.35 * on)
+			mm.albedo_color.a = 0.12 + 0.83 * on
+			mm.emission_energy_multiplier = 0.25 * on
+			e["m"].scale = Vector3.ONE * (0.9 + 0.1 * on)
+			e["m"].cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if on > 0.5 else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			(e["edge"].material_override as StandardMaterial3D).albedo_color.a = 0.16 * (1.0 - on)
 
 func _plate_down(s: Dictionary, p: Vector3i) -> bool:
 	if not s["dead"] and s["p"] == p:
@@ -1110,12 +1156,18 @@ func _update_queue(dt: float) -> void:
 			anim = queue.pop_front()
 			if not instant:
 				_sound_for(anim)
+				if anim["bump"]:
+					_robot_shake()
 		anim["t"] += dt / anim["dur"] if anim["dur"] > 0 else 1.0
 		dt = 0.0
 		if anim["t"] >= 1.0:
 			_apply_visual(anim["from"], anim["to"], 1.0)
 			displayed = anim["to"]
+			var done: Dictionary = anim
 			anim = null
+			if done.get("first", false) and not done["bump"] and String(done.get("kind", "")) in ["F", "J"] \
+					and not done["to"]["dead"] and done["from"]["p"] != done["to"]["p"]:
+				_robot_land(done["to"]["p"])
 			if not instant and queue.size() > 0:
 				return
 		else:
@@ -1166,7 +1218,18 @@ func _tick() -> bool:
 	if n == null:
 		_end_run(runner.error if runner.error != "" else "end")
 		return false
+	if not run_log.has("faced"):
+		var fk := Nova.front_object(L, state)
+		if fk != "":
+			run_log["faced"] = fk
+	if n["ins"]["c"] == "A":
+		run_log["used_A"] = true
 	var r := Program.cmd_step(L, state, n["ins"]["c"])
+	run_log["last"] = {"proc": n["proc"], "idx": n["idx"], "c": n["ins"]["c"]}
+	if r["bump"]:
+		run_log["bumps"] = int(run_log.get("bumps", 0)) + 1
+		if run_log.get("first_bump") == null:
+			run_log["first_bump"] = run_log["last"]
 	if str(step_once) == "true":
 		step_once = "done"
 	if r["pause"]:
@@ -1195,7 +1258,9 @@ func _start_run(step := false) -> void:
 	for c in objs["trail"].get_children():
 		c.queue_free()
 	step_once = "true" if step else false
+	run_log = {"last": null, "first_bump": null, "bumps": 0}
 	_hide_hint()
+	_hide_nova()
 	audio.play("run")
 	_set_mode("running")
 
@@ -1230,6 +1295,8 @@ func _reset_to_setup() -> void:
 	state = setup_state
 	setup_state = null
 	displayed = state
+	_robot_reset()
+	_gem_restore()
 	runner = null
 	_apply_visual(state, state, 1.0)
 	_sync_view()
@@ -1242,6 +1309,38 @@ func _end_run(reason: String) -> void:
 	if not instant and reason != "dead":
 		audio.play("fail")
 	_set_mode("ended")
+	if reason != "dead":
+		_robot_shake()
+	_nova_analyze(reason)
+
+## Nova başarısız çalıştırmayı analiz eder, açıklar ve sorunlu bloğu seçip vurgular.
+func _nova_analyze(reason: String) -> void:
+	var a := Nova.analyze(L, prog, state, reason, run_log)
+	if instant:
+		nova_card.set_meta("last", a)
+		return
+	lbl_nova_title.text = String(a["title"]).to_upper()
+	lbl_nova.text = a["text"]
+	var f = a["focus"]
+	if f != null and int(f["idx"]) < prog[f["row"]].size():
+		sel = {"row": f["row"], "idx": int(f["idx"])}
+		active_row = f["row"]
+		_render_rows()
+	hint_card.visible = false
+	get_tree().create_timer(0.45).timeout.connect(func():
+		if mode == "ended" and _current == "":
+			nova_card.visible = true
+			_layout()
+			UIKit.pop_in(nova_card, 0.0, 0.7)
+			# sorunlu bloğu sallayarak göster (yerleşim oturduktan sonra)
+			if f != null and sel != null and sel["row"] == f["row"] and sel["idx"] == int(f["idx"]):
+				var tiles: Array = tile_nodes.get(f["row"], [])
+				if int(f["idx"]) < tiles.size():
+					UIKit.shake(tiles[int(f["idx"])]))
+
+func _hide_nova() -> void:
+	if nova_card != null:
+		nova_card.visible = false
 
 func _set_mode(m: String, quiet := false) -> void:
 	mode = m
@@ -1298,6 +1397,9 @@ func _rotate_view(s: int) -> bool:
 		cam_az += 90.0 * s
 		audio.play("whoosh")
 		return true
+	if not L.phantoms.is_empty() and _can_edit_world():
+		_toast("Bu açıda bir hayalet blok Robo'nun ya da kutunun içinde belirirdi")
+		UIKit.shake(tools_box)
 	return false
 
 func _sync_view() -> void:
@@ -1316,6 +1418,207 @@ func _reset_world() -> void:
 	_apply_visual(state, state, 1.0)
 	_sync_view()
 
+
+# =====================================================================
+# Game feel: prosedürel animasyonlar (Faz 3). Tüm süreler hız çarpanına bölünür; her animasyon
+# isimli bir tween kullanır ve yenisi başlamadan öncekini kill() eder (hızlı mod/Durdur/Sıfırla güvenli).
+func _kill_tw(key: String) -> void:
+	var t = _tw.get(key)
+	if t != null and is_instance_valid(t):
+		t.kill()
+	_tw.erase(key)
+
+func _new_tw(key: String, node: Node) -> Tween:
+	_kill_tw(key)
+	var t := node.create_tween()
+	_tw[key] = t
+	return t
+
+func _kill_all_tweens() -> void:
+	for k in _tw.keys():
+		_kill_tw(k)
+	_deleting = false
+
+## Robotun Tween katmanını (vis) temizler ve nötr pozisyona döndürür.
+func _robot_reset() -> void:
+	for k in ["robot", "robot_spin", "robot_shake"]:
+		_kill_tw(k)
+	if objs.has("player"):
+		var vis: Node3D = objs["player"].get_meta("vis")
+		vis.transform = Transform3D.IDENTITY
+
+## Bölüm açılışı: bloklar alttan üste, ızgara sırasıyla kısa gecikmelerle yaylanarak yerine oturur (≤ 0,8 sn).
+func _cascade_in() -> void:
+	var items := []
+	for p in cell_nodes:
+		items.append({"n": cell_nodes[p], "k": p.y * 1000 + p.x + p.z, "slide": true})
+	for c in objs["crumbles"]:
+		items.append({"n": c, "k": int(c.position.y) * 1000 + int(c.position.x + c.position.z), "slide": true})
+	for rg in objs["rotators"]:
+		items.append({"n": rg, "k": 999999, "slide": false})
+	for sg in objs["sliders"]:
+		items.append({"n": sg, "k": 999999, "slide": false})
+	items.sort_custom(func(a, b): return a["k"] < b["k"])
+	var n := items.size()
+	if n == 0:
+		return
+	var stagger := clampf(0.45 / n, 0.006, 0.035)
+	var tw := _new_tw("cascade", level_root).set_parallel(true)
+	for i in n:
+		var nd: Node3D = items[i]["n"]
+		var d := i * stagger
+		var target_s := nd.scale
+		nd.scale = Vector3.ONE * 0.01
+		tw.tween_property(nd, "scale", target_s, 0.32).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT).set_delay(d)
+		if items[i]["slide"]:
+			var y := nd.position.y
+			nd.position.y = y - 0.6
+			tw.tween_property(nd, "position:y", y, 0.32).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT).set_delay(d)
+	# robot ve kristal en son belirir
+	var vis: Node3D = objs["player"].get_meta("vis")
+	vis.scale = Vector3.ONE * 0.01
+	var end := minf(0.5, (n - 1) * stagger) + 0.12
+	tw.tween_property(vis, "scale", Vector3.ONE, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT).set_delay(end)
+	var gem: Node3D = objs["gem"]
+	var gs := gem.scale
+	gem.scale = Vector3.ONE * 0.01
+	tw.tween_property(gem, "scale", gs, 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT).set_delay(end + 0.05)
+
+## İniş ezilmesi + basılan bloğun yaylanması
+func _robot_land(at: Vector3i) -> void:
+	if instant or not objs.has("player"):
+		return
+	var sp := _speed()
+	var vis: Node3D = objs["player"].get_meta("vis")
+	var tw := _new_tw("robot", vis)
+	tw.tween_property(vis, "scale", Vector3(1.12, 0.88, 1.12), 0.08 / sp).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	tw.tween_property(vis, "scale", Vector3.ONE, 0.2 / sp).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	_tile_bounce(at + Vector3i.DOWN)
+
+func _tile_bounce(p: Vector3i) -> void:
+	var cell = cell_nodes.get(p)
+	if cell == null or not is_instance_valid(cell):
+		return
+	var sp := _speed()
+	var base := float(p.y)
+	var tw := _new_tw("tile:%s" % p, cell)
+	tw.tween_property(cell, "position:y", base - 0.05, 0.06 / sp).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tw.tween_property(cell, "position:y", base, 0.12 / sp).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+## Çarpma / hata: yanlara kısa titreme (öne sekme _apply_visual'da yapılır)
+func _robot_shake() -> void:
+	if instant or not objs.has("player"):
+		return
+	var sp := _speed()
+	var vis: Node3D = objs["player"].get_meta("vis")
+	vis.position.x = 0.0
+	var tw := _new_tw("robot_shake", vis)
+	for k in [0.07, -0.06, 0.04, -0.02, 0.0]:
+		tw.tween_property(vis, "position:x", k, 0.045 / sp).set_trans(Tween.TRANS_SINE)
+
+## Zafer: 360° sevinç dönüşü ve iki zıplama
+func _robot_victory() -> void:
+	if instant or not objs.has("player"):
+		return
+	_robot_reset()
+	var vis: Node3D = objs["player"].get_meta("vis")
+	var spin := _new_tw("robot_spin", vis)
+	spin.tween_property(vis, "rotation:y", TAU, 0.75).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
+	var hop := _new_tw("robot", vis)
+	hop.tween_property(vis, "position:y", 0.42, 0.2).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	hop.tween_property(vis, "position:y", 0.0, 0.18).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	hop.tween_property(vis, "scale", Vector3(1.12, 0.88, 1.12), 0.06)
+	hop.tween_property(vis, "scale", Vector3.ONE, 0.1)
+	hop.tween_property(vis, "position:y", 0.26, 0.16).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	hop.tween_property(vis, "position:y", 0.0, 0.15).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	hop.tween_property(vis, "scale", Vector3(1.08, 0.92, 1.08), 0.05)
+	hop.tween_property(vis, "scale", Vector3.ONE, 0.18).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	hop.tween_callback(func(): vis.rotation.y = 0.0)
+
+## Kristal toplanır: büyüyüp parlar, küçülüp kaybolur, parçacık patlaması
+func _gem_collect() -> void:
+	if instant:
+		return
+	objs["gem_taken"] = true
+	var gem: Node3D = objs["gem"]
+	var gs := Vector3(1, 1.35, 1)
+	var tw := _new_tw("gem", gem)
+	tw.tween_property(gem, "scale", gs * 1.5, 0.16).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.tween_property(gem, "scale", Vector3.ONE * 0.01, 0.2).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	var gl: OmniLight3D = objs["gem_light"]
+	var lt := _new_tw("gem_light", gl)
+	lt.tween_property(gl, "light_energy", 5.0, 0.14)
+	lt.tween_property(gl, "light_energy", 0.0, 0.5)
+	var ring: MeshInstance3D = objs["goal_ring"]
+	var rt := _new_tw("gem_ring", ring)
+	rt.tween_property(ring.material_override, "albedo_color:a", 0.0, 0.4)
+	var pm := CPUParticles3D.new()
+	pm.one_shot = true
+	pm.explosiveness = 1.0
+	pm.amount = 36
+	pm.lifetime = 0.9
+	pm.position = Vector3(L.goal) + Vector3(0, 0.15, 0)
+	pm.direction = Vector3.UP
+	pm.spread = 180.0
+	pm.initial_velocity_min = 1.6
+	pm.initial_velocity_max = 3.4
+	pm.gravity = Vector3(0, -5.0, 0)
+	pm.damping_min = 1.0
+	pm.damping_max = 2.0
+	var curve := Curve.new()
+	curve.add_point(Vector2(0, 1))
+	curve.add_point(Vector2(1, 0))
+	pm.scale_amount_curve = curve
+	var q := QuadMesh.new()
+	q.size = Vector2(0.11, 0.11)
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	m.vertex_color_use_as_albedo = true
+	q.material = m
+	pm.mesh = q
+	var grad := Gradient.new()
+	grad.set_color(0, Color.WHITE)
+	grad.set_color(1, Color(pal["accent"]))
+	pm.color_initial_ramp = grad
+	pm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	level_root.add_child(pm)
+	pm.emitting = true
+	get_tree().create_timer(1.6).timeout.connect(func(): if is_instance_valid(pm): pm.queue_free())
+
+## Tekrar denemede kristali geri getirir
+func _gem_restore() -> void:
+	if not objs.get("gem_taken", false):
+		return
+	objs["gem_taken"] = false
+	for k in ["gem", "gem_light", "gem_ring"]:
+		_kill_tw(k)
+	objs["gem"].scale = Vector3(1, 1.35, 1)
+	objs["goal_ring"].material_override.albedo_color.a = 0.8
+
+## Robotun her karede hesaplanan pozu: hareket sırasında esneme / dönüşte zıplama, boşta nefes.
+func _robot_pose() -> void:
+	var pl: Node3D = objs["player"]
+	var pose: Node3D = pl.get_meta("pose")
+	var st := Vector3.ONE
+	var hop := 0.0
+	if anim != null and anim.get("first", false) and not anim["bump"]:
+		var t := clampf(anim["t"], 0.0, 1.0)
+		match String(anim.get("kind", "")):
+			"F", "J":
+				var a = anim["from"]["p"]
+				var b = anim["to"]["p"]
+				if a != b and not anim["to"]["dead"]:
+					st = Vector3.ONE.lerp(Vector3(0.92, 1.12, 0.92), sin(PI * t))
+			"L", "R":
+				hop = 0.18 * 4.0 * t * (1.0 - t)
+	elif anim == null and queue.is_empty():
+		var br := (sin(time * 2.4) + 1.0) * 0.5
+		st = Vector3(1.0 - 0.02 * br, 1.0 + 0.04 * br, 1.0 - 0.02 * br)
+	pose.scale = st
+	pose.position.y = hop
+	var bm: StandardMaterial3D = pl.get_meta("bulb")
+	bm.emission_energy_multiplier = 3.2 + sin(time * 3.2) * 1.4
 
 # =====================================================================
 # Kazanma
@@ -1340,6 +1643,8 @@ func _on_win() -> void:
 	_save_progress()
 	if not instant:
 		_confetti(Vector3(L.goal))
+		_gem_collect()
+		_robot_victory()
 		audio.play("win")
 	_prepare_win(stars, blocks, par)
 	if instant:
@@ -1380,6 +1685,8 @@ func _process(dt: float) -> void:
 	var a := deg_to_rad(cam_az_cur)
 	cam.position = cam_target + Vector3(cos(EL) * cos(a), sin(EL), cos(EL) * sin(a)) * 60.0
 	cam.look_at(cam_target, Vector3.UP)
+	var vsz := get_viewport().get_visible_rect().size
+	weather.set_view(deg_to_rad(cam_az_cur), vsz.x / maxf(vsz.y, 1.0), Vector2(get_viewport().size))
 	var want_size := cam_size / cam_zoom * (1.02 if portrait else 1.0)
 	cam.size = lerpf(cam.size, want_size, minf(1.0, dt * 8.0))
 	_update_offset()
@@ -1388,16 +1695,18 @@ func _process(dt: float) -> void:
 	if L != null and objs.has("player"):
 		_update_queue(dt)
 		var gem: MeshInstance3D = objs["gem"]
-		gem.rotation.y = time * 1.6
+		gem.rotation.y = time * (1.6 if not objs.get("gem_taken", false) else 9.0)
 		gem.position.y = L.goal.y + 0.1 + sin(time * 2.4) * 0.07
 		objs["goal_ring"].scale = Vector3(1, 0.1, 1) * (1.0 + sin(time * 3.0) * 0.08)
+		_robot_pose()
 		var pl: Node3D = objs["player"]
 		pl.get_meta("body").position.y = 0.33 + sin(time * 4.0) * 0.012
 		pl.get_meta("eyes").scale.y = 0.15 if fmod(time, 3.7) < 0.12 else 1.0
 		for p in objs["portals"]:
 			p["ring"].rotation.y = time * 1.4
-		var gl: OmniLight3D = objs["gem_light"]
-		gl.light_energy = 1.3 + sin(time * 2.4) * 0.25
+		if not objs.get("gem_taken", false):
+			var gl: OmniLight3D = objs["gem_light"]
+			gl.light_energy = 1.3 + sin(time * 2.4) * 0.25
 
 ## Sahne, program panelinin kaplamadığı alana ortalanır (yatayda sağ panel, dikeyde alt panel).
 func _update_offset() -> void:
@@ -1480,6 +1789,8 @@ func _on_back() -> void:
 			_show("")
 	elif hint_card.visible:
 		_hide_hint()
+	elif nova_card.visible:
+		_hide_nova()
 	elif sel != null and _current == "":
 		sel = null
 		_render_rows()
@@ -1627,6 +1938,37 @@ func _build_hud() -> void:
 	hint_card.visible = false
 	hint_card.gui_input.connect(func(e): if e is InputEventMouseButton and e.pressed: _hide_hint())
 	hud.add_child(hint_card)
+	# Nova: yapay zekâ öğretmeninin analiz balonu
+	nova_card = UIKit.card(0.97, 24, 16)
+	var nh := HBoxContainer.new()
+	nh.add_theme_constant_override("separation", 12)
+	nh.add_child(UIKit.nova_avatar(48))
+	var nv := VBoxContainer.new()
+	nv.add_theme_constant_override("separation", 2)
+	lbl_nova_title = UIKit.label("", 14, Color("#6a4cff"), UIKit.font_black)
+	nv.add_child(lbl_nova_title)
+	lbl_nova = UIKit.label("", 18)
+	lbl_nova.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	lbl_nova.custom_minimum_size = Vector2(360, 0)
+	nv.add_child(lbl_nova)
+	nh.add_child(nv)
+	nova_card.add_child(nh)
+	nova_card.visible = false
+	nova_card.gui_input.connect(func(e): if e is InputEventMouseButton and e.pressed: _hide_nova())
+	hud.add_child(nova_card)
+	# bakış açısı göstergesi (yalnızca hayalet bloklu seviyelerde)
+	view_dots = HBoxContainer.new()
+	view_dots.add_theme_constant_override("separation", 6)
+	for k in 4:
+		var d := Panel.new()
+		d.custom_minimum_size = Vector2(14, 14)
+		d.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		view_dots.add_child(d)
+	var vp := UIKit.pill(view_dots, Color(1, 1, 1, 0.85), 10)
+	vp.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tools_box.add_child(vp)
+	tools_box.move_child(vp, 0)
+	view_dots.set_meta("pill", vp)
 	_build_panel()
 
 func _build_panel() -> void:
@@ -1959,6 +2301,20 @@ func _build_screens() -> void:
 	var badge := UIKit.pill(UIKit.label("YENİ", 15, Color.WHITE, UIKit.font_black), UIKit.CORAL, 10)
 	badge.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	ivb.add_child(badge)
+	intro_badge = badge
+	# Nova'nın sunduğu kartlarda avatar + isim
+	var nrow := HBoxContainer.new()
+	nrow.add_theme_constant_override("separation", 12)
+	nrow.add_child(UIKit.nova_avatar(58))
+	var ncol := VBoxContainer.new()
+	ncol.alignment = BoxContainer.ALIGNMENT_CENTER
+	ncol.add_theme_constant_override("separation", -4)
+	ncol.add_child(UIKit.label("NOVA", 22, Color("#6a4cff"), UIKit.font_black))
+	ncol.add_child(UIKit.label("Yapay zekâ öğretmenin", 15, UIKit.INK_SOFT, UIKit.font_bold))
+	nrow.add_child(ncol)
+	nrow.visible = false
+	ivb.add_child(nrow)
+	intro_nova = nrow
 	lbl_intro_title = UIKit.label("", 32, UIKit.INK, UIKit.font_black)
 	ivb.add_child(lbl_intro_title)
 	lbl_intro_text = RichTextLabel.new()
@@ -2070,8 +2426,8 @@ func _animate_enter(k: String) -> void:
 				st.scale = Vector2.ZERO
 				st.rotation = -0.6
 				var stw := st.create_tween().set_parallel(true)
-				var d := 0.45 + i * 0.28
-				stw.tween_property(st, "scale", Vector2.ONE, 0.5).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT).set_delay(d)
+				var d := 0.45 + i * 0.2
+				stw.tween_property(st, "scale", Vector2.ONE, 0.7).set_trans(Tween.TRANS_ELASTIC).set_ease(Tween.EASE_OUT).set_delay(d)
 				stw.tween_property(st, "rotation", 0.0, 0.5).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT).set_delay(d)
 				if i < n:
 					get_tree().create_timer(d).timeout.connect(func(): audio.play("star", 1.0 + i * 0.12))
@@ -2090,7 +2446,7 @@ func _animate_enter(k: String) -> void:
 func _fade_veil() -> void:
 	if instant:
 		return
-	veil.color = _sky_colors()[0]
+	veil.color = weather.veil_color()
 	veil.color.a = 1.0
 	var tw := veil.create_tween()
 	tw.tween_property(veil, "color:a", 0.0, 0.55).set_trans(Tween.TRANS_SINE).set_delay(0.05)
@@ -2129,6 +2485,9 @@ func _layout() -> void:
 	var free_w := vs.x if portrait else panel.position.x
 	status_pill.position = Vector2((free_w - status_pill.size.x) / 2, 92)
 	hint_card.position = Vector2(16, 90)
+	lbl_nova.custom_minimum_size = Vector2(minf(460, (vs.x if portrait else panel.position.x) - 130), 0)
+	nova_card.reset_size()
+	nova_card.position = Vector2(16, status_pill.position.y + status_pill.size.y + 10 if status_pill.visible else 90.0)
 	toast_pill.reset_size()
 	toast_pill.position.x = (vs.x - toast_pill.size.x) / 2
 	var tp: Control = screens["title"].get_meta("star_pill")
@@ -2293,7 +2652,13 @@ func _level_bubble(i: int, p: Dictionary, locked: bool, current: bool) -> Contro
 func _start_level(i: int) -> void:
 	build_level(i)
 	var saved = progress["progs"].get(str(i))
-	prog = Program.parse_program(saved) if saved is Dictionary else {"main": [], "p1": [], "p2": []}
+	var starter = levels[i].get("starter")
+	if saved is Dictionary:
+		prog = Program.parse_program(saved)
+	elif starter is Dictionary:
+		prog = Program.parse_program(starter)   # hata ayıklama seviyesi: hazır (hatalı) program
+	else:
+		prog = {"main": [], "p1": [], "p2": []}
 	var slots: Dictionary = levels[i]["slots"]
 	for r in ROWS:
 		var cap := int(slots.get(r, 0))
@@ -2303,6 +2668,7 @@ func _start_level(i: int) -> void:
 	sel = null
 	lbl_hint.text = levels[i].get("hint", "")
 	_hide_hint()
+	_hide_nova()
 	_render_palette()
 	_set_mode("edit")
 	_show("")
@@ -2313,6 +2679,9 @@ func _start_level(i: int) -> void:
 	if intro is Dictionary and not progress["seen"].has(str(i)) and not instant:
 		lbl_intro_title.text = intro["title"]
 		lbl_intro_text.text = _html_to_bb(intro["text"])
+		var ai: bool = intro.get("ai", false)
+		intro_badge.visible = not ai
+		intro_nova.visible = ai
 		get_tree().create_timer(0.35).timeout.connect(func(): if _current == "": _show("intro"))
 
 func _animate_hud_in() -> void:
@@ -2397,6 +2766,7 @@ func _apply_gfx() -> void:
 	vp.msaa_3d = [Viewport.MSAA_DISABLED, Viewport.MSAA_4X, Viewport.MSAA_8X][gfx]
 	vp.scaling_3d_scale = [0.75, 1.0, 1.5][gfx]
 	RenderingServer.directional_shadow_atlas_set_size([1024, 4096, 4096][gfx], true)
+	weather.set_quality(gfx)
 
 
 # ---------- HUD ----------
@@ -2412,7 +2782,7 @@ func _update_hud() -> void:
 			ch += 1
 	lbl_chap.text = ("BÖLÜM %d · %s" % [ch, def["chapter"]]).to_upper()
 	lbl_name.text = "%d. %s" % [level_idx + 1, def["name"]]
-	var dark: bool = pal.get("dark", false)
+	var dark: bool = weather.is_dark()
 	lbl_chap.add_theme_color_override("font_color", Color("#cfc6ee") if dark else UIKit.INK_SOFT)
 	lbl_name.add_theme_color_override("font_color", Color("#f5efff") if dark else UIKit.INK)
 	for l in [lbl_chap, lbl_name]:
@@ -2443,6 +2813,7 @@ func _toggle_hint() -> void:
 	if hint_card.visible:
 		_hide_hint()
 	else:
+		_hide_nova()
 		hint_card.visible = true
 		_layout()
 		UIKit.pop_in(hint_card, 0.0, 0.7)
@@ -2475,6 +2846,9 @@ func _prepare_win(stars: int, blocks: int, par: int) -> void:
 		txt += "\nPar'dan da kısa — usta programcı!"
 	elif stars < 3:
 		txt += "\n3 yıldız için en fazla %d blok kullan." % par
+		var tip := Nova.suggest(levels[level_idx], prog)
+		if tip != "":
+			txt += "\n" + tip
 	lbl_win.text = txt
 	btn_next.visible = level_idx < levels.size() - 1
 
@@ -2567,9 +2941,16 @@ func _mark_exec(n, skipped: Array) -> void:
 	_skipped = skipped
 	if instant:
 		return
-	if _run_tile != null and is_instance_valid(_run_tile):
-		(_run_tile.get_meta("ring") as Panel).visible = false
-		_run_tile.scale = Vector2.ONE
+	var sp := _speed()
+	var prev_tile: Button = _run_tile if _run_tile != null and is_instance_valid(_run_tile) else null
+	var cur_tile: Button = null
+	if n != null and tile_nodes.has(n["proc"]) and n["idx"] < tile_nodes[n["proc"]].size():
+		cur_tile = tile_nodes[n["proc"]][n["idx"]]
+	if prev_tile != null and prev_tile != cur_tile:
+		(prev_tile.get_meta("ring") as Panel).visible = false
+		prev_tile.pivot_offset = prev_tile.size / 2
+		var ptw := _new_tw("exec:%d" % prev_tile.get_instance_id(), prev_tile)
+		ptw.tween_property(prev_tile, "scale", Vector2.ONE, 0.14 / sp).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 	_run_tile = null
 	for row in tile_nodes:
 		for t in tile_nodes[row]:
@@ -2583,9 +2964,8 @@ func _mark_exec(n, skipped: Array) -> void:
 		var t: Button = tile_nodes[n["proc"]][n["idx"]]
 		(t.get_meta("ring") as Panel).visible = true
 		t.pivot_offset = t.size / 2
-		t.scale = Vector2(1.18, 1.18)
-		var tw := t.create_tween()
-		tw.tween_property(t, "scale", Vector2(1.08, 1.08), 0.18).set_trans(Tween.TRANS_BACK)
+		var tw := _new_tw("exec:%d" % t.get_instance_id(), t)
+		tw.tween_property(t, "scale", Vector2(1.12, 1.12), 0.12 / sp).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 		_run_tile = t
 		rows_scroll.ensure_control_visible(t)
 	for row in ROWS:
@@ -2654,8 +3034,11 @@ func _render_rows() -> void:
 				ring.visible = true
 			flow.add_child(t)
 			tile_nodes[row].append(t)
-			if _insert_anim != null and _insert_anim["row"] == row and _insert_anim["idx"] == idx:
-				UIKit.pop_in(t, 0.0, 0.3)
+			if _insert_anim != null and _insert_anim["row"] == row and _insert_anim["idx"] == idx and not instant:
+				t.pivot_offset = t.custom_minimum_size / 2
+				t.scale = Vector2(0.2, 0.2)
+				var itw := _new_tw("slot_in:%d" % t.get_instance_id(), t)
+				itw.tween_property(t, "scale", Vector2.ONE, 0.15).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 		for k in range(prog[row].size(), cap):
 			var e := Panel.new()
 			e.custom_minimum_size = Vector2(52, 52)
@@ -2690,6 +3073,8 @@ func _render_rows() -> void:
 	if _exec["proc"] != "" and tile_nodes.has(_exec["proc"]) and _exec["idx"] < tile_nodes[_exec["proc"]].size():
 		var t: Button = tile_nodes[_exec["proc"]][_exec["idx"]]
 		(t.get_meta("ring") as Panel).visible = true
+		t.pivot_offset = t.custom_minimum_size / 2
+		t.scale = Vector2(1.12, 1.12)
 		_run_tile = t
 	_update_hud()
 
@@ -2728,12 +3113,34 @@ func _select(row: String, idx: int) -> void:
 	audio.play("tap")
 	_render_rows()
 
+var _deleting := false
+
 func _delete_sel() -> void:
-	if sel == null or not _editable():
+	if sel == null or not _editable() or _deleting:
 		return
-	prog[sel["row"]].remove_at(sel["idx"])
-	sel = null
+	var row: String = sel["row"]
+	var idx: int = sel["idx"]
 	audio.play("del")
+	var tiles: Array = tile_nodes.get(row, [])
+	if instant or idx >= tiles.size():
+		_finish_delete(row, idx)
+		return
+	# slot küçülerek kaybolur, sonra program güncellenir
+	_deleting = true
+	var t: Button = tiles[idx]
+	t.pivot_offset = t.size / 2
+	t.disabled = true
+	var tw := _new_tw("slot_out:%d" % t.get_instance_id(), t)
+	tw.set_parallel(true)
+	tw.tween_property(t, "scale", Vector2(0.05, 0.05), 0.1).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tw.tween_property(t, "modulate:a", 0.0, 0.1)
+	tw.chain().tween_callback(func(): _finish_delete(row, idx))
+
+func _finish_delete(row: String, idx: int) -> void:
+	_deleting = false
+	if idx < prog[row].size():
+		prog[row].remove_at(idx)
+	sel = null
 	_prog_changed()
 
 func _move_sel(d: int) -> void:
@@ -2760,11 +3167,28 @@ func _cycle_cond() -> void:
 	_prog_changed()
 
 func _clear_prog() -> void:
-	if not _editable() or Program.block_count(prog) == 0:
+	if not _editable() or Program.block_count(prog) == 0 or _deleting:
 		return
+	audio.play("del")
+	var all := []
+	for row in tile_nodes:
+		all.append_array(tile_nodes[row])
+	if instant or all.is_empty():
+		_finish_clear()
+		return
+	_deleting = true
+	var tw := _new_tw("slot_clear", rows_box).set_parallel(true)
+	for k in all.size():
+		var t: Button = all[k]
+		t.pivot_offset = t.size / 2
+		t.disabled = true
+		tw.tween_property(t, "scale", Vector2(0.05, 0.05), 0.1).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN).set_delay(minf(0.15, k * 0.012))
+	tw.chain().tween_callback(_finish_clear)
+
+func _finish_clear() -> void:
+	_deleting = false
 	prog = {"main": [], "p1": [], "p2": []}
 	sel = null
-	audio.play("del")
 	_prog_changed()
 
 func _cycle_speed() -> void:
@@ -2814,6 +3238,22 @@ func _autotest() -> void:
 		if good:
 			ok += 1
 		print("autotest #%d %s: %s" % [i + 1, levels[i]["name"], "TAMAM" if good else "HATA (" + mode + ")"])
+	# Nova: hatalı hazır programlar analiz edilmeli
+	for i in levels.size():
+		if not levels[i].has("starter"):
+			continue
+		_start_level(i)
+		prog = Program.parse_program(levels[i]["starter"])
+		_run_toggle()
+		for guard in 400:
+			_update_queue(0.0)
+			if mode != "running":
+				break
+		var na: Dictionary = nova_card.get_meta("last", {})
+		var nok: bool = mode == "ended" and String(na.get("text", "")) != ""
+		print("autotest Nova #%d %s: %s [%s] %s" % [i + 1, levels[i]["name"], "TAMAM" if nok else "HATA", end_reason, na.get("text", "")])
+	var tip := Nova.suggest(levels[3], {"main": Program.parse_program({"main": ["F", "L", "F", "R", "F", "L", "F", "R"]})["main"], "p1": [], "p2": []})
+	print("autotest Nova öneri: ", tip)
 	# WebView ilerleme taşıma: sahte bir LevelDB günlüğünden okuma
 	var fake := PackedByteArray([0x01, 0x02])
 	fake.append_array("_https://appassets.androidplatform.net".to_ascii_buffer())
@@ -2864,16 +3304,137 @@ func _shot(spec: String) -> void:
 				await get_tree().process_frame
 			_open_pause()
 	else:
-		progress["seen"][str(i)] = 1
+		# 4. parça: virgüllü bayraklar — vN (kamerayı N kez çevir), intro (kavram kartı), starter (hazır program)
+		var flags: PackedStringArray = parts[3].split(",") if parts.size() > 3 else PackedStringArray()
+		if not "intro" in flags:
+			progress["seen"][str(i)] = 1
+		else:
+			progress["seen"].erase(str(i))
 		_start_level(i)
 		var sol: Dictionary = levels[i]["solution"]
-		prog = Program.parse_program(sol)
+		prog = Program.parse_program(levels[i]["starter"] if "starter" in flags else sol)
 		_render_rows()
-	for f in 90:
+		for fl in flags:
+			if fl.begins_with("v"):
+				for k in int(fl.substr(1)):
+					_rotate_view(1)
+	var wait := 90
+	if parts.size() > 3:
+		for fl in parts[3].split(","):
+			if fl.begins_with("f"):
+				wait = int(fl.substr(1))   # fN: ilk görüntü için bekleme karesi (açılış animasyonunu yakalamak için)
+	for f in wait:
 		await get_tree().process_frame
-	if i >= 0 and parts.size() > 2:
+	if parts.size() > 3 and "bolt" in parts[3].split(","):
+		weather.strike(1.0)
+		for f in 1:
+			await get_tree().process_frame
+	if i >= 0 and parts.size() > 2 and int(parts[2]) > 0:
 		_run_toggle()
 		for f in int(parts[2]):
 			await get_tree().process_frame
 	get_viewport().get_texture().get_image().save_png(parts[1])
 	get_tree().quit()
+
+
+# godot --headless --path godot-program -- --feeltest
+## Gerçek zamanlı (instant olmayan) animasyon testi: açılış, koşu (1x ve hızlı), zafer, silme, durdurma.
+func _feeltest() -> void:
+	var fails := []
+	var wait := func(sec: float) -> void:
+		var t0 := Time.get_ticks_msec()
+		while Time.get_ticks_msec() - t0 < sec * 1000.0:
+			await get_tree().process_frame
+	progress["seen"]["2"] = 1
+	_start_level(2)
+	await get_tree().process_frame
+	var small := 0
+	for p in cell_nodes:
+		if cell_nodes[p].scale.x < 0.99:
+			small += 1
+	if small == 0:
+		fails.append("açılışta bloklar küçük başlamadı")
+	await wait.call(1.0)
+	for p in cell_nodes:
+		var c: Node3D = cell_nodes[p]
+		if not c.scale.is_equal_approx(Vector3.ONE) or absf(c.position.y - p.y) > 0.001:
+			fails.append("açılış bitmedi: %s" % p)
+			break
+	if not objs["player"].get_meta("vis").scale.is_equal_approx(Vector3.ONE):
+		fails.append("robot görünmedi")
+	for spd in [0, speed_idx_max()]:
+		_reset_world_hard()
+		speed_idx = spd
+		prog = Program.parse_program(levels[2]["solution"])
+		_render_rows()
+		_run_toggle()
+		var t0 := Time.get_ticks_msec()
+		var saw_stretch := false
+		var saw_hop := false
+		while not win_shown and Time.get_ticks_msec() - t0 < 20000:
+			await get_tree().process_frame
+			var pose: Node3D = objs["player"].get_meta("pose")
+			saw_stretch = saw_stretch or pose.scale.y > 1.05
+			saw_hop = saw_hop or pose.position.y > 0.1
+		if not win_shown:
+			fails.append("hız %d: kazanılamadı" % spd)
+		if not saw_stretch:
+			fails.append("hız %d: adım esnemesi yok" % spd)
+		if not saw_hop:
+			fails.append("hız %d: dönüş zıplaması yok" % spd)
+		await wait.call(1.5)
+		var vis: Node3D = objs["player"].get_meta("vis")
+		if not vis.scale.is_equal_approx(Vector3.ONE) or absf(vis.position.y) > 0.001:
+			fails.append("hız %d: zafer sonrası robot nötre dönmedi" % spd)
+		if objs["gem"].scale.x > 0.05:
+			fails.append("kristal kaybolmadı")
+		_retry()
+		await wait.call(0.2)
+		if objs["gem"].scale.x < 0.9:
+			fails.append("tekrar denemede kristal geri gelmedi")
+	# silme animasyonu: blok küçülür, sonra programdan çıkar
+	_reset_world_hard()
+	var n0: int = prog["main"].size()
+	_select("main", 0)
+	_delete_sel()
+	await get_tree().process_frame
+	if prog["main"].size() != n0:
+		fails.append("silme animasyonu beklenmeden blok silindi")
+	await wait.call(0.3)
+	if prog["main"].size() != n0 - 1:
+		fails.append("blok silinmedi")
+	# çalışırken durdurma: robot tween'leri temizlenir
+	_run_toggle()
+	await wait.call(0.5)
+	_reset_to_setup()
+	await wait.call(0.4)
+	var v2: Node3D = objs["player"].get_meta("vis")
+	if not v2.transform.is_equal_approx(Transform3D.IDENTITY):
+		fails.append("durdurunca robot katmanı sıfırlanmadı")
+	# hava durumu: her ön ayar uygulanır, şimşek gökte ve sahne ışığında görünür
+	for k in Weather.PRESETS:
+		weather.apply(k, 3.0)
+		var base_sun := sun.light_energy
+		weather.strike(1.0)
+		await get_tree().process_frame
+		await get_tree().process_frame
+		if weather.flash <= 0.0 or sun.light_energy <= base_sun:
+			fails.append("şimşek çalışmadı: " + k)
+		await wait.call(0.6)
+		if weather.flash > 0.0:
+			fails.append("şimşek sönmedi: " + k)
+	for ch in 9:
+		if not Weather.PRESETS.has(Weather.for_chapter(ch)):
+			fails.append("bölüm %d için hava yok" % ch)
+	print("feeltest: ", "TAMAM" if fails.is_empty() else "HATA " + str(fails))
+	get_tree().quit(0 if fails.is_empty() else 1)
+
+func speed_idx_max() -> int:
+	return SPEEDS.size() - 1
+
+func _reset_world_hard() -> void:
+	win_shown = false
+	_show("")
+	if mode != "edit":
+		_reset_to_setup()
+

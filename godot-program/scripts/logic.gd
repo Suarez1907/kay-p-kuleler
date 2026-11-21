@@ -31,6 +31,7 @@ var crumbles := []           # Vector3i
 var links := []              # {a, b, d, view}
 var cranks := []             # {p, rot, dir}
 var portals := []            # {a, b, on}
+var phantoms := []           # {cells, views:Array} — yalnızca o açılardan bakınca katı
 var solution = {}
 
 static func v3(a) -> Vector3i:
@@ -97,6 +98,15 @@ func load_level(d: Dictionary) -> void:
 		cranks.append({"p": v3(c["p"]), "rot": int(c["rot"]), "dir": int(c.get("dir", 1))})
 	for pt in d.get("portals", []):
 		portals.append({"a": v3(pt["a"]), "b": v3(pt["b"]), "on": pt.get("on")})
+	for ph in d.get("phantoms", []):
+		var vw = ph["view"]
+		var views := []
+		if vw is Array:
+			for v in vw:
+				views.append(int(v))
+		else:
+			views.append(int(vw))
+		phantoms.append({"cells": v3list(ph["cells"]), "views": views})
 	solution = d.get("solution", {})
 
 func is_manual(i: int) -> bool:
@@ -181,6 +191,10 @@ func build_world(s: Dictionary, skip_rot := -1, skip_slide := -1) -> Dictionary:
 	for i in crumbles.size():
 		if s["crumbles"][i] == 0:
 			solid[crumbles[i]] = {"t": "cr", "i": i}
+	for i in phantoms.size():
+		if int(s["view"]) in phantoms[i]["views"]:
+			for c in phantoms[i]["cells"]:
+				solid[c] = {"t": "ph", "i": i}
 	for i in levers.size():
 		solid[levers[i]["p"]] = {"t": "lv", "i": i}
 	for i in cranks.size():
@@ -496,8 +510,18 @@ func step(s0: Dictionary, a: Dictionary) -> Dictionary:
 		if not _try_slide(s, int(a["i"]), int(a["s"])):
 			return {"ok": false}
 	elif t == "view":
+		var W0 := build_world(s0)
 		s["view"] = ((s["view"] + int(a["s"])) % 4 + 4) % 4
-		return {"ok": true, "state": s, "frames": [s]}
+		# beliren hayalet blok bir varlığın içine doğamaz
+		for ph in phantoms:
+			if int(s["view"]) in ph["views"] and not (int(s0["view"]) in ph["views"]):
+				for c in ph["cells"]:
+					if W0["ents"].has(c):
+						return {"ok": false}
+		frames.append(clone(s))
+		settle(s, frames)
+		frames[frames.size() - 1] = s
+		return {"ok": true, "state": s, "frames": frames}
 	else:
 		return {"ok": false}
 	s["moves"] += 1

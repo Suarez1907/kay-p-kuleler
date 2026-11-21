@@ -11,7 +11,9 @@
 //   solution:{main, p1, p2, ops} — referans çözüm. ops[0] çalıştırmadan önce, ops[k] k. moladan
 //            sonra yapılan dünya işlemleri ({t:'rot'|'slide'|'view', i, s}).
 //   par: build.mjs referans çözümün blok sayısından hesaplar.
-//   intro: seviye açılınca gösterilen yeni kavram kartı.
+//   intro: seviye açılınca gösterilen yeni kavram kartı. intro.ai = true ise kartı Nova (yapay zekâ öğretmen) sunar.
+//   phantoms: [{cells, view}]  hayalet bloklar: yalnızca kamera o açıdayken (view) katıdır
+//   starter: hata ayıklama seviyelerinde hazır gelen (hatalı) program — build.mjs kazanmadığını denetler
 
 const col = (x, z, top, bottom = 0) => [x, bottom, z, x, top, z];
 
@@ -27,6 +29,28 @@ function spiralTower(laps) {
   return { boxes, stairs };
 }
 const tower = spiralTower(2);
+
+// Yol kurucu: Robo'nun yürüyeceği hücre dizisi ('E','S','W','N'; sonuna ^ eklenirse o adım merdivenle bir kat çıkar).
+// Her hücrenin altına blok, çıkışlara merdiven koyar.
+const DV = { E: [1, 0, 0], S: [0, 0, 1], W: [-1, 0, 0], N: [0, 0, -1] };
+const DI = { E: 0, S: 1, W: 2, N: 3 };
+function walkway(start, moves) {
+  let p = start.slice();
+  const blocks = [[p[0], p[1] - 1, p[2]]], stairs = [];
+  for (const m of moves.trim().split(/\s+/)) {
+    const d = DV[m[0]];
+    const q = [p[0] + d[0], p[1], p[2] + d[2]];
+    if (m.endsWith('^')) { stairs.push({ p: q, d: DI[m[0]] }); p = [q[0], q[1] + 1, q[2]]; }
+    else { p = q; blocks.push([p[0], p[1] - 1, p[2]]); }
+  }
+  return { boxes: blocks.map(b => [...b, ...b]), stairs, end: p };
+}
+const box1 = (b) => [...b, ...b];
+// Penrose merdiveni: 3 kat yükselir; görünüşte tepesi başlangıca bağlanır (görünüm 0'da (1,1,1) doğrultusu).
+const penrose = walkway([0, 1, 0], 'E E^ E E S S^ S S S W^ N');
+const sensor = walkway([0, 1, 0], 'E E E E N N N^ W W W S E');
+const general = walkway([0, 1, 0], 'E E E^ E E S S^ E E E E S E E^ E');
+const reward = walkway([0, 1, 0], 'E E S S^ S E E E N N^ N E E S^ S S S W W');
 
 export const LEVELS = [
 // ======================= Bölüm 1 — Uyanış =======================
@@ -335,5 +359,140 @@ export const LEVELS = [
   start: [0,1,0], startDir: 0, goal: [7,2,-2],
   cmds: ['F','L','R','J','W','1'], slots: { main: 9, p1: 3, p2: 0 },
   solution: { main: ['1','F','W','F','J','W','R','1'], p1: ['F','F'], ops: [[], [{t:'rot', i:0, s:1}], [{t:'view', s:1}]] },
+},
+// ======================= Bölüm 8 — Paradokslar =======================
+{
+  chapter: 'Paradokslar', name: 'Gözlemci', palette: 6,
+  intro: { title: 'Gözlemci paradoksu', text: 'Bu bölümde gerçeklik <b>bakış açına</b> bağlı! Yarı saydam <b>hayalet bloklar</b> yalnızca kendi açılarından bakıldığında katılaşır. Kamerayı (↺ ↻ ya da sürükle) çevir: bir köprü belirirken diğeri kaybolur. Dikkat: Robo bir hayalet bloğun üstündeyken bakışını değiştirirsen... düşer!' },
+  hint: 'Başlamadan önce kamerayı bir kez çevirip ilk köprüyü katılaştır. Robo adacığa varınca mola ver ve kamerayı geri çevir.',
+  boxes: [[0,0,0, 1,0,0], [4,0,0, 4,0,0], [7,0,0, 8,0,0]],
+  phantoms: [{cells:[[2,0,0],[3,0,0]], view:1}, {cells:[[5,0,0],[6,0,0]], view:0}],
+  view: 0, start: [0,1,0], startDir: 0, goal: [8,1,0],
+  cmds: ['F','L','R','W','1'], slots: { main: 4, p1: 4, p2: 0 },
+  solution: { main: ['1','W','1'], p1: ['F','F','F','F'], ops: [[{t:'view', s:1}], [{t:'view', s:-1}]] },
+},
+{
+  chapter: 'Paradokslar', name: 'Gölge Basamakları', palette: 10,
+  intro: { title: 'Düşmek de bir yoldur', text: 'Robo bir hayalet bloğun üstündeyken kamerayı çevirirsen blok kaybolur ve Robo aşağıdaki zemine düşer. Merdiveni olmayan bir kuleden inmenin tek yolu bazen <b>bakışını değiştirmektir</b>.' },
+  hint: 'Her kat aynı: bir adım İleri, sonra Mola. Molada kamerayı çevir; hayalet basamak kaybolunca Robo bir kat aşağı iner.',
+  boxes: [[0,9,0, 0,9,0], [1,6,0, 1,6,0], [2,3,0, 2,3,0], [3,0,0, 4,0,0]],
+  phantoms: [{cells:[[1,9,0]], view:0}, {cells:[[2,6,0]], view:1}, {cells:[[3,3,0]], view:0}],
+  view: 0, start: [0,10,0], startDir: 0, goal: [4,1,0],
+  cmds: ['F','L','R','W','1'], slots: { main: 4, p1: 2, p2: 0 },
+  solution: { main: ['1','1','1','F'], p1: ['F','W'], ops: [[], [{t:'view', s:1}], [{t:'view', s:-1}], [{t:'view', s:1}]] },
+},
+{
+  chapter: 'Paradokslar', name: 'Düşen Gölge', palette: 7,
+  hint: 'Kutuyu hayalet bloğun üstüne it, mola ver ve kamerayı çevir: kutu aşağıdaki boşluğa düşüp köprü olur. Sonra Zıpla ile iki kat in.',
+  boxes: [[0,1,0, 2,1,0], [1,0,1, 1,0,1], [2,-1,1, 3,-1,1], [3,-2,0, 3,-2,0], [3,-1,-1, 3,-1,-2]],
+  phantoms: [{cells:[[3,1,0]], view:0}],
+  crates: [[2,2,0]],
+  view: 0, start: [0,2,0], startDir: 0, goal: [3,0,-2],
+  cmds: ['F','L','R','J','A','W','1'], slots: { main: 12, p1: 3, p2: 0 },
+  solution: { main: ['F','A','W','R','J','L','J','F','L','1'], p1: ['F','F','F'], ops: [[], [{t:'view', s:1}]] },
+},
+{
+  chapter: 'Paradokslar', name: 'Escher Avlusu', palette: 9,
+  hint: 'Üç açı, üç gerçeklik: başlamadan önce köprünün açısını seç; geçide gelince molada bir kez daha çevir; üst katta son bir kez.',
+  boxes: [[0,0,0, 2,0,0], [5,0,0, 5,0,2], [3,2,0, 4,2,0], [6,2,0, 6,2,0]],
+  phantoms: [{cells:[[3,0,0],[4,0,0]], view:1}, {cells:[[5,2,0]], view:3}],
+  links: [{a:[5,1,2], b:[4,3,0], d:0, view:2}],
+  view: 0, start: [0,1,0], startDir: 0, goal: [6,3,0],
+  cmds: ['F','L','R','W','1'], slots: { main: 11, p1: 3, p2: 0 },
+  solution: { main: ['1','1','F','R','1','L','W','F','W','1'], p1: ['F','F'], ops: [[{t:'view', s:1}], [{t:'view', s:1}], [{t:'view', s:1}]] },
+},
+{
+  chapter: 'Paradokslar', name: 'Penrose Merdiveni', palette: 8,
+  intro: { title: 'Sonsuz merdiven', text: 'Doğru açıdan bakınca merdivenin tepesi başlangıcına bağlanır ve Robo <b>sonsuza dek</b> tırmanır! Sonsuz bir döngüden çıkmak için dünyada bir şeyin değişmesi gerekir. Çatlak taşı hatırla: Robo üstünden geçince çöker...' },
+  hint: 'Kamerayı halkalar dolana kadar çevir. Duvar izleyici yaz: [yeşil İleri] [turuncu Sağa dön] F1. İkinci turda çöken taş yolu değiştirir.',
+  boxes: penrose.boxes.filter(b => !(b[0] === 4 && b[1] === 2 && b[2] === 3)).concat([[3,2,2, 3,2,2]]),
+  stairs: penrose.stairs,
+  crumbles: [[4,2,3]],
+  links: [{a: penrose.end, b:[0,1,0], d:3, view:0}],
+  view: 1, start: [0,1,0], startDir: 0, goal: [3,3,2],
+  cmds: ['F','L','R','1'], conds: true, slots: { main: 2, p1: 4, p2: 0 },
+  solution: { main: ['1'], p1: ['o:F','x:R','1'], ops: [[{t:'view', s:-1}]] },
+},
+{
+  chapter: 'Paradokslar', name: 'Paradoks Kulesi', palette: 11,
+  hint: 'F1 = [yeşil İleri] [yeşil F1] — "önü açık oldukça yürü". Çarkla köprüyü kur; geçit için başlamadan kamerayı bir kez çevir, üst katta molada bir kez daha.',
+  boxes: [[0,0,0, 1,0,0], [1,0,-1, 1,0,-1], [5,0,0, 5,0,2], [4,2,4, 5,2,4], [8,2,4, 8,2,6]],
+  rotators: [{pivot:[3,0], blocks:[[3,0,-1],[3,0,0],[3,0,1]], rot:0, fixed:true}],
+  cranks: [{p:[1,1,-1], rot:0, dir:1}],
+  phantoms: [{cells:[[6,2,4],[7,2,4]], view:2}],
+  links: [{a:[5,1,2], b:[4,3,4], d:0, view:1}],
+  view: 0, start: [0,1,0], startDir: 0, goal: [8,3,6],
+  cmds: ['F','L','R','A','W','1'], conds: true, slots: { main: 13, p1: 2, p2: 0 },
+  solution: { main: ['F','L','A','R','1','R','1','L','1','W','1','R','1'], p1: ['o:F','o:1'], ops: [[{t:'view', s:1}], [{t:'view', s:1}]] },
+},
+// ======================= Bölüm 9 — Yapay Zekâ Atölyesi =======================
+{
+  chapter: 'Yapay Zekâ Atölyesi', name: 'Merhaba, Nova', palette: 12,
+  intro: { ai: true, title: 'Merhaba, ben Nova!', text: 'Ben Nova, yapay zekâ öğretmeninim. Bu atölyede bilgisayarların ve yapay zekâların nasıl "düşündüğünü" öğreneceğiz. İlk ders: <b>algoritma</b>, bir problemi çözen, sırası önemli adım adım talimatlar listesidir. Bilgisayar ne yazdıysan onu yapar — ne eksik ne fazla. Programın kristale ulaşamazsa nerede takıldığını analiz edip sana söyleyeceğim.' },
+  hint: 'Yolu kare kare say: 2 İleri, Sağa dön, 2 İleri, Sola dön, 1 İleri ve basamağa Zıpla.',
+  boxes: [[0,0,0, 2,0,0], [2,0,1, 2,0,2], [3,0,2, 3,0,2], col(4,2,1)],
+  start: [0,1,0], startDir: 0, goal: [4,2,2],
+  cmds: ['F','L','R','J'], slots: { main: 8, p1: 0, p2: 0 },
+  solution: { main: ['F','F','R','F','F','L','F','J'] },
+},
+{
+  chapter: 'Yapay Zekâ Atölyesi', name: 'Hata Ayıklama', palette: 13,
+  intro: { ai: true, title: 'Hata ayıklama', text: 'Programcılar zamanlarının büyük kısmını <b>hata ayıklayarak</b> geçirir. Sana neredeyse doğru bir program hazırladım ama içinde bir hata var. Önce çalıştır ve Robo\'nun nerede saptığını izle; analizimi oku. Sonra hatalı bloğa dokunup seç, sil ve doğrusunu ekle.' },
+  hint: 'İlk dönüş yanlış yöne. Sola dön ile ilk Sağa dön\'ün yerini değiştir.',
+  boxes: [[0,0,0, 2,0,0], [2,0,1, 2,0,2], [3,0,2, 4,0,2], [4,0,3, 4,0,3], [4,0,4, 4,1,4]],
+  stairs: [{p:[4,1,3], d:1}],
+  start: [0,1,0], startDir: 0, goal: [4,2,4],
+  cmds: ['F','L','R'], slots: { main: 11, p1: 0, p2: 0 },
+  starter: { main: ['F','F','L','F','F','R','F','F','R','F','F'] },
+  solution: { main: ['F','F','R','F','F','L','F','F','R','F','F'] },
+},
+{
+  chapter: 'Yapay Zekâ Atölyesi', name: 'Desen İçinde Desen', palette: 14,
+  intro: { ai: true, title: 'Desen tanıma', text: 'Yapay zekâ verideki <b>desenleri</b> bulur; küçük desenler birleşip büyüklerini oluşturur — bir sinir ağının önce kenarları, sonra şekilleri tanıması gibi. Burada da öyle: <b>F2</b> tek bir basamağı çıkar, <b>F1</b> F2\'yi kullanarak bir kenarı tırmanır, ana program da F1\'i tekrarlar. Fonksiyonlar birbirini çağırabilir!' },
+  hint: 'F2: Zıpla, İleri. F1: F2, F2, Sağa dön. Ana program: F1, F1, F1.',
+  boxes: [col(0,0,0), col(1,0,1), col(2,0,1), col(3,0,2), col(4,0,2), col(4,1,3), col(4,2,3), col(4,3,4), col(4,4,4), col(3,4,5), col(2,4,5), col(1,4,6), col(0,4,6)],
+  start: [0,1,0], startDir: 0, goal: [0,7,4],
+  cmds: ['F','L','R','J','1','2'], slots: { main: 3, p1: 3, p2: 2 },
+  solution: { main: ['1','1','1'], p1: ['2','2','R'], p2: ['J','F'] },
+},
+{
+  chapter: 'Yapay Zekâ Atölyesi', name: 'Sensör ve Karar', palette: 15,
+  intro: { ai: true, title: 'Algıla → karar ver → davran', text: 'Bir yapay zekâ <b>ajanı</b> çevresini algılar, karar verir ve davranır. Robo\'nun sensörü önünün açık olup olmadığını söyler: <span class="cond o">yeşil</span> blok "önü açıksa", <span class="cond x">turuncu</span> blok "önü kapalıysa" çalışır. Kuralları bir kez yaz; yolu ajan kendisi bulsun.' },
+  hint: 'F1: [yeşil İleri] [turuncu Sola dön] F1. Ana program: F1.',
+  boxes: sensor.boxes, stairs: sensor.stairs,
+  start: [0,1,0], startDir: 0, goal: sensor.end,
+  cmds: ['F','L','R','1'], conds: true, slots: { main: 2, p1: 3, p2: 0 },
+  solution: { main: ['1'], p1: ['o:F','x:L','1'] },
+},
+{
+  chapter: 'Yapay Zekâ Atölyesi', name: 'Genelleme', palette: 0,
+  intro: { ai: true, title: 'Ezberleme, genelle', text: 'İyi bir yapay zekâ örnekleri ezberlemez, <b>genelleme</b> yapar: daha önce görmediği durumda da doğru çalışır. Koridorların uzunluğunu sayma! "Önü açık oldukça yürü" diyen tek bir fonksiyon her uzunlukta işe yarar. Kendini çağıran bloğu da <span class="cond o">yeşil</span> yap ki Robo duvara gelince dursun.' },
+  hint: 'F1: [yeşil İleri] [yeşil F1]. Ana program: F1, Sağa, F1, Sola, F1, Sağa, F1, Sola, F1.',
+  boxes: general.boxes, stairs: general.stairs,
+  start: [0,1,0], startDir: 0, goal: general.end,
+  cmds: ['F','L','R','1'], conds: true, slots: { main: 9, p1: 2, p2: 0 },
+  solution: { main: ['1','R','1','L','1','R','1','L','1'], p1: ['o:F','o:1'] },
+},
+{
+  chapter: 'Yapay Zekâ Atölyesi', name: 'Ödül ve Ceza', palette: 1,
+  intro: { ai: true, title: 'Pekiştirmeli öğrenme', text: 'Bazı yapay zekâlar <b>deneme-yanılmayla</b> öğrenir: iyi sonuç ödül, kötü sonuç ceza getirir ve her denemede strateji biraz daha iyileşir. Buradaki ödülün yıldızlar. Önce uzun bir programla çöz, sonra kısalt: 3 yıldız için en fazla 6 blok gerekiyor!' },
+  hint: 'Önce sola dönmeyi dene, olmazsa sağa: F1: [yeşil İleri] [turuncu Sola] [turuncu Sağa] [turuncu Sağa] F1.',
+  boxes: reward.boxes, stairs: reward.stairs,
+  start: [0,1,0], startDir: 0, goal: reward.end,
+  cmds: ['F','L','R','1'], conds: true, slots: { main: 26, p1: 5, p2: 0 },
+  solution: { main: ['1'], p1: ['o:F','x:L','x:R','x:R','1'] },
+},
+{
+  chapter: 'Yapay Zekâ Atölyesi', name: 'Akıllı Ajan', palette: 2,
+  intro: { ai: true, title: 'Ajanını geliştir', text: 'Hazırladığım ajan yalnızca yürüyor ve duvara gelince sağa dönüyor; kutuya takılınca sonsuz döngüye giriyor. Ona yeni bir yetenek kazandır: önü kapalıysa önce <b>Kullan</b>sın (kutuyu itsin, kolu çeksin), işe yaramazsa dönsün. Sonra çalıştır ve ajanının dünyayı nasıl çözdüğünü izle!' },
+  hint: 'F1: [yeşil İleri] [turuncu Kullan] [turuncu Sağa dön] F1.',
+  boxes: [[0,0,0, 3,0,0], [4,-1,0, 4,-1,0], [5,0,0, 6,0,0], [6,0,1, 6,0,3], [3,0,2, 3,0,2]],
+  crates: [[2,1,0]],
+  levers: [{id:'L1', p:[6,1,3]}],
+  bridges: [{cells:[[4,0,2],[5,0,2]], on:'L1'}],
+  start: [0,1,0], startDir: 0, goal: [3,1,2],
+  cmds: ['F','L','R','A','1'], conds: true, slots: { main: 2, p1: 4, p2: 0 },
+  starter: { main: ['1'], p1: ['o:F','x:R','1'] },
+  solution: { main: ['1'], p1: ['o:F','x:A','x:R','1'] },
 },
 ];

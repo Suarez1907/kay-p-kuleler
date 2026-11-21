@@ -227,6 +227,24 @@ static func set_icon(b: Button, kind: String) -> void:
 	ic.kind = kind
 	ic.queue_redraw()
 
+## Nova avatarı: mor degrade daire içinde robot yüzü
+static func nova_avatar(size := 52.0) -> Control:
+	var p := PanelContainer.new()
+	var sb := box(Color("#7c5cff"), int(size / 2), 8, Color(0.3, 0.15, 0.8, 0.3))
+	sb.border_color = Color("#b8a6ff")
+	sb.set_border_width_all(2)
+	sb.set_content_margin_all(size * 0.16)
+	p.add_theme_stylebox_override("panel", sb)
+	p.custom_minimum_size = Vector2(size, size)
+	p.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	p.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	var ic := Icon.new()
+	ic.kind = "nova"
+	ic.color = WHITE
+	ic.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	p.add_child(ic)
+	return p
+
 ## Hap şeklinde bilgi kutusu
 static func pill(child: Control, color := Color(1, 1, 1, 0.85), pad := 14) -> PanelContainer:
 	var p := PanelContainer.new()
@@ -328,6 +346,21 @@ class Icon extends Control:
 				draw_colored_polygon(PackedVector2Array([Q.call(tip + tang * m * 0.16), Q.call(tip + nrm * m * 0.13), Q.call(tip - nrm * m * 0.13)]), col)
 				if kind == "reset":
 					draw_circle(Q.call(c), m * 0.07, col)
+			"nova":
+				# Nova: anten, yuvarlak kafa ve iki parlak göz
+				draw_line(P.call(0.5, 0.2), P.call(0.5, 0.06), col, w, true)
+				draw_circle(P.call(0.5, 0.06), m * 0.07, col)
+				var hr := Rect2(P.call(0.14, 0.2), Vector2(m * 0.72, m * 0.6))
+				var sb := StyleBoxFlat.new()
+				sb.bg_color = col
+				sb.set_corner_radius_all(int(m * 0.2))
+				draw_style_box(sb, hr)
+				var eye := Color("#6a4cff")
+				draw_circle(P.call(0.36, 0.48), m * 0.08, eye)
+				draw_circle(P.call(0.64, 0.48), m * 0.08, eye)
+				draw_line(P.call(0.4, 0.66), P.call(0.6, 0.66), eye, maxf(2.0, w * 0.6), true)
+				draw_line(P.call(0.14, 0.5), P.call(0.06, 0.5), col, w, true)
+				draw_line(P.call(0.86, 0.5), P.call(0.94, 0.5), col, w, true)
 			"bulb":
 				draw_arc(P.call(0.5, 0.4), m * 0.25, PI * 0.75, PI * 2.25, 24, col, w, true)
 				draw_line(P.call(0.36, 0.6), P.call(0.38, 0.72), col, w, true)

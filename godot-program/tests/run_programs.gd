@@ -13,6 +13,11 @@ func _init() -> void:
 		var r := Program.run_program(L, sol, sol.get("ops", []))
 		var blocks := Program.block_count(Program.parse_program(sol))
 		var good: bool = r["result"] == "win" and blocks == int(levels[i]["par"])
+		if levels[i].has("starter"):
+			var r2 := Program.run_program(L, levels[i]["starter"], [])
+			if r2["result"] == "win":
+				good = false
+				print("  hazır (hatalı) program kazanmamalıydı")
 		if good:
 			ok += 1
 		print("#%d %s: %s (%s komut, %d blok)" % [i + 1, levels[i]["name"], "TAMAM" if good else "HATA " + r["result"], str(r.get("steps", "-")), blocks])

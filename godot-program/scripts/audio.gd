@@ -10,6 +10,12 @@ var _players: Array[AudioStreamPlayer] = []
 var _next := 0
 var _sounds := {}
 var _music: AudioStreamPlayer
+# hava durumu ortam sesleri (ilk ihtiyaçta üretilir)
+const AMB_RATE := 11025
+var _amb := {}              # "rain" / "wind" -> AudioStreamPlayer
+var _amb_vol := {"rain": 0.0, "wind": 0.0}
+var _thunders: Array = []
+var _thunder_p: AudioStreamPlayer
 
 
 func _ready() -> void:
@@ -33,6 +39,104 @@ func play(name: String, pitch := 1.0) -> void:
 	p.stream = _sounds[name]
 	p.pitch_scale = pitch
 	p.play()
+
+## Yağmur ve rüzgâr döngülerinin hedef şiddeti (0..1); yumuşakça geçer.
+func set_ambient(rain: float, wind: float) -> void:
+	_amb_vol = {"rain": rain, "wind": wind}
+	for k in _amb_vol:
+		if _amb_vol[k] > 0.0 and not _amb.has(k):
+			var p := AudioStreamPlayer.new()
+			p.stream = _build_rain() if k == "rain" else _build_wind()
+			p.volume_db = -60.0
+			add_child(p)
+			_amb[k] = p
+
+func _process(dt: float) -> void:
+	for k in _amb:
+		var p: AudioStreamPlayer = _amb[k]
+		var want: float = _amb_vol[k] if sound_on else 0.0
+		var target_db := linear_to_db(maxf(want, 0.0001)) + (-10.0 if k == "rain" else -12.0)
+		p.volume_db = lerpf(p.volume_db, target_db, minf(1.0, dt * 1.5))
+		if want > 0.0 and not p.playing:
+			p.play()
+		elif want <= 0.0 and p.playing and p.volume_db < -50.0:
+			p.stop()
+
+## Gök gürültüsü: önce çatırtı, sonra uzun, dalgalanan uğultu
+func thunder(vol := 1.0) -> void:
+	if not sound_on:
+		return
+	if _thunders.is_empty():
+		for v in 2:
+			_thunders.append(_build_thunder(v))
+		_thunder_p = AudioStreamPlayer.new()
+		add_child(_thunder_p)
+	_thunder_p.stream = _thunders[randi() % _thunders.size()]
+	_thunder_p.volume_db = linear_to_db(clampf(vol, 0.05, 1.0)) - 3.0
+	_thunder_p.pitch_scale = randf_range(0.85, 1.1)
+	_thunder_p.play()
+
+func _amb_wav(b: PackedFloat32Array, loop: bool) -> AudioStreamWAV:
+	var w := _wav(b, loop)
+	w.mix_rate = AMB_RATE
+	return w
+
+## Kesintisiz döngü: sonun fazlası başla çapraz karıştırılır
+func _seamless(b: PackedFloat32Array, n: int, m: int) -> PackedFloat32Array:
+	for i in m:
+		var k := float(i) / m
+		b[i] = b[i] * k + b[n + i] * (1.0 - k)
+	b.resize(n)
+	return b
+
+func _build_rain() -> AudioStreamWAV:
+	var n := AMB_RATE * 4
+	var m := AMB_RATE / 4
+	var b := PackedFloat32Array()
+	b.resize(n + m)
+	var lp := 0.0
+	var lp2 := 0.0
+	for i in n + m:
+		var w := randf() * 2.0 - 1.0
+		lp += (w - lp) * 0.55
+		lp2 += (lp - lp2) * 0.08
+		var v := (lp - lp2) * 0.9                       # bant geçiren hışırtı
+		if randf() < 0.004:
+			v += (randf() - 0.5) * 0.9                  # tek tük iri damla
+		b[i] = v * 0.55
+	return _amb_wav(_seamless(b, n, m), true)
+
+func _build_wind() -> AudioStreamWAV:
+	var n := AMB_RATE * 6
+	var m := AMB_RATE / 2
+	var b := PackedFloat32Array()
+	b.resize(n + m)
+	var br := 0.0
+	var lp := 0.0
+	for i in n + m:
+		br = clampf(br + (randf() * 2.0 - 1.0) * 0.04, -1.0, 1.0) * 0.998   # kahverengi gürültü
+		lp += (br - lp) * 0.05
+		var t := float(i) / AMB_RATE
+		var gust := 0.55 + 0.45 * sin(TAU * t / 6.0) * sin(TAU * t / 3.0 + 1.0)
+		b[i] = lp * 1.6 * gust
+	return _amb_wav(_seamless(b, n, m), true)
+
+func _build_thunder(variant: int) -> AudioStreamWAV:
+	var dur := 3.6 + variant * 0.8
+	var n := int(AMB_RATE * dur)
+	var b := PackedFloat32Array()
+	b.resize(n)
+	var br := 0.0
+	var lp := 0.0
+	for i in n:
+		var t := float(i) / AMB_RATE
+		br = clampf(br + (randf() * 2.0 - 1.0) * 0.08, -1.0, 1.0) * 0.995
+		lp += (br - lp) * 0.07
+		var env := minf(1.0, t / 0.04) * exp(-t * (1.1 - variant * 0.2))
+		var roll := 0.6 + 0.4 * sin(TAU * t * (1.3 + variant * 0.4)) * sin(TAU * t * 0.37)
+		var crack := (randf() * 2.0 - 1.0) * exp(-t * 18.0) * 0.6
+		b[i] = (lp * 2.4 * roll) * env + crack
+	return _amb_wav(b, false)
 
 func set_music(on: bool) -> void:
 	music_on = on

@@ -19,6 +19,7 @@ const ROWS = ['main', 'p1', 'p2'];
 const ROW_LABEL = { main: 'Ana', p1: 'F1', p2: 'F2' };
 const SPEEDS = [1, 2, 4];
 const PORTAL_COLORS = ['#4ce8e0', '#ff7ed4', '#ffd36e', '#a18cff'];
+const VIEW_COLS = ['#5fc8ff', '#b58cff', '#4fe0a0', '#ffb84d'];
 
 // ---------- Paletler (pastel diorama) ----------
 const PALETTES = [
@@ -349,7 +350,7 @@ function buildLevel(i, opts = {}) {
   state = E.initialState(L);
   setupState = null;
   queue = []; anim = null; winShown = false; mode = 'edit'; runner = null; undoStack = [];
-  objs = { crates: [], balls: [], levers: [], plates: [], bridges: [], rotators: [], sliders: [], crumbles: [], links: [], portals: [], cranks: [], trail: [] };
+  objs = { crates: [], balls: [], levers: [], plates: [], bridges: [], rotators: [], sliders: [], crumbles: [], links: [], portals: [], cranks: [], phantoms: [], trail: [] };
   const box = new THREE.Box3();
   const addB = (p) => box.expandByPoint(new THREE.Vector3(p[0], p[1], p[2]));
   const staticCells = [];
@@ -486,6 +487,17 @@ function buildLevel(i, opts = {}) {
       const m = new THREE.Mesh(new THREE.RingGeometry(0.22, 0.34, 24), new THREE.MeshBasicMaterial({ color: pal.accent, transparent: true, opacity: 0.3, side: THREE.DoubleSide }));
       m.rotation.x = -Math.PI / 2; m.position.set(c[0], c[1] - 0.48, c[2]); root.add(m);
       objs.links.push({ m, view: ln.view });
+    }
+  });
+  // hayalet bloklar: yalnızca kendi bakış açılarından bakılırken katı (renk = o açı)
+  (def.phantoms || []).forEach((ph) => {
+    const views = Array.isArray(ph.view) ? ph.view : [ph.view];
+    const col = VIEW_COLS[views[0] % 4];
+    for (const c of ph.cells) {
+      addB(c);
+      const m = new THREE.Mesh(new RoundedBoxGeometry(1, 1, 1, 2, 0.04), new THREE.MeshStandardMaterial({ color: col, transparent: true, opacity: 0.15, roughness: 0.4 }));
+      m.position.set(c[0], c[1], c[2]); root.add(m);
+      objs.phantoms.push({ m, views });
     }
   });
   (def.portals || []).forEach((pt, pi) => {
@@ -674,6 +686,10 @@ function applyVisual(sA, sB, t, extra) {
   (L.def.plates || []).forEach((pl, i) => {
     const pr = lerp(plateDown(sA, pl) ? 1 : 0, plateDown(sB, pl) ? 1 : 0, te);
     const m = objs.plates[i]; m.position.y = pl.p[1] - 0.46 - pr * 0.035; m.material.emissiveIntensity = pr * 0.7;
+  });
+  objs.phantoms.forEach(o => {
+    const on = (o.views.includes(sA.view) ? 1 : 0) * (1 - t) + (o.views.includes(sB.view) ? 1 : 0) * t;
+    o.m.material.opacity = 0.12 + 0.83 * on; o.m.scale.setScalar(0.9 + 0.1 * on); o.m.castShadow = on > 0.5;
   });
   objs.links.forEach(o => { o.m.material.opacity = sB.view === o.view ? 0.95 : 0.22; o.m.scale.setScalar(sB.view === o.view ? 1.15 : 1); });
 }
@@ -1321,6 +1337,7 @@ function openGuide() {
   if (d.rotators && d.rotators.some(r => !r.fixed)) addItem('<div class="g-ico">↻</div>', 'Döner platform', 'Sapına dokun ya da sürükleyerek 90° çevir. Üzerindeki Robo ve kutuları da taşır.');
   if (d.sliders && d.sliders.some(E.isManual)) addItem('<div class="g-ico">⇅</div>', 'Asansör / kaydırıcı', 'Oklarına dokun ya da sürükleyerek hareket ettir.');
   if (d.links && d.links.length) addItem('<div class="g-ico">◈</div>', 'Göz yanılması geçidi', 'Kamerayı çevirerek parlayan halkaları doldur; yol yalnızca o bakış açısından birleşir.');
+  if (d.phantoms && d.phantoms.length) addItem('<div class="g-ico">▢</div>', 'Hayalet blok', 'Yalnızca kendi renginin bakış açısından bakılırken katıdır. Üstündeyken kamerayı çevirirsen Robo düşer!');
   if (d.crumbles && d.crumbles.length) addItem('<div class="g-ico">▧</div>', 'Çöken zemin', 'Robo üzerinden ayrıldığı anda parçalanır — tek geçişliktir.');
   $('guide').classList.remove('hidden');
 }
@@ -1374,7 +1391,7 @@ function openLevels() {
 function startLevel(i) {
   buildLevel(i);
   const saved = progress.progs[i];
-  prog = saved ? P.parseProgram(saved) : { main: [], p1: [], p2: [] };
+  prog = saved ? P.parseProgram(saved) : L.def.starter ? P.parseProgram(L.def.starter) : { main: [], p1: [], p2: [] };
   for (const r of ROWS) if (prog[r].length > (L.def.slots[r] || 0)) prog[r] = prog[r].slice(0, L.def.slots[r] || 0);
   activeRow = 'main'; caret = prog.main.length; sel = null;
   show(null);
