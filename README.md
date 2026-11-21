@@ -128,11 +128,12 @@ Tüm referans çözümler `SOLUTIONS.md` dosyasındadır.
   aşağıya kod satırları → komut butonları (başparmak hizası) → aksiyon barı. Sahne her zaman boş alana ortalanır.
 * Kamera: 3B alanda parmakla yatay sürükleyerek kule etrafında döner, bırakınca en yakın 90°'ye oturur (göz yanılması
   geçitleri bu açılara bağlıdır). Üst sağda yalnızca İpucu ve Kamerayı sıfırla; "Dünyayı başa al" duraklatma menüsünde.
-* Görüntü: sis yok, hafif parıltı, AgX (pozlama 1,05); sıcak güneş (#FFF4E0) blokların üst/sol/sağ yüzlerini üç ayrı tonda
-  gösterir; soğuk mor-mavi ortam ışığı. Temas gölgeleri bloklara gömülüdür (yanında bir üst katta blok olan kenarlar koyulaşır)
-  çünkü Godot'un Mobile renderer'ı SSAO desteklemez. Amber gövdeli, antrasit detaylı, parlayan gözlü robot ve gölge lekesi;
-  merdivenler bloklardan bir ton farklı. Merdiven ve zıplama adımları eğimi izleyen bir yolla canlandırılır. **Yüksek grafik** varsayılan olarak 1,5x süper örnekleme, 8x MSAA ve
-  4096 px gölge haritası kullanır; Ayarlar'dan Düşük / Orta / Yüksek seçilebilir.
+* Görüntü: ferah soğuk gökyüzü gradyanı (#B8D4E8 → #EBF3F8), mimari taş/krem bloklar (#EAE4DC, #E2DACF, #D8CFC2,
+  #C4D3DF; seviyenin paletinden yalnızca hafif ton), keskin ince pahlar (0,03) ve düz yüzler, yürünebilir üst yüzlerde
+  karo plakası, mat malzeme (pürüzlülük 0,9). Doğrusal ton eşleme: renkler ekrana olduğu gibi gider (AgX/ACES açık pastel
+  tonları soldurup beyazları tavanlıyordu). Sıcak güneş + soğuk ortam ışığıyla üst/sol/sağ yüzler üç ayrı tonda; temas
+  gölgeleri bloklara gömülü (Mobile renderer SSAO desteklemez). Sahne genelinde parçacık ya da bulut yok; yalnızca hedef
+  kristalden yukarı süzülen hafif ışıltılar. Amber robot, gölge lekesi; merdiven ve zıplama adımları eğimi izler.
 * Kodla üretilen ses efektleri ve yumuşak ortam müziği (Ayarlar'dan açılıp kapanır).
 * İlerleme ve her seviyedeki program `user://ilerleme.json` içinde saklanır.
 

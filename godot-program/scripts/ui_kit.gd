@@ -77,6 +77,23 @@ static func box(color: Color, radius := 22, shadow := 0, shadow_color := Color(0
 		sb.shadow_offset = Vector2(0, shadow * 0.4)
 	return sb
 
+## Buzlu cam panel: kırık beyaz yarı saydam zemin, ince açık üst kenarlık, hafif dış gölge
+static func frosted_panel(radius := 20, pad := 14) -> PanelContainer:
+	var p := PanelContainer.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.97, 0.98, 0.99, 0.88)
+	sb.set_corner_radius_all(radius)
+	sb.corner_detail = 10
+	sb.anti_aliasing = true
+	sb.border_width_top = 1
+	sb.border_color = Color(1, 1, 1, 0.6)
+	sb.shadow_size = 12
+	sb.shadow_color = Color(0.16, 0.2, 0.32, 0.14)
+	sb.shadow_offset = Vector2(0, -2)
+	sb.set_content_margin_all(pad)
+	p.add_theme_stylebox_override("panel", sb)
+	return p
+
 ## Cam kart (yarı saydam beyaz panel)
 static func card(alpha := 0.9, radius := 30, pad := 22) -> PanelContainer:
 	var p := PanelContainer.new()
@@ -99,7 +116,7 @@ static func label(text: String, size := 22, color := INK, f: Font = null) -> Lab
 
 ## Kalın, "dudaklı" (alt kenarı koyu) buton stili: basınca dudak incelir, içerik aşağı iner.
 static func style_chunky(b: Button, color: Color, radius := 22, lip := 6, font_color := WHITE) -> void:
-	var dark := color.darkened(0.22)
+	var dark := color.darkened(0.2)
 	for st in ["normal", "hover", "pressed", "disabled", "focus"]:
 		var sb := StyleBoxFlat.new()
 		sb.corner_detail = 10
@@ -111,7 +128,7 @@ static func style_chunky(b: Button, color: Color, radius := 22, lip := 6, font_c
 			c = color.lightened(0.07)
 		elif st == "pressed":
 			c = color.darkened(0.04)
-			l = max(1, lip - 4)
+			l = 1
 		elif st == "disabled":
 			c = color.lerp(Color("#d9d4e3"), 0.65)
 		sb.bg_color = c
@@ -119,7 +136,7 @@ static func style_chunky(b: Button, color: Color, radius := 22, lip := 6, font_c
 		sb.border_width_bottom = l
 		sb.content_margin_left = 16
 		sb.content_margin_right = 16
-		sb.content_margin_top = 8 + (lip - l)
+		sb.content_margin_top = 8 + mini(3, lip - l)
 		sb.content_margin_bottom = 8
 		sb.shadow_color = Color(0.15, 0.08, 0.3, 0.14 if st != "pressed" else 0.06)
 		sb.shadow_size = 8 if st != "pressed" else 3
