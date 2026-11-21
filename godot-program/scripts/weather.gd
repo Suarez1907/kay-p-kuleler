@@ -97,6 +97,11 @@ var _base := {}
 var rain_p: CPUParticles3D
 var snow_p: CPUParticles3D
 var enabled := true
+var sky_base: Array = []
+var light_base_color := Color.WHITE
+var ambient_base_color := Color.WHITE
+var weather_sun := 0.38
+var weather_amb := 0.4
 var vp: SubViewport           # gökyüzü ayrı bir görüntü alanında çizilir: çözünürlüğü grafik ayarına bağlı
 var _screen := Vector2i.ZERO
 const RES_SCALE := [0.5, 0.7, 1.0]   # Düşük / Orta / Yüksek (Yüksek = ekranın tam çözünürlüğü)
@@ -174,6 +179,13 @@ func apply(k: String, seed: float) -> void:
 	sun.light_energy = _base["sun"]
 	env.ambient_light_color = Color(lt[2])
 	env.ambient_light_energy = _base["amb"]
+	sky_base = []
+	for hex in sk:
+		sky_base.append(Color(hex))
+	light_base_color = sun.light_color
+	ambient_base_color = env.ambient_light_color
+	weather_sun = float(lt[1])
+	weather_amb = float(lt[3])
 	# 3B yağış
 	rain_p.emitting = P.get("rain", 0.0) > 0.0 and enabled
 	rain_p.visible = rain_p.emitting
@@ -190,6 +202,27 @@ func apply(k: String, seed: float) -> void:
 	mat.set_shader_parameter("bolt", Vector4(0.5, 0.0, 9.0, 0.0))
 	if audio != null:
 		audio.set_ambient(P.get("rain_snd", 0.0), P.get("wind_snd", 0.0))
+
+## Tema renklerini gökyüzü ve sahne ışığının üstüne bindirir.
+## Bulut, yağış, şimşek zarfı ve ortam sesi ön ayarda kalır; şimşek hâlâ _base enerjisinin üstüne biner.
+func blend_theme(bg_top: Color, bg_bottom: Color, light_col: Color, light_e: float, amb_col: Color, amb_e: float) -> void:
+	if mat == null or sky_base.size() < 6:
+		return
+	var k := 0.62
+	mat.set_shader_parameter("sky_top", (sky_base[0] as Color).lerp(bg_top, k))
+	mat.set_shader_parameter("sky_mid", (sky_base[1] as Color).lerp(bg_top.lerp(bg_bottom, 0.4), k * 0.75))
+	mat.set_shader_parameter("sky_horizon", (sky_base[2] as Color).lerp(bg_bottom, k * 0.8))
+	mat.set_shader_parameter("haze", (sky_base[3] as Color).lerp(bg_bottom.lightened(0.12), k * 0.4))
+	mat.set_shader_parameter("ground", (sky_base[5] as Color).lerp(bg_bottom, k * 0.5))
+	sun.light_color = light_base_color.lerp(light_col, 0.78)
+	var se := lerpf(weather_sun, light_e, 0.78)
+	var ae := lerpf(weather_amb, amb_e, 0.78)
+	_base["sun"] = se
+	_base["amb"] = ae
+	sun.light_energy = se + flash * 0.45
+	env.ambient_light_color = ambient_base_color.lerp(amb_col, 0.8)
+	env.ambient_light_energy = ae + flash * 0.35
+
 
 func is_dark() -> bool:
 	return preset.get("dark_ui", false)

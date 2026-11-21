@@ -69,8 +69,10 @@ var world: Node3D
 var level_root: Node3D
 var cam: Camera3D
 var sun: DirectionalLight3D
+var fill: DirectionalLight3D
 var env: Environment
 var weather: Weather
+var theme_app: ThemeApplicator
 var objs := {}
 var mat_cache := {}
 var rbox_mesh: ArrayMesh
@@ -91,6 +93,7 @@ var ui_root: Control
 var fx_layer: CanvasLayer
 var hud: Control
 var panel: PanelContainer
+var panel_sep: ColorRect
 var palette_box: HFlowContainer
 var rows_box: VBoxContainer
 var rows_scroll: ScrollContainer
@@ -102,6 +105,8 @@ var btn_stop: Button
 var btn_speed: Button
 var btn_clear: Button
 var top_bar: HBoxContainer
+var theme_bar: HBoxContainer
+var lbl_theme: Label
 var tools_box: BoxContainer
 var lbl_chap: Label
 var lbl_name: Label
@@ -170,6 +175,9 @@ func _ready() -> void:
 	for a in args:
 		if a.begins_with("--shot="):
 			_shot.call_deferred(a.substr(7))
+			return
+		if a.begins_with("--themecycle="):
+			_themecycle.call_deferred(a.substr(13))
 			return
 	var migrated := _migrate_webview()
 	_show_title()
@@ -342,11 +350,13 @@ func _setup_world() -> void:
 	add_child(sun)
 	# güneş: üst yüz en parlak, +x yüzü orta, +z yüzü koyu → izometrik bakışta 3 ayrı ton
 	sun.look_at_from_position(Vector3(7.0, 10.0, 3.0), Vector3.ZERO, Vector3.UP)
-	var fill := DirectionalLight3D.new()
+	fill = DirectionalLight3D.new()
 	fill.light_color = Color("#b9c4ff")
 	fill.light_energy = 0.22
 	add_child(fill)
 	fill.look_at_from_position(Vector3(-6.0, 4.0, -2.0), Vector3.ZERO, Vector3.UP)
+	theme_app = ThemeApplicator.new()
+	theme_app.bind(self)
 
 	cam = Camera3D.new()
 	cam.projection = Camera3D.PROJECTION_ORTHOGONAL
@@ -581,6 +591,8 @@ func build_level(i: int, as_preview := false) -> void:
 	pal = PALETTES[int(def.get("palette", i)) % PALETTES.size()]
 	# hava durumu bölüme göre: gökyüzü, bulutlar, yağış, şimşek ve sahne ışığı
 	weather.apply(Weather.for_chapter(_chapter_of(i)), float(i) * 7.31 + 1.0)
+	# bölüm teması havanın üstüne biner; (bölüm - 1) % 15 + 1
+	theme_app.prepare(ThemeLibrary.theme(ThemeLibrary.id_for_chapter(_chapter_of(i) + 1)))
 	_kill_all_tweens()
 	if level_root:
 		level_root.queue_free()
@@ -608,8 +620,8 @@ func build_level(i: int, as_preview := false) -> void:
 		grow.call(p)
 		if v["t"] == "b":
 			var first := level_root.get_child_count()
-			_mesh(_ao_box(p), _mat(_block_color(p), {"vc": true, "rough": 0.9}), Vector3(p))
-			_add_tile(p, _block_color(p))
+			_mesh(_ao_box(p), theme_app.block_mat, Vector3(p))
+			_add_tile(p)
 			_add_window(p)
 			# bloğun tüm parçaları tek bir hücre düğümünde: zıplama/açılış animasyonu hepsini birlikte taşır
 			var made := level_root.get_children().slice(first)
@@ -628,10 +640,9 @@ func build_level(i: int, as_preview := false) -> void:
 			level_root.add_child(sg)
 			cell_nodes[p] = sg
 			# merdiven: bloklardan bir ton farklı (palet vurgusuna doğru) — okunabilirlik
-			var col := _block_color(p + Vector3i.UP).lerp(Color(pal["accent"]), 0.22).darkened(0.04)
 			for k in 3:
 				var h := (k + 1) / 3.0
-				_mesh(_box(Vector3(1.0 / 3.0, h, 1.0)), _mat(col), Vector3(-1.0 / 3.0 + k / 3.0, -0.5 + h / 2.0, 0), sg)
+				_mesh(_box(Vector3(1.0 / 3.0, h, 1.0)), theme_app.stair_mat, Vector3(-1.0 / 3.0 + k / 3.0, -0.5 + h / 2.0, 0), sg)
 	# köprüler / kapılar
 	for bi in L.bridges.size():
 		var b: Dictionary = L.bridges[bi]
@@ -650,8 +661,8 @@ func build_level(i: int, as_preview := false) -> void:
 		for b in r["blocks"]:
 			grow.call(b)
 			var local := Vector3(b.x - r["pivot"].x, b.y, b.z - r["pivot"].y)
-			_mesh(rbox_mesh, _mat(pal["mech"], {"vc": true, "rough": 0.88}), local, rg)
-			_tile_plate(rg, local, Color(pal["mech"]))
+			_mesh(rbox_mesh, theme_app.block_mat, local, rg)
+			_tile_plate(rg, local)
 			_mesh(_cyl(0.13, 0.13, 0.02), _mat("#ffffff", {"unshaded": true}), local + Vector3(0, 0.51, 0), rg)
 			_pick(rg, Vector3.ONE, {"kind": "rot", "i": ri}, local)
 			grow.call(Vector3i(r["pivot"].x + (b.z - r["pivot"].y), b.y, r["pivot"].y + (b.x - r["pivot"].x)))
@@ -692,12 +703,11 @@ func build_level(i: int, as_preview := false) -> void:
 		var s: Dictionary = L.sliders[si]
 		var sg := Node3D.new()
 		level_root.add_child(sg)
-		var col = pal["slide"] if L.is_manual(si) else pal["mech"]
 		for b in s["blocks"]:
 			grow.call(b)
 			grow.call(b + s["axis"] * s["max"])
 			grow.call(b + s["axis"] * s["min"])
-			_mesh(rbox_mesh, _mat(col, {"vc": true, "rough": 0.88}), Vector3(b), sg)
+			_mesh(rbox_mesh, theme_app.block_mat, Vector3(b), sg)
 			_mesh(_box(Vector3(1.01, 0.12, 1.01)), _mat("#ffffff", {"rough": 0.5}), Vector3(b) + Vector3(0, 0.25, 0), sg)
 			_pick(sg, Vector3.ONE, {"kind": "slide", "i": si}, Vector3(b))
 		if L.is_manual(si):
@@ -717,7 +727,7 @@ func build_level(i: int, as_preview := false) -> void:
 	# çöken taşlar
 	for c in L.crumbles:
 		grow.call(c)
-		objs["crumbles"].append(_mesh(rbox_mesh, _mat("#e2cfb2", {"rough": 0.95, "vc": true}), Vector3(c)))
+		objs["crumbles"].append(_mesh(rbox_mesh, theme_app.block_mat, Vector3(c)))
 	# plakalar
 	for pl in L.plates:
 		var m := _mesh(_cyl(0.36, 0.4, 0.08), _mat(pal["mech"], {"emit": 0.0, "unique": true, "rough": 0.4}), Vector3(pl["p"]) + Vector3(0, -0.46, 0))
@@ -766,7 +776,7 @@ func build_level(i: int, as_preview := false) -> void:
 	# hedef kristal
 	var gp := Vector3(L.goal)
 	grow.call(L.goal)
-	var gem := _mesh(_gem_mesh(), _mat(pal["accent"], {"emit": 5.0, "rough": 0.2}), gp + Vector3(0, 0.1, 0))
+	var gem := _mesh(_gem_mesh(), theme_app.crystal_mat, gp + Vector3(0, 0.1, 0))
 	gem.scale = Vector3(1, 1.35, 1)
 	var ring := _mesh(_torus(0.28, 0.42), _mat("#ffffff", {"alpha": true, "unique": true, "unshaded": true}), gp + Vector3(0, -0.47, 0))
 	ring.scale = Vector3(1, 0.1, 1)
@@ -777,7 +787,7 @@ func build_level(i: int, as_preview := false) -> void:
 	objs["gem"] = gem
 	# kristal çevresini palet rengiyle aydınlatır
 	var gl := OmniLight3D.new()
-	gl.light_color = Color(pal["accent"])
+	gl.light_color = theme_app.theme.accent_color
 	gl.light_energy = 1.4
 	gl.omni_range = 2.6
 	gl.position = gp + Vector3(0, 0.3, 0)
@@ -802,6 +812,10 @@ func build_level(i: int, as_preview := false) -> void:
 	cam_target = aabb.get_center()
 	var sz := aabb.size
 	weather.place(cam_target, sz)
+	theme_app.bounds = aabb
+	theme_app.refresh_props()
+	theme_app.paint_robot()
+	_update_theme_label()
 	cam_size = maxf(9.0, (maxf(sz.x, sz.z) * 0.62 + sz.y * 0.55) * 1.2 + 3.2)
 	cam_az = 45.0 + 90.0 * state["view"]
 	cam_az_cur = cam_az + 30.0
@@ -817,15 +831,15 @@ func build_level(i: int, as_preview := false) -> void:
 ## çekilmiş ince bir plaka. Aradaki şerit karo çerçevesi gibi okunur; ızgara kareleri anında sayılır.
 var _plate_mesh: BoxMesh = null
 
-func _add_tile(p: Vector3i, col: Color) -> void:
+func _add_tile(p: Vector3i) -> void:
 	if L.statics.has(p + Vector3i.UP):
 		return
-	_tile_plate(level_root, Vector3(p), col)
+	_tile_plate(level_root, Vector3(p))
 
-func _tile_plate(parent: Node3D, pos: Vector3, col: Color) -> void:
+func _tile_plate(parent: Node3D, pos: Vector3) -> void:
 	if _plate_mesh == null:
 		_plate_mesh = _box(Vector3(0.82, 0.014, 0.82))
-	var m := _mesh(_plate_mesh, _mat(col.lightened(0.06), {"rough": 0.92}), pos + Vector3(0, 0.503, 0), parent)
+	var m := _mesh(_plate_mesh, theme_app.block_mat, pos + Vector3(0, 0.503, 0), parent)
 	m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
 func _gem_mesh() -> ArrayMesh:
@@ -915,8 +929,9 @@ func _make_robot() -> Node3D:
 	var eyes := Node3D.new()
 	eyes.position = Vector3(0, 0.05, 0.225)
 	body.add_child(eyes)
+	var eye_mat := _mat("#6ff6ff", {"emit": 4.0, "unshaded": true, "unique": true})
 	for x in [-0.08, 0.08]:
-		_mesh(_sphere(0.04), _mat("#6ff6ff", {"emit": 4.0, "unshaded": true}), Vector3(x, 0, 0), eyes)
+		_mesh(_sphere(0.04), eye_mat, Vector3(x, 0, 0), eyes)
 	_mesh(_cyl(0.018, 0.018, 0.16), dark, Vector3(0, 0.62, 0), pose)
 	var bulb_mat := _mat("#6ff6ff", {"emit": 4.0, "unique": true})
 	_mesh(_sphere(0.05), bulb_mat, Vector3(0, 0.72, 0), pose)
@@ -938,6 +953,7 @@ func _make_robot() -> Node3D:
 	g.set_meta("vis", vis)
 	g.set_meta("pose", pose)
 	g.set_meta("eyes", eyes)
+	g.set_meta("eye_mat", eye_mat)
 	g.set_meta("bulb", bulb_mat)
 	g.set_meta("arrow", arrow)
 	g.set_meta("ring", ring)
@@ -1349,10 +1365,7 @@ func _set_mode(m: String, quiet := false) -> void:
 		var pl: Node3D = objs["player"]
 		pl.get_meta("arrow").visible = m != "running"
 		pl.get_meta("ring").visible = m != "running"
-		var col: String = {"running": "#57e39a", "paused": "#ffd36e", "ended": "#ff6b7a"}.get(m, "#6ff6ff")
-		var bm: StandardMaterial3D = pl.get_meta("bulb")
-		bm.albedo_color = Color(col)
-		bm.emission = Color(col)
+		_apply_led_color()
 	if m == "edit":
 		_mark_exec(null, [])
 	_update_hud()
@@ -1494,6 +1507,8 @@ func _robot_land(at: Vector3i) -> void:
 	tw.tween_property(vis, "scale", Vector3(1.12, 0.88, 1.12), 0.08 / sp).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 	tw.tween_property(vis, "scale", Vector3.ONE, 0.2 / sp).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	_tile_bounce(at + Vector3i.DOWN)
+	if theme_app:
+		theme_app.pulse_step()
 
 func _tile_bounce(p: Vector3i) -> void:
 	var cell = cell_nodes.get(p)
@@ -1679,6 +1694,8 @@ func _confetti(at: Vector3) -> void:
 func _process(dt: float) -> void:
 	dt = minf(dt, 0.05)
 	time += dt
+	if theme_app:
+		theme_app.tick(dt)
 	if cam_spin:
 		cam_az += dt * 7.0
 	cam_az_cur += (cam_az - cam_az_cur) * minf(1.0, dt * 8.0)
@@ -1773,6 +1790,12 @@ func _unhandled_input(ev: InputEvent) -> void:
 			KEY_BACKSPACE:
 				if sel != null:
 					_delete_sel()
+			KEY_BRACKETLEFT:
+				if _current == "":
+					_cycle_theme(-1)
+			KEY_BRACKETRIGHT:
+				if _current == "":
+					_cycle_theme(1)
 
 ## Android geri tuşu: açık kart / ipucu / seçim kapanır → oyun duraklatılır → seviyeler → başlık → çıkış
 func _notification(what: int) -> void:
@@ -1915,6 +1938,7 @@ func _build_hud() -> void:
 	tools_box.add_theme_constant_override("separation", 10)
 	hud.add_child(tools_box)
 	tools_box.add_child(UIKit.round_button("bulb", _toggle_hint, 50, Color("#fff4cf"), Color("#b5820f")))
+	_build_theme_bar()
 	tools_box.add_child(UIKit.round_button("cam_r", _reset_camera, 50))
 	# durum bandı (mola / hata)
 	lbl_status = UIKit.label("", 19, Color.WHITE, UIKit.font_bold)
@@ -2006,10 +2030,10 @@ func _build_panel() -> void:
 	sel_bar.add_child(UIKit.round_button("trash", _delete_sel, 50, Color("#ffe1e6"), Color("#d8435c")))
 	sel_bar.visible = false
 	pv.add_child(sel_bar)
-	var sep := ColorRect.new()
-	sep.color = Color(UIKit.INK, 0.08)
-	sep.custom_minimum_size = Vector2(0, 2)
-	pv.add_child(sep)
+	panel_sep = ColorRect.new()
+	panel_sep.color = Color(UIKit.INK, 0.08)
+	panel_sep.custom_minimum_size = Vector2(0, 2)
+	pv.add_child(panel_sep)
 	pv.add_child(palette_box)
 	# çalıştırma kontrolleri
 	var ctl := HBoxContainer.new()
@@ -2480,6 +2504,15 @@ func _layout() -> void:
 	tools_box.reset_size()
 	var right_edge := vs.x if portrait or panel.position.y > 90 else panel.position.x
 	tools_box.position = Vector2(right_edge - tools_box.size.x - 16, 16)
+	if theme_bar:
+		top_bar.reset_size()
+		theme_bar.reset_size()
+		var tx := top_bar.position.x + top_bar.size.x + 8.0
+		var ty := 14.0
+		if tx + theme_bar.size.x > tools_box.position.x - 8.0:
+			tx = 16.0
+			ty = top_bar.position.y + top_bar.size.y + 4.0
+		theme_bar.position = Vector2(tx, ty)
 	lbl_hint.custom_minimum_size = Vector2(minf(520, (vs.x if portrait else panel.position.x) - 80), 0)
 	status_pill.reset_size()
 	var free_w := vs.x if portrait else panel.position.x
@@ -2755,6 +2788,83 @@ func _cycle_gfx() -> void:
 	_apply_gfx()
 	_update_settings_buttons()
 	audio.play("tap")
+
+func _build_theme_bar() -> void:
+	theme_bar = HBoxContainer.new()
+	theme_bar.add_theme_constant_override("separation", 6)
+	theme_bar.mouse_filter = Control.MOUSE_FILTER_STOP
+	hud.add_child(theme_bar)
+	var prev := Button.new()
+	prev.text = "<"
+	prev.focus_mode = Control.FOCUS_NONE
+	prev.custom_minimum_size = Vector2(36, 36)
+	prev.tooltip_text = "Önceki tema  ["
+	UIKit.style_chunky(prev, Color.WHITE, 12, 3, UIKit.INK)
+	prev.add_theme_font_size_override("font_size", 18)
+	prev.pressed.connect(func(): _cycle_theme(-1))
+	theme_bar.add_child(prev)
+	lbl_theme = UIKit.label("Tema Değiştir (1/15)", 15, UIKit.INK, UIKit.font_black)
+	lbl_theme.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	theme_bar.add_child(lbl_theme)
+	var nxt := Button.new()
+	nxt.text = ">"
+	nxt.focus_mode = Control.FOCUS_NONE
+	nxt.custom_minimum_size = Vector2(36, 36)
+	nxt.tooltip_text = "Sonraki tema  ]"
+	UIKit.style_chunky(nxt, Color.WHITE, 12, 3, UIKit.INK)
+	nxt.add_theme_font_size_override("font_size", 18)
+	nxt.pressed.connect(func(): _cycle_theme(1))
+	theme_bar.add_child(nxt)
+
+
+func _cycle_theme(dir: int) -> void:
+	if theme_app == null or theme_app.theme == null or L == null or preview:
+		return
+	var n := ThemeLibrary.COUNT
+	var id := theme_app.theme.chapter_id
+	var next := ((id - 1 + dir) % n + n) % n + 1
+	_apply_theme_id(next)
+	audio.play("tap")
+
+
+func _apply_theme_id(id: int) -> void:
+	if theme_app == null:
+		return
+	theme_app.prepare(ThemeLibrary.theme(id))
+	theme_app.refresh_props()
+	theme_app.paint_robot()
+	_update_theme_label()
+
+
+func _update_theme_label() -> void:
+	if lbl_theme == null or theme_app == null or theme_app.theme == null:
+		return
+	var t := theme_app.theme
+	lbl_theme.text = "Tema Değiştir (%d/15)" % t.chapter_id
+	var tip := "%s · %s" % [t.theme_name, t.concept_name]
+	lbl_theme.tooltip_text = tip
+	if theme_bar:
+		theme_bar.tooltip_text = tip
+
+
+## Anten ucu moda göre (çalışıyor / mola / hata), gözler her zaman temanın LED renginde.
+## Gövde silüeti değişmez.
+func _apply_led_color() -> void:
+	if not objs.has("player"):
+		return
+	var pl: Node3D = objs["player"]
+	var led := Color("#6ff6ff")
+	if theme_app != null and theme_app.theme != null:
+		led = theme_app.theme.robot_led_color
+	var col: Color = {"running": Color("#57e39a"), "paused": Color("#ffd36e"), "ended": Color("#ff6b7a")}.get(mode, led)
+	var bm: StandardMaterial3D = pl.get_meta("bulb")
+	bm.albedo_color = col
+	bm.emission = col
+	if pl.has_meta("eye_mat"):
+		var eye: StandardMaterial3D = pl.get_meta("eye_mat")
+		eye.albedo_color = led
+		eye.emission = led
+
 
 ## Grafik kalitesi: Düşük = hafif çözünürlük, Orta = doğal çözünürlük + 4x MSAA, Yüksek = 1,5x süper örnekleme + 8x MSAA
 func _apply_gfx() -> void:
@@ -3276,6 +3386,32 @@ func _autotest() -> void:
 	print("autotest: %d/%d" % [ok, levels.size()])
 	get_tree().quit(0 if ok == levels.size() and mig_ok else 1)
 
+## 15 temayı aynı seviyede gezdirip ekran görüntüsü alır.
+## godot --path godot-program -- --themecycle=/tmp/temalar
+func _themecycle(dir: String) -> void:
+	DirAccess.make_dir_recursive_absolute(dir)
+	progress["seen"]["2"] = 1
+	_start_level(2)
+	for f in 50:
+		await get_tree().process_frame
+	var bad := []
+	for id in 15:
+		_apply_theme_id(id + 1)
+		for f in 20:
+			await get_tree().process_frame
+		if theme_app.block_mat == null or theme_app.block_mat.shader == null:
+			bad.append("shader %d" % (id + 1))
+		var img := get_viewport().get_texture().get_image()
+		if img == null or img.get_width() < 2:
+			bad.append("görüntü %d" % (id + 1))
+		else:
+			var path := dir.path_join("tema-%02d.png" % (id + 1))
+			if img.save_png(path) != OK:
+				bad.append("kayıt %d" % (id + 1))
+	print("themecycle: ", "TAMAM" if bad.is_empty() else "HATA " + str(bad))
+	get_tree().quit(0 if bad.is_empty() else 1)
+
+
 ## Ekran görüntüsü: godot --path godot-program -- --shot=<seviye>:<dosya>[:<kare>]
 ## seviye 0 = başlık, -1 = seviye haritası, -2 = kazanma ekranı (seviye 12), -3 = duraklatma menüsü
 func _shot(spec: String) -> void:
@@ -3426,6 +3562,17 @@ func _feeltest() -> void:
 	for ch in 9:
 		if not Weather.PRESETS.has(Weather.for_chapter(ch)):
 			fails.append("bölüm %d için hava yok" % ch)
+	# 15 tema: shader, dekor ve hava sistemi ayakta kalır
+	for id in 15:
+		_apply_theme_id(id + 1)
+		if theme_app.block_mat == null or theme_app.block_mat.shader == null:
+			fails.append("shader %d" % (id + 1))
+		elif int(theme_app.block_mat.get_shader_parameter("visual_style")) != id:
+			fails.append("stil %d" % (id + 1))
+		if theme_app.props == null or not is_instance_valid(theme_app.props) or theme_app.props.get_child_count() < 1:
+			fails.append("dekor %d" % (id + 1))
+		if weather.mat == null or weather.mat.shader == null:
+			fails.append("hava shader %d" % (id + 1))
 	print("feeltest: ", "TAMAM" if fails.is_empty() else "HATA " + str(fails))
 	get_tree().quit(0 if fails.is_empty() else 1)
 
