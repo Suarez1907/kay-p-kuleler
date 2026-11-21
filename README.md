@@ -212,6 +212,15 @@ Mobile (Vulkan) renderer, AgX ton eşleme, parıltı, sis, yumuşak gölgeler; V
   godot --path godot-program -- --shot=12:/tmp/seviye12.png:60                # ekran görüntüsü (0 başlık, -1 harita, -2 kazanma, -3 duraklatma; 4. parça: v2,intro,starter)
   ```
   `--autotest` ayrıca eski WebView ilerlemesinin taşınmasını sahte bir LevelDB günlüğüyle sınar.
+  `--feeltest` animasyonları gerçek zamanlı sınar: açılış, 1x ve en hızlı modda koşu (esneme, dönüş zıplaması),
+  zafer, kristalin geri gelmesi, silme animasyonu ve Durdur'da tween temizliği.
+* **Game feel (prosedürel animasyonlar, `scripts/main.gd` → "Game feel" bölümü):** robot üç katmanlıdır — kök düğüm
+  ızgara konumu/yönü, `vis` Tween'lerle sürülen katman (iniş ezilmesi, çarpma titremesi, 360° zafer dönüşü ve iki zıplama),
+  `pose` her karede hesaplanan katman (boşta nefes, adımda esneme, dönüşte zıplama, anten ışığı nabzı). Bölüm açılışında
+  bloklar alttan üste sırayla yaylanarak oturur (≤ 0,8 sn); robotun bastığı blok 0,05 birim esner; kristal toplanınca
+  büyüyüp kaybolur ve parçacık patlaması çıkar. Komut ekleme (0,2 → 1, 0,15 sn) ve silme (0,1 sn) animasyonlu, çalışan
+  komut 1,12 ölçek + altın çerçeveyle vurgulanır, yıldızlar 0,2 sn arayla esneyerek gelir. Tüm süreler hız çarpanına bölünür;
+  tween'ler isimli tutulur ve yenisi başlamadan, seviye değişiminde, Durdur/Sıfırla'da `kill()` edilir.
 * **Henüz yok:** blok sürükle-bırak (bloklar dokunarak eklenir; seçilen blok taşınır/silinir), iki parmakla yakınlaştırma.
 
 ### Godot sürümü (klasik)

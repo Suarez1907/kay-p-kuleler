@@ -60,6 +60,9 @@ var preview := false
 var win_shown := false
 var progress := {"unlocked": 1, "best": {}, "progs": {}, "seen": {}}
 var time := 0.0
+# ---------- game feel (Faz 3) ----------
+var _tw := {}               # isimli tween'ler: yenisi başlamadan eskisi kill() edilir
+var cell_nodes := {}        # Vector3i -> Node3D (statik blok/merdiven hücresi; zıplama ve açılış için)
 
 # ---------- sahne ----------
 var world: Node3D
@@ -161,6 +164,8 @@ func _ready() -> void:
 	var args := OS.get_cmdline_user_args()
 	if "--autotest" in args:
 		_autotest.call_deferred()
+	if "--feeltest" in args:
+		_feeltest.call_deferred()
 		return
 	for a in args:
 		if a.begins_with("--shot="):
@@ -602,6 +607,7 @@ func build_level(i: int, as_preview := false) -> void:
 	env.ambient_light_energy = 0.4 if dark else 0.36
 	sun.light_color = Color("#e6ebff") if dark else Color("#ffecd2")
 	sun.light_energy = 0.5 if dark else 0.36
+	_kill_all_tweens()
 	if level_root:
 		level_root.queue_free()
 	level_root = Node3D.new()
@@ -622,18 +628,31 @@ func build_level(i: int, as_preview := false) -> void:
 	var bb := {"box": AABB(Vector3(L.start), Vector3.ZERO)}
 	var grow := func(p: Vector3i): bb["box"] = bb["box"].expand(Vector3(p))
 	# statik bloklar ve merdivenler
+	cell_nodes = {}
 	for p in L.statics:
 		var v: Dictionary = L.statics[p]
 		grow.call(p)
 		if v["t"] == "b":
+			var first := level_root.get_child_count()
 			_mesh(_ao_box(p), _mat(_block_color(p), {"vc": true, "rough": 0.9}), Vector3(p))
 			_add_tile(p, _block_color(p))
 			_add_window(p)
+			# bloğun tüm parçaları tek bir hücre düğümünde: zıplama/açılış animasyonu hepsini birlikte taşır
+			var made := level_root.get_children().slice(first)
+			var cell := Node3D.new()
+			cell.position = Vector3(p)
+			level_root.add_child(cell)
+			for nd in made:
+				level_root.remove_child(nd)
+				nd.position -= Vector3(p)
+				cell.add_child(nd)
+			cell_nodes[p] = cell
 		else:
 			var sg := Node3D.new()
 			sg.position = Vector3(p)
 			sg.rotation.y = [0.0, -PI / 2, PI, PI / 2][int(v["d"])]
 			level_root.add_child(sg)
+			cell_nodes[p] = sg
 			# merdiven: bloklardan bir ton farklı (palet vurgusuna doğru) — okunabilirlik
 			var col := _block_color(p + Vector3i.UP).lerp(Color(pal["accent"]), 0.22).darkened(0.04)
 			for k in 3:
@@ -816,6 +835,8 @@ func build_level(i: int, as_preview := false) -> void:
 	view_dots.get_meta("pill").visible = not L.phantoms.is_empty()
 	_apply_visual(state, state, 1.0)
 	_on_resize()
+	if not instant and not as_preview:
+		_cascade_in()
 
 ## Yürünebilir üst yüz karo detayı: bloğun üstünde açıkta kalan yüze biraz daha açık, kenarlardan içeri
 ## çekilmiş ince bir plaka. Aradaki şerit karo çerçevesi gibi okunur; ızgara kareleri anında sayılır.
@@ -907,7 +928,13 @@ func _make_robot() -> Node3D:
 	var blob := _mesh(_cyl(0.3, 0.3, 0.005), _mat("#140c28", {"alpha": true, "unshaded": true, "unique": true}), Vector3(0, 0.012, 0), g)
 	blob.material_override.albedo_color.a = 0.32
 	blob.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	var body := _mesh(_rounded_box(Vector3(0.46, 0.42, 0.4), 0.1, 3), amber, Vector3(0, 0.33, 0), g)
+	# vis: Tween'lerle sürülen katman (iniş ezilmesi, çarpma titremesi, zafer dönüşü)
+	# pose: her karede hesaplanan katman (nefes, adım esnemesi, dönüş zıplaması). Izgara konumu g'de kalır.
+	var vis := Node3D.new()
+	g.add_child(vis)
+	var pose := Node3D.new()
+	vis.add_child(pose)
+	var body := _mesh(_rounded_box(Vector3(0.46, 0.42, 0.4), 0.1, 3), amber, Vector3(0, 0.33, 0), pose)
 	_mesh(_box(Vector3(0.36, 0.22, 0.04)), _mat("#1e1b27", {"rough": 0.35}), Vector3(0, 0.04, 0.2), body)
 	_mesh(_box(Vector3(0.48, 0.05, 0.42)), dark, Vector3(0, -0.12, 0), body)
 	var eyes := Node3D.new()
@@ -915,16 +942,16 @@ func _make_robot() -> Node3D:
 	body.add_child(eyes)
 	for x in [-0.08, 0.08]:
 		_mesh(_sphere(0.04), _mat("#6ff6ff", {"emit": 4.0, "unshaded": true}), Vector3(x, 0, 0), eyes)
-	_mesh(_cyl(0.018, 0.018, 0.16), dark, Vector3(0, 0.62, 0), g)
+	_mesh(_cyl(0.018, 0.018, 0.16), dark, Vector3(0, 0.62, 0), pose)
 	var bulb_mat := _mat("#6ff6ff", {"emit": 4.0, "unique": true})
-	_mesh(_sphere(0.05), bulb_mat, Vector3(0, 0.72, 0), g)
+	_mesh(_sphere(0.05), bulb_mat, Vector3(0, 0.72, 0), pose)
 	for x in [-0.12, 0.12]:
-		_mesh(_box(Vector3(0.12, 0.1, 0.18)), dark, Vector3(x, 0.06, 0.02), g)
+		_mesh(_box(Vector3(0.12, 0.1, 0.18)), dark, Vector3(x, 0.06, 0.02), pose)
 	for x in [-0.27, 0.27]:
 		var cap := CapsuleMesh.new()
 		cap.radius = 0.045
 		cap.height = 0.22
-		_mesh(cap, dark, Vector3(x, 0.3, 0), g)
+		_mesh(cap, dark, Vector3(x, 0.3, 0), pose)
 	# yön oku ve halka
 	var arrow := _mesh(_cyl(0.0, 0.16, 0.02), _mat("#ffffff", {"unshaded": true, "alpha": true, "unique": true}), Vector3(0, 0.03, 0.5), g)
 	arrow.rotation.x = PI / 2
@@ -933,6 +960,8 @@ func _make_robot() -> Node3D:
 	ring.scale = Vector3(1, 0.05, 1)
 	ring.material_override.albedo_color.a = 0.55
 	g.set_meta("body", body)
+	g.set_meta("vis", vis)
+	g.set_meta("pose", pose)
 	g.set_meta("eyes", eyes)
 	g.set_meta("bulb", bulb_mat)
 	g.set_meta("arrow", arrow)
@@ -1152,12 +1181,18 @@ func _update_queue(dt: float) -> void:
 			anim = queue.pop_front()
 			if not instant:
 				_sound_for(anim)
+				if anim["bump"]:
+					_robot_shake()
 		anim["t"] += dt / anim["dur"] if anim["dur"] > 0 else 1.0
 		dt = 0.0
 		if anim["t"] >= 1.0:
 			_apply_visual(anim["from"], anim["to"], 1.0)
 			displayed = anim["to"]
+			var done: Dictionary = anim
 			anim = null
+			if done.get("first", false) and not done["bump"] and String(done.get("kind", "")) in ["F", "J"] \
+					and not done["to"]["dead"] and done["from"]["p"] != done["to"]["p"]:
+				_robot_land(done["to"]["p"])
 			if not instant and queue.size() > 0:
 				return
 		else:
@@ -1285,6 +1320,8 @@ func _reset_to_setup() -> void:
 	state = setup_state
 	setup_state = null
 	displayed = state
+	_robot_reset()
+	_gem_restore()
 	runner = null
 	_apply_visual(state, state, 1.0)
 	_sync_view()
@@ -1297,6 +1334,8 @@ func _end_run(reason: String) -> void:
 	if not instant and reason != "dead":
 		audio.play("fail")
 	_set_mode("ended")
+	if reason != "dead":
+		_robot_shake()
 	_nova_analyze(reason)
 
 ## Nova başarısız çalıştırmayı analiz eder, açıklar ve sorunlu bloğu seçip vurgular.
@@ -1406,6 +1445,207 @@ func _reset_world() -> void:
 
 
 # =====================================================================
+# Game feel: prosedürel animasyonlar (Faz 3). Tüm süreler hız çarpanına bölünür; her animasyon
+# isimli bir tween kullanır ve yenisi başlamadan öncekini kill() eder (hızlı mod/Durdur/Sıfırla güvenli).
+func _kill_tw(key: String) -> void:
+	var t = _tw.get(key)
+	if t != null and is_instance_valid(t):
+		t.kill()
+	_tw.erase(key)
+
+func _new_tw(key: String, node: Node) -> Tween:
+	_kill_tw(key)
+	var t := node.create_tween()
+	_tw[key] = t
+	return t
+
+func _kill_all_tweens() -> void:
+	for k in _tw.keys():
+		_kill_tw(k)
+	_deleting = false
+
+## Robotun Tween katmanını (vis) temizler ve nötr pozisyona döndürür.
+func _robot_reset() -> void:
+	for k in ["robot", "robot_spin", "robot_shake"]:
+		_kill_tw(k)
+	if objs.has("player"):
+		var vis: Node3D = objs["player"].get_meta("vis")
+		vis.transform = Transform3D.IDENTITY
+
+## Bölüm açılışı: bloklar alttan üste, ızgara sırasıyla kısa gecikmelerle yaylanarak yerine oturur (≤ 0,8 sn).
+func _cascade_in() -> void:
+	var items := []
+	for p in cell_nodes:
+		items.append({"n": cell_nodes[p], "k": p.y * 1000 + p.x + p.z, "slide": true})
+	for c in objs["crumbles"]:
+		items.append({"n": c, "k": int(c.position.y) * 1000 + int(c.position.x + c.position.z), "slide": true})
+	for rg in objs["rotators"]:
+		items.append({"n": rg, "k": 999999, "slide": false})
+	for sg in objs["sliders"]:
+		items.append({"n": sg, "k": 999999, "slide": false})
+	items.sort_custom(func(a, b): return a["k"] < b["k"])
+	var n := items.size()
+	if n == 0:
+		return
+	var stagger := clampf(0.45 / n, 0.006, 0.035)
+	var tw := _new_tw("cascade", level_root).set_parallel(true)
+	for i in n:
+		var nd: Node3D = items[i]["n"]
+		var d := i * stagger
+		var target_s := nd.scale
+		nd.scale = Vector3.ONE * 0.01
+		tw.tween_property(nd, "scale", target_s, 0.32).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT).set_delay(d)
+		if items[i]["slide"]:
+			var y := nd.position.y
+			nd.position.y = y - 0.6
+			tw.tween_property(nd, "position:y", y, 0.32).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT).set_delay(d)
+	# robot ve kristal en son belirir
+	var vis: Node3D = objs["player"].get_meta("vis")
+	vis.scale = Vector3.ONE * 0.01
+	var end := minf(0.5, (n - 1) * stagger) + 0.12
+	tw.tween_property(vis, "scale", Vector3.ONE, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT).set_delay(end)
+	var gem: Node3D = objs["gem"]
+	var gs := gem.scale
+	gem.scale = Vector3.ONE * 0.01
+	tw.tween_property(gem, "scale", gs, 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT).set_delay(end + 0.05)
+
+## İniş ezilmesi + basılan bloğun yaylanması
+func _robot_land(at: Vector3i) -> void:
+	if instant or not objs.has("player"):
+		return
+	var sp := _speed()
+	var vis: Node3D = objs["player"].get_meta("vis")
+	var tw := _new_tw("robot", vis)
+	tw.tween_property(vis, "scale", Vector3(1.12, 0.88, 1.12), 0.08 / sp).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	tw.tween_property(vis, "scale", Vector3.ONE, 0.2 / sp).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	_tile_bounce(at + Vector3i.DOWN)
+
+func _tile_bounce(p: Vector3i) -> void:
+	var cell = cell_nodes.get(p)
+	if cell == null or not is_instance_valid(cell):
+		return
+	var sp := _speed()
+	var base := float(p.y)
+	var tw := _new_tw("tile:%s" % p, cell)
+	tw.tween_property(cell, "position:y", base - 0.05, 0.06 / sp).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tw.tween_property(cell, "position:y", base, 0.12 / sp).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+## Çarpma / hata: yanlara kısa titreme (öne sekme _apply_visual'da yapılır)
+func _robot_shake() -> void:
+	if instant or not objs.has("player"):
+		return
+	var sp := _speed()
+	var vis: Node3D = objs["player"].get_meta("vis")
+	vis.position.x = 0.0
+	var tw := _new_tw("robot_shake", vis)
+	for k in [0.07, -0.06, 0.04, -0.02, 0.0]:
+		tw.tween_property(vis, "position:x", k, 0.045 / sp).set_trans(Tween.TRANS_SINE)
+
+## Zafer: 360° sevinç dönüşü ve iki zıplama
+func _robot_victory() -> void:
+	if instant or not objs.has("player"):
+		return
+	_robot_reset()
+	var vis: Node3D = objs["player"].get_meta("vis")
+	var spin := _new_tw("robot_spin", vis)
+	spin.tween_property(vis, "rotation:y", TAU, 0.75).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
+	var hop := _new_tw("robot", vis)
+	hop.tween_property(vis, "position:y", 0.42, 0.2).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	hop.tween_property(vis, "position:y", 0.0, 0.18).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	hop.tween_property(vis, "scale", Vector3(1.12, 0.88, 1.12), 0.06)
+	hop.tween_property(vis, "scale", Vector3.ONE, 0.1)
+	hop.tween_property(vis, "position:y", 0.26, 0.16).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	hop.tween_property(vis, "position:y", 0.0, 0.15).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	hop.tween_property(vis, "scale", Vector3(1.08, 0.92, 1.08), 0.05)
+	hop.tween_property(vis, "scale", Vector3.ONE, 0.18).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	hop.tween_callback(func(): vis.rotation.y = 0.0)
+
+## Kristal toplanır: büyüyüp parlar, küçülüp kaybolur, parçacık patlaması
+func _gem_collect() -> void:
+	if instant:
+		return
+	objs["gem_taken"] = true
+	var gem: Node3D = objs["gem"]
+	var gs := Vector3(1, 1.35, 1)
+	var tw := _new_tw("gem", gem)
+	tw.tween_property(gem, "scale", gs * 1.5, 0.16).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.tween_property(gem, "scale", Vector3.ONE * 0.01, 0.2).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	var gl: OmniLight3D = objs["gem_light"]
+	var lt := _new_tw("gem_light", gl)
+	lt.tween_property(gl, "light_energy", 5.0, 0.14)
+	lt.tween_property(gl, "light_energy", 0.0, 0.5)
+	var ring: MeshInstance3D = objs["goal_ring"]
+	var rt := _new_tw("gem_ring", ring)
+	rt.tween_property(ring.material_override, "albedo_color:a", 0.0, 0.4)
+	var pm := CPUParticles3D.new()
+	pm.one_shot = true
+	pm.explosiveness = 1.0
+	pm.amount = 36
+	pm.lifetime = 0.9
+	pm.position = Vector3(L.goal) + Vector3(0, 0.15, 0)
+	pm.direction = Vector3.UP
+	pm.spread = 180.0
+	pm.initial_velocity_min = 1.6
+	pm.initial_velocity_max = 3.4
+	pm.gravity = Vector3(0, -5.0, 0)
+	pm.damping_min = 1.0
+	pm.damping_max = 2.0
+	var curve := Curve.new()
+	curve.add_point(Vector2(0, 1))
+	curve.add_point(Vector2(1, 0))
+	pm.scale_amount_curve = curve
+	var q := QuadMesh.new()
+	q.size = Vector2(0.11, 0.11)
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	m.vertex_color_use_as_albedo = true
+	q.material = m
+	pm.mesh = q
+	var grad := Gradient.new()
+	grad.set_color(0, Color.WHITE)
+	grad.set_color(1, Color(pal["accent"]))
+	pm.color_initial_ramp = grad
+	pm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	level_root.add_child(pm)
+	pm.emitting = true
+	get_tree().create_timer(1.6).timeout.connect(func(): if is_instance_valid(pm): pm.queue_free())
+
+## Tekrar denemede kristali geri getirir
+func _gem_restore() -> void:
+	if not objs.get("gem_taken", false):
+		return
+	objs["gem_taken"] = false
+	for k in ["gem", "gem_light", "gem_ring"]:
+		_kill_tw(k)
+	objs["gem"].scale = Vector3(1, 1.35, 1)
+	objs["goal_ring"].material_override.albedo_color.a = 0.8
+
+## Robotun her karede hesaplanan pozu: hareket sırasında esneme / dönüşte zıplama, boşta nefes.
+func _robot_pose() -> void:
+	var pl: Node3D = objs["player"]
+	var pose: Node3D = pl.get_meta("pose")
+	var st := Vector3.ONE
+	var hop := 0.0
+	if anim != null and anim.get("first", false) and not anim["bump"]:
+		var t := clampf(anim["t"], 0.0, 1.0)
+		match String(anim.get("kind", "")):
+			"F", "J":
+				var a = anim["from"]["p"]
+				var b = anim["to"]["p"]
+				if a != b and not anim["to"]["dead"]:
+					st = Vector3.ONE.lerp(Vector3(0.92, 1.12, 0.92), sin(PI * t))
+			"L", "R":
+				hop = 0.18 * 4.0 * t * (1.0 - t)
+	elif anim == null and queue.is_empty():
+		var br := (sin(time * 2.4) + 1.0) * 0.5
+		st = Vector3(1.0 - 0.02 * br, 1.0 + 0.04 * br, 1.0 - 0.02 * br)
+	pose.scale = st
+	pose.position.y = hop
+	var bm: StandardMaterial3D = pl.get_meta("bulb")
+	bm.emission_energy_multiplier = 3.2 + sin(time * 3.2) * 1.4
+
+# =====================================================================
 # Kazanma
 func _stars_for(blocks: int, par: int) -> int:
 	return 3 if blocks <= par else (2 if blocks <= par + 3 else 1)
@@ -1428,6 +1668,8 @@ func _on_win() -> void:
 	_save_progress()
 	if not instant:
 		_confetti(Vector3(L.goal))
+		_gem_collect()
+		_robot_victory()
 		audio.play("win")
 	_prepare_win(stars, blocks, par)
 	if instant:
@@ -1476,16 +1718,18 @@ func _process(dt: float) -> void:
 	if L != null and objs.has("player"):
 		_update_queue(dt)
 		var gem: MeshInstance3D = objs["gem"]
-		gem.rotation.y = time * 1.6
+		gem.rotation.y = time * (1.6 if not objs.get("gem_taken", false) else 9.0)
 		gem.position.y = L.goal.y + 0.1 + sin(time * 2.4) * 0.07
 		objs["goal_ring"].scale = Vector3(1, 0.1, 1) * (1.0 + sin(time * 3.0) * 0.08)
+		_robot_pose()
 		var pl: Node3D = objs["player"]
 		pl.get_meta("body").position.y = 0.33 + sin(time * 4.0) * 0.012
 		pl.get_meta("eyes").scale.y = 0.15 if fmod(time, 3.7) < 0.12 else 1.0
 		for p in objs["portals"]:
 			p["ring"].rotation.y = time * 1.4
-		var gl: OmniLight3D = objs["gem_light"]
-		gl.light_energy = 1.3 + sin(time * 2.4) * 0.25
+		if not objs.get("gem_taken", false):
+			var gl: OmniLight3D = objs["gem_light"]
+			gl.light_energy = 1.3 + sin(time * 2.4) * 0.25
 
 ## Sahne, program panelinin kaplamadığı alana ortalanır (yatayda sağ panel, dikeyde alt panel).
 func _update_offset() -> void:
@@ -2205,8 +2449,8 @@ func _animate_enter(k: String) -> void:
 				st.scale = Vector2.ZERO
 				st.rotation = -0.6
 				var stw := st.create_tween().set_parallel(true)
-				var d := 0.45 + i * 0.28
-				stw.tween_property(st, "scale", Vector2.ONE, 0.5).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT).set_delay(d)
+				var d := 0.45 + i * 0.2
+				stw.tween_property(st, "scale", Vector2.ONE, 0.7).set_trans(Tween.TRANS_ELASTIC).set_ease(Tween.EASE_OUT).set_delay(d)
 				stw.tween_property(st, "rotation", 0.0, 0.5).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT).set_delay(d)
 				if i < n:
 					get_tree().create_timer(d).timeout.connect(func(): audio.play("star", 1.0 + i * 0.12))
@@ -2719,9 +2963,16 @@ func _mark_exec(n, skipped: Array) -> void:
 	_skipped = skipped
 	if instant:
 		return
-	if _run_tile != null and is_instance_valid(_run_tile):
-		(_run_tile.get_meta("ring") as Panel).visible = false
-		_run_tile.scale = Vector2.ONE
+	var sp := _speed()
+	var prev_tile: Button = _run_tile if _run_tile != null and is_instance_valid(_run_tile) else null
+	var cur_tile: Button = null
+	if n != null and tile_nodes.has(n["proc"]) and n["idx"] < tile_nodes[n["proc"]].size():
+		cur_tile = tile_nodes[n["proc"]][n["idx"]]
+	if prev_tile != null and prev_tile != cur_tile:
+		(prev_tile.get_meta("ring") as Panel).visible = false
+		prev_tile.pivot_offset = prev_tile.size / 2
+		var ptw := _new_tw("exec:%d" % prev_tile.get_instance_id(), prev_tile)
+		ptw.tween_property(prev_tile, "scale", Vector2.ONE, 0.14 / sp).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 	_run_tile = null
 	for row in tile_nodes:
 		for t in tile_nodes[row]:
@@ -2735,9 +2986,8 @@ func _mark_exec(n, skipped: Array) -> void:
 		var t: Button = tile_nodes[n["proc"]][n["idx"]]
 		(t.get_meta("ring") as Panel).visible = true
 		t.pivot_offset = t.size / 2
-		t.scale = Vector2(1.18, 1.18)
-		var tw := t.create_tween()
-		tw.tween_property(t, "scale", Vector2(1.08, 1.08), 0.18).set_trans(Tween.TRANS_BACK)
+		var tw := _new_tw("exec:%d" % t.get_instance_id(), t)
+		tw.tween_property(t, "scale", Vector2(1.12, 1.12), 0.12 / sp).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 		_run_tile = t
 		rows_scroll.ensure_control_visible(t)
 	for row in ROWS:
@@ -2806,8 +3056,11 @@ func _render_rows() -> void:
 				ring.visible = true
 			flow.add_child(t)
 			tile_nodes[row].append(t)
-			if _insert_anim != null and _insert_anim["row"] == row and _insert_anim["idx"] == idx:
-				UIKit.pop_in(t, 0.0, 0.3)
+			if _insert_anim != null and _insert_anim["row"] == row and _insert_anim["idx"] == idx and not instant:
+				t.pivot_offset = t.custom_minimum_size / 2
+				t.scale = Vector2(0.2, 0.2)
+				var itw := _new_tw("slot_in:%d" % t.get_instance_id(), t)
+				itw.tween_property(t, "scale", Vector2.ONE, 0.15).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 		for k in range(prog[row].size(), cap):
 			var e := Panel.new()
 			e.custom_minimum_size = Vector2(52, 52)
@@ -2842,6 +3095,8 @@ func _render_rows() -> void:
 	if _exec["proc"] != "" and tile_nodes.has(_exec["proc"]) and _exec["idx"] < tile_nodes[_exec["proc"]].size():
 		var t: Button = tile_nodes[_exec["proc"]][_exec["idx"]]
 		(t.get_meta("ring") as Panel).visible = true
+		t.pivot_offset = t.custom_minimum_size / 2
+		t.scale = Vector2(1.12, 1.12)
 		_run_tile = t
 	_update_hud()
 
@@ -2880,12 +3135,34 @@ func _select(row: String, idx: int) -> void:
 	audio.play("tap")
 	_render_rows()
 
+var _deleting := false
+
 func _delete_sel() -> void:
-	if sel == null or not _editable():
+	if sel == null or not _editable() or _deleting:
 		return
-	prog[sel["row"]].remove_at(sel["idx"])
-	sel = null
+	var row: String = sel["row"]
+	var idx: int = sel["idx"]
 	audio.play("del")
+	var tiles: Array = tile_nodes.get(row, [])
+	if instant or idx >= tiles.size():
+		_finish_delete(row, idx)
+		return
+	# slot küçülerek kaybolur, sonra program güncellenir
+	_deleting = true
+	var t: Button = tiles[idx]
+	t.pivot_offset = t.size / 2
+	t.disabled = true
+	var tw := _new_tw("slot_out:%d" % t.get_instance_id(), t)
+	tw.set_parallel(true)
+	tw.tween_property(t, "scale", Vector2(0.05, 0.05), 0.1).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tw.tween_property(t, "modulate:a", 0.0, 0.1)
+	tw.chain().tween_callback(func(): _finish_delete(row, idx))
+
+func _finish_delete(row: String, idx: int) -> void:
+	_deleting = false
+	if idx < prog[row].size():
+		prog[row].remove_at(idx)
+	sel = null
 	_prog_changed()
 
 func _move_sel(d: int) -> void:
@@ -2912,11 +3189,28 @@ func _cycle_cond() -> void:
 	_prog_changed()
 
 func _clear_prog() -> void:
-	if not _editable() or Program.block_count(prog) == 0:
+	if not _editable() or Program.block_count(prog) == 0 or _deleting:
 		return
+	audio.play("del")
+	var all := []
+	for row in tile_nodes:
+		all.append_array(tile_nodes[row])
+	if instant or all.is_empty():
+		_finish_clear()
+		return
+	_deleting = true
+	var tw := _new_tw("slot_clear", rows_box).set_parallel(true)
+	for k in all.size():
+		var t: Button = all[k]
+		t.pivot_offset = t.size / 2
+		t.disabled = true
+		tw.tween_property(t, "scale", Vector2(0.05, 0.05), 0.1).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN).set_delay(minf(0.15, k * 0.012))
+	tw.chain().tween_callback(_finish_clear)
+
+func _finish_clear() -> void:
+	_deleting = false
 	prog = {"main": [], "p1": [], "p2": []}
 	sel = null
-	audio.play("del")
 	_prog_changed()
 
 func _cycle_speed() -> void:
@@ -3046,7 +3340,12 @@ func _shot(spec: String) -> void:
 			if fl.begins_with("v"):
 				for k in int(fl.substr(1)):
 					_rotate_view(1)
-	for f in 90:
+	var wait := 90
+	if parts.size() > 3:
+		for fl in parts[3].split(","):
+			if fl.begins_with("f"):
+				wait = int(fl.substr(1))   # fN: ilk görüntü için bekleme karesi (açılış animasyonunu yakalamak için)
+	for f in wait:
 		await get_tree().process_frame
 	if i >= 0 and parts.size() > 2:
 		_run_toggle()
@@ -3054,3 +3353,91 @@ func _shot(spec: String) -> void:
 			await get_tree().process_frame
 	get_viewport().get_texture().get_image().save_png(parts[1])
 	get_tree().quit()
+
+
+# godot --headless --path godot-program -- --feeltest
+## Gerçek zamanlı (instant olmayan) animasyon testi: açılış, koşu (1x ve hızlı), zafer, silme, durdurma.
+func _feeltest() -> void:
+	var fails := []
+	var wait := func(sec: float) -> void:
+		var t0 := Time.get_ticks_msec()
+		while Time.get_ticks_msec() - t0 < sec * 1000.0:
+			await get_tree().process_frame
+	progress["seen"]["2"] = 1
+	_start_level(2)
+	await get_tree().process_frame
+	var small := 0
+	for p in cell_nodes:
+		if cell_nodes[p].scale.x < 0.99:
+			small += 1
+	if small == 0:
+		fails.append("açılışta bloklar küçük başlamadı")
+	await wait.call(1.0)
+	for p in cell_nodes:
+		var c: Node3D = cell_nodes[p]
+		if not c.scale.is_equal_approx(Vector3.ONE) or absf(c.position.y - p.y) > 0.001:
+			fails.append("açılış bitmedi: %s" % p)
+			break
+	if not objs["player"].get_meta("vis").scale.is_equal_approx(Vector3.ONE):
+		fails.append("robot görünmedi")
+	for spd in [0, speed_idx_max()]:
+		_reset_world_hard()
+		speed_idx = spd
+		prog = Program.parse_program(levels[2]["solution"])
+		_render_rows()
+		_run_toggle()
+		var t0 := Time.get_ticks_msec()
+		var saw_stretch := false
+		var saw_hop := false
+		while not win_shown and Time.get_ticks_msec() - t0 < 20000:
+			await get_tree().process_frame
+			var pose: Node3D = objs["player"].get_meta("pose")
+			saw_stretch = saw_stretch or pose.scale.y > 1.05
+			saw_hop = saw_hop or pose.position.y > 0.1
+		if not win_shown:
+			fails.append("hız %d: kazanılamadı" % spd)
+		if not saw_stretch:
+			fails.append("hız %d: adım esnemesi yok" % spd)
+		if not saw_hop:
+			fails.append("hız %d: dönüş zıplaması yok" % spd)
+		await wait.call(1.5)
+		var vis: Node3D = objs["player"].get_meta("vis")
+		if not vis.scale.is_equal_approx(Vector3.ONE) or absf(vis.position.y) > 0.001:
+			fails.append("hız %d: zafer sonrası robot nötre dönmedi" % spd)
+		if objs["gem"].scale.x > 0.05:
+			fails.append("kristal kaybolmadı")
+		_retry()
+		await wait.call(0.2)
+		if objs["gem"].scale.x < 0.9:
+			fails.append("tekrar denemede kristal geri gelmedi")
+	# silme animasyonu: blok küçülür, sonra programdan çıkar
+	_reset_world_hard()
+	var n0: int = prog["main"].size()
+	_select("main", 0)
+	_delete_sel()
+	await get_tree().process_frame
+	if prog["main"].size() != n0:
+		fails.append("silme animasyonu beklenmeden blok silindi")
+	await wait.call(0.3)
+	if prog["main"].size() != n0 - 1:
+		fails.append("blok silinmedi")
+	# çalışırken durdurma: robot tween'leri temizlenir
+	_run_toggle()
+	await wait.call(0.5)
+	_reset_to_setup()
+	await wait.call(0.4)
+	var v2: Node3D = objs["player"].get_meta("vis")
+	if not v2.transform.is_equal_approx(Transform3D.IDENTITY):
+		fails.append("durdurunca robot katmanı sıfırlanmadı")
+	print("feeltest: ", "TAMAM" if fails.is_empty() else "HATA " + str(fails))
+	get_tree().quit(0 if fails.is_empty() else 1)
+
+func speed_idx_max() -> int:
+	return SPEEDS.size() - 1
+
+func _reset_world_hard() -> void:
+	win_shown = false
+	_show("")
+	if mode != "edit":
+		_reset_to_setup()
+
