@@ -20,7 +20,7 @@ asansörleri kaldırır, kamerayı çevirip imkânsız geçitleri birleştirirsi
 
 | Sürüm | Klasör | Teknoloji |
 |---|---|---|
-| **Android uygulaması (ana sürüm, v2+)** | `godot-program/` | **Godot 4.8 beta 4**, Mobile (Vulkan) renderer, AgX ton eşleme, GDScript; modern mobil arayüz, ses ve müzik |
+| **Android uygulaması (ana sürüm, v2.4.0)** | `godot-program/` | **Godot 4.8 beta 4**, Mobile (Vulkan) renderer, doğrusal ton eşleme, GDScript; modern mobil arayüz, ses ve müzik |
 | Tarayıcı | `web/` | Three.js r170 + cannon-es (yerel olarak paketlendi, CDN yok) |
 | Eski Android (v1.x, WebView) | `android/` | Kotlin + WebView; `web/` klasörünü paketler. Artık sürüm olarak yayınlanmaz |
 | Godot (klasik mod) | `godot/` | Godot 4.3, GDScript — programlama öncesi "dokun-yürü" sürümü ve 15 klasik seviyesi |
@@ -233,6 +233,13 @@ Mobile (Vulkan) renderer, AgX ton eşleme, parıltı, sis, yumuşak gölgeler; V
   | 7 Yankılar | Yıldızlı gece + kuzey ışıkları |
   | 8 Paradokslar | Hortum (süper hücre) + yıldırım |
   | 9 Yapay Zekâ Atölyesi | Yıldırım gecesi |
+
+* **Bölüm temaları (v2.4.0, `scripts/themes/`, `shaders/chapter_block.gdshader`):** 15 sanat yönelimi
+  (Kintsugi, Saatçi, Retro-synth, Prizma, Origami, Tipografi, Brütalist, Teraryum, Siber-dokuma, Güneş saati,
+  Gözlemevi, Kinetik heykel, Blueprint, Zen, Kozmik porselen). Bölüm numarası `(bölüm - 1) % 15 + 1` ile temaya
+  eşlenir. Blok ve merdivenler tek prosedürel shader kullanır; kulenin altında temaya özgü hafif bir dekor durur.
+  Gökyüzü, yağış ve şimşek mevcut hava sisteminde kalır, tema renkleri onun üstüne biner. Aynı seviyede denemek için
+  üst çubuktaki **Tema Değiştir (n/15)** okları ya da klavyede `[` / `]`.
 
 * **Game feel (prosedürel animasyonlar, `scripts/main.gd` → "Game feel" bölümü):** robot üç katmanlıdır — kök düğüm
   ızgara konumu/yönü, `vis` Tween'lerle sürülen katman (iniş ezilmesi, çarpma titremesi, 360° zafer dönüşü ve iki zıplama),

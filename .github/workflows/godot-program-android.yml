@@ -68,6 +68,7 @@ jobs:
           cd godot-program
           "$G" --headless --import >/dev/null 2>&1 || true
           "$G" --headless --script res://tests/run_programs.gd 2>&1 | grep -E "seviye|HATA|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
+          "$G" --headless --script res://tests/run_themes.gd 2>&1 | grep -E "themes|HATA|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
           "$G" --headless -- --autotest 2>&1 | grep -E "autotest|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
           "$G" --headless -- --feeltest 2>&1 | grep -E "feeltest|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
 
