@@ -25,7 +25,7 @@ asansörleri kaldırır, kamerayı çevirip imkânsız geçitleri birleştirirsi
 | Eski Android (v1.x, WebView) | `android/` | Kotlin + WebView; `web/` klasörünü paketler. Artık sürüm olarak yayınlanmaz |
 | Godot (klasik mod) | `godot/` | Godot 4.3, GDScript — programlama öncesi "dokun-yürü" sürümü ve 15 klasik seviyesi |
 
-Android ve tarayıcı sürümü **40 el yapımı seviyelik, 9 bölümlük programlama kampanyasını** içerir; her seviyenin
+Android ve tarayıcı sürümü **100 seviyelik, 15 bölümlük programlama kampanyasını** içerir (40 el yapımı + 60 üretilmiş); her seviyenin
 referans programı derleme sırasında gerçek yorumlayıcıda çalıştırılarak doğrulanır.
 
 ---
@@ -101,6 +101,20 @@ Engele çarpan bir komut (ör. duvara doğru İleri) Robo'yu yerinde sarsar ve p
 | 38 | | Genelleme | her uzunlukta çalışan tek fonksiyon | 11 |
 | 39 | | Ödül ve Ceza | pekiştirmeli öğrenme metaforu, programı kısaltma | 6 |
 | 40 | | Akıllı Ajan | hazır ajana "Kullan" yeteneği kazandırma | 5 |
+| 41–50 | Zamanlama | 10 seviye | döner platformlara binme, asansörler, molada dünyayı çevirme | |
+| 51–60 | Paralel Yollar | 10 seviye | ışınlayıcı, göz yanılması geçidi, hayalet blok; doğru açı doğru anda | |
+| 61–70 | Kuleyi Kodlamak | 10 seviye | kol, kutu ve çark zincirleri; uzun çözümler F1/F2'ye sıkıştırılmalı | |
+| 71–80 | Hata Avcısı | 10 seviye | her seviyede tek hatalı hazır program (Nova) | |
+| 81–90 | Optimizasyon | 10 seviye | özyinelemeli desenler, "önü açık oldukça yürü", duvar izleyici ve ajan labirentleri | |
+| 91–100 | Büyük Final | 10 seviye | tüm mekanikler bir arada | |
+
+**Üretilmiş seviyeler (41–100, `tools/gen-extra.mjs`):** her seviye önce çözüm planından kurulur. Bir "Builder"
+Robo'yu boş dünyada adım adım yürütür; bastığı yere blok, merdiven, kol + köprü, kutu + boşluk, çark + döner köprü,
+binilen döner platform, asansör, ışınlayıcı, göz yanılması geçidi ve hayalet köprü yerleştirir, komutları ve molalardaki
+dünya işlemlerini kaydeder. Düz komut listesi tekrar eden desenlere göre F1/F2'ye sıkıştırılır ve kapasiteler buna göre
+dar tutulur (fonksiyonlar zorunludur). Hata Avcısı seviyelerinde doğru çözüme tek bir hata (ters dönüş, yer değiştirmiş
+iki blok, yanlış komut) sokulur. Üretim tohumludur (her derlemede aynı seviyeler) ve her aday gerçek yorumlayıcıda
+çalıştırılır; kazanmayan, dünya işlemi olmadan da kazanılan ya da hatalı hali kazanan adaylar atılır.
 
 **Nova (yapay zekâ öğretmeni):** 9. bölümün kavram kartlarını Nova sunar. Bir program başarısız olduğunda Nova
 çalıştırmayı analiz eder (`godot-program/scripts/nova.gd`): Robo'nun düştüğü ya da ilk takıldığı bloğu bulup seçer ve
@@ -205,14 +219,14 @@ Doğrudan bir seviyeyi açmak için: `http://localhost:8765/?level=9`
 
 ### Godot ana sürüm (`godot-program/`)
 **Motor sürümü: Godot 4.8 beta 4** (`4.8.beta4.official`; ön sürümler [godot-builds](https://github.com/godotengine/godot-builds/releases) deposundan). Klasik `godot/` projesi Godot 4.3'te kalır.
-Programlama oyununun yerel motor sürümü: aynı 40 seviye (`data/levels.json`, `tools/build.mjs` üretir), aynı kurallar
+Programlama oyununun yerel motor sürümü: aynı 100 seviye (`data/levels.json`, `tools/build.mjs` üretir), aynı kurallar
 (`scripts/logic.gd` fizik motoru + `scripts/program.gd` yorumlayıcı — web sürümüyle birebir), aynı `KK1:` yedek kodu.
 Mobile (Vulkan) renderer, AgX ton eşleme, parıltı, sis, yumuşak gölgeler; Vulkan olmayan cihazlarda OpenGL'e düşer.
 * **Android APK:** bkz. bölüm 1. Arayüz kiti `scripts/ui_kit.gd`, sesler `scripts/audio.gd`.
 * **Testler:**
   ```bash
-  godot --headless --path godot-program --script res://tests/run_programs.gd   # yorumlayıcı: 40/40
-  godot --headless --path godot-program -- --autotest                          # tam sahne: 40/40 + Nova analizi
+  godot --headless --path godot-program --script res://tests/run_programs.gd   # yorumlayıcı: 100/100
+  godot --headless --path godot-program -- --autotest                          # tam sahne: 100/100 + Nova analizi
   godot --headless --path godot-program -- --layouttest                       # telefon genişliği, yatay ekran, çentik
   godot --path godot-program -- --shot=12:/tmp/seviye12.png:60                # ekran görüntüsü (0 başlık, -1 harita, -2 kazanma, -3 duraklatma; 4. parça: v2,intro,starter,cutout)
   ```

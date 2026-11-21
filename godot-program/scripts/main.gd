@@ -3537,7 +3537,9 @@ func _autotest() -> void:
 		_run_toggle()
 		for guard in 400:
 			_update_queue(0.0)
-			if mode != "running":
+			if mode == "paused":
+				_run_toggle()   # molada dünyaya dokunmadan devam et
+			elif mode != "running":
 				break
 		var na: Dictionary = nova_card.get_meta("last", {})
 		var nok: bool = mode == "ended" and String(na.get("text", "")) != ""

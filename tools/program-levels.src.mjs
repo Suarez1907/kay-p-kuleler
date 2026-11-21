@@ -52,7 +52,9 @@ const sensor = walkway([0, 1, 0], 'E E E E N N N^ W W W S E');
 const general = walkway([0, 1, 0], 'E E E^ E E S S^ E E E E S E E^ E');
 const reward = walkway([0, 1, 0], 'E E S S^ S E E E N N^ N E E S^ S S S W W');
 
-export const LEVELS = [
+import { generate } from './gen-extra.mjs';
+
+const BASE = [
 // ======================= Bölüm 1 — Uyanış =======================
 {
   chapter: 'Uyanış', name: 'İlk Komut', palette: 0,
@@ -496,3 +498,6 @@ export const LEVELS = [
   solution: { main: ['1'], p1: ['o:F','x:A','x:R','1'] },
 },
 ];
+
+// 10–15. bölümler (60 seviye) tools/gen-extra.mjs ile üretilir ve doğrulanır.
+export const LEVELS = [...BASE, ...generate()];
