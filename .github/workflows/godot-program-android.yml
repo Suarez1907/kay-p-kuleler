@@ -3,6 +3,7 @@ name: Android APK (Godot — ana sürüm)
 # godot-program/ projesini (oyunun ana sürümü) Android'e aktarır.
 # Uygulama kimliği com.akin.kayipkuleler ve kalıcı anahtar: eski WebView sürümünün (v1.x) üstüne
 # güncelleme olarak kurulur. Sürüm kodu 2000 + çalıştırma no (WebView sürüm kodlarından her zaman büyük).
+# main'e push, project.godot içindeki config/version için (yoksa) vX.Y.Z yayınını ve release APK'yı oluşturur.
 on:
   push:
     branches: [main]
@@ -37,7 +38,9 @@ jobs:
 
       - uses: android-actions/setup-android@v4.0.4
         with:
-          packages: 'platform-tools build-tools;34.0.0 platforms;android-34'
+          # Godot 4.8 beta 4 (güncel derleme) build-tools 36.1.0 ve platform 36 arar.
+          # 34, önbellekteki daha eski 4.8 beta ile dışa aktarma için duruyor.
+          packages: 'platform-tools build-tools;34.0.0 build-tools;36.1.0 platforms;android-34 platforms;android-36'
 
       - name: Godot ve şablon önbelleği
         id: cache
@@ -80,7 +83,15 @@ jobs:
           export GODOT="$HOME/godot48/godot" PROJECT=godot-program
           export RELEASE_KEYSTORE="$PWD/android/keystore/kayipkuleler.jks" RELEASE_KEY_ALIAS=kayipkuleler RELEASE_KEY_PASS=kayipkuleler
           chmod +x "$GODOT" tools/godot-android-export.sh
-          VER="${RELEASE_TAG#v}"; [ -n "$VER" ] || VER="2.0.${GITHUB_RUN_NUMBER}"
+          # Elle etiket verilmişse o kullanılır. Aksi halde proje sürümü (ör. 2.4.1) geçerlidir;
+          # main'e push bu sürümle GitHub Release açar.
+          if [ -n "${RELEASE_TAG:-}" ]; then
+            VER="${RELEASE_TAG#v}"
+          else
+            VER=$(sed -n 's/^config\/version="\([^"]*\)"/\1/p' godot-program/project.godot | head -1)
+          fi
+          [ -n "$VER" ] || VER="2.0.${GITHUB_RUN_NUMBER}"
+          echo "Sürüm adı: $VER"
           sed -i "s/^version\/code=.*/version\/code=$((2000 + GITHUB_RUN_NUMBER))/" godot-program/export_presets.cfg
           sed -i "s/^version\/name=.*/version\/name=\"$VER\"/" godot-program/export_presets.cfg
           tools/godot-android-export.sh "$PWD/dist/KayipKuleler-$VER-debug.apk" debug
@@ -93,13 +104,27 @@ jobs:
           path: dist/*.apk
           if-no-files-found: error
 
-      - name: GitHub Release (elle verilen etiketle)
-        if: inputs.release_tag != ''
+      - name: Bu sürüm yayınlanmış mı?
+        id: rel
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VER: ${{ env.VER }}
+        run: |
+          if gh release view "v$VER" >/dev/null 2>&1; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "v$VER zaten yayınlanmış; atlanıyor"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: GitHub Release
+        if: (github.event_name == 'workflow_dispatch' && inputs.release_tag != '') || (github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.rel.outputs.publish == 'true')
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ inputs.release_tag }}
+          tag_name: ${{ inputs.release_tag != '' && inputs.release_tag || format('v{0}', env.VER) }}
           target_commitish: ${{ github.sha }}
-          name: Kayıp Kuleler ${{ inputs.release_tag }}
-          prerelease: ${{ startsWith(inputs.release_tag, 'g4-') }}
+          name: ${{ format('Kayıp Kuleler {0}', inputs.release_tag != '' && inputs.release_tag || format('v{0}', env.VER)) }}
+          prerelease: ${{ startsWith(inputs.release_tag || '', 'g4-') }}
           files: dist/KayipKuleler-${{ env.VER }}.apk
           generate_release_notes: true
