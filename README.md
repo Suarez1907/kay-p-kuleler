@@ -126,7 +126,8 @@ Tüm referans çözümler `SOLUTIONS.md` dosyasındadır.
 * Ekranlar: animasyonlu başlık, bölüm bantlı seviye haritası, oyun içi ekran, duraklatma, ayarlar, kazanma, tanıtım, yedek.
 * Dikey **ve** yatay ekran: dikeyde program paneli altta, yatayda sağda; sahne her zaman boş alana ortalanır.
 * Görüntü: palete göre renklenen gölgeler, blok tabanlarında sahte ortam gölgesi, kristal ışığı, süzülen ışık zerreleri,
-  güneş parıltısı, vinyet, AgX ton eşleme. **Grafik: Düşük / Orta / Yüksek** (Ayarlar).
+  güneş parıltısı, vinyet, AgX ton eşleme. **Yüksek grafik** varsayılan olarak 1,5x süper örnekleme, 8x MSAA ve
+  4096 px gölge haritası kullanır; Ayarlar'dan Düşük / Orta / Yüksek seçilebilir.
 * Kodla üretilen ses efektleri ve yumuşak ortam müziği (Ayarlar'dan açılıp kapanır).
 * İlerleme ve her seviyedeki program `user://ilerleme.json` içinde saklanır.
 
@@ -168,8 +169,8 @@ python3 -m http.server 8765
 Doğrudan bir seviyeyi açmak için: `http://localhost:8765/?level=9`
 
 **Grafik kalitesi** (Seviyeler ekranındaki *Grafik* düğmesi; seçim saklanır):
-*Düşük* = efekt yok · *Orta* (telefonlarda varsayılan) = parıltı (bloom) + renk düzenleme + vinyet ·
-*Yüksek* (masaüstünde varsayılan) = Orta + tam çözünürlük + 4096 px gölge haritası.
+*Düşük* = efekt yok · *Orta* = parıltı (bloom) + renk düzenleme + vinyet + 2x DPR ·
+*Yüksek* (varsayılan) = Orta + 3x DPR'ye kadar süper örnekleme + 8x MSAA + 4096 px gölge haritası.
 
 ### Godot ana sürüm (`godot-program/`)
 **Motor sürümü: Godot 4.8 beta 4** (`4.8.beta4.official`; ön sürümler [godot-builds](https://github.com/godotengine/godot-builds/releases) deposundan). Klasik `godot/` projesi Godot 4.3'te kalır.
