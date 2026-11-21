@@ -214,6 +214,26 @@ Mobile (Vulkan) renderer, AgX ton eşleme, parıltı, sis, yumuşak gölgeler; V
   `--autotest` ayrıca eski WebView ilerlemesinin taşınmasını sahte bir LevelDB günlüğüyle sınar.
   `--feeltest` animasyonları gerçek zamanlı sınar: açılış, 1x ve en hızlı modda koşu (esneme, dönüş zıplaması),
   zafer, kristalin geri gelmesi, silme animasyonu ve Durdur'da tween temizliği.
+* **Gökyüzü ve hava durumu (`shaders/sky.gdshader`, `scripts/weather.gd`):** arka plan doku dosyası kullanmayan
+  prosedürel bir shader'dır; her piksel ekran çözünürlüğünde hesaplanır (Yüksek grafikte tam çözünürlük, 4K'da da keskin;
+  Orta %70, Düşük %50). Perspektifli kümülüs bulutları (alan bükmeli fbm, güneşe göre kendi gölgesi, gümüş kenar), sirrus,
+  alçak fırtına bulutları, uzak dağ silüetleri ve ufuk sisi, yıldızlar, ay, kuzey ışıkları, dallanan yıldırım, hortum
+  (dönen huni, duvar bulutu, toz ve savrulan parçalar), yağmur ve kar katmanları. Kamera döndükçe katmanlar paralaksla kayar.
+  Sahnede ayrıca 3B yağmur/kar parçacıkları, şimşekte sahne ışığının çakması ve gecikmeli gök gürültüsü, yağmur/rüzgâr ortam
+  sesi (kodla üretilir) vardır. Her bölümün kendi havası vardır:
+
+  | Bölüm | Hava |
+  |---|---|
+  | 1 Uyanış | Güneşli sabah |
+  | 2 Fonksiyonlar | Parçalı bulutlu, rüzgârlı |
+  | 3 Mekanizmalar | Yağmurlu |
+  | 4 Koşullar | Gün batımı |
+  | 5 Dünyayı Döndür | Fırtına: sağanak + şimşek |
+  | 6 Ustalık | Kar yağışı |
+  | 7 Yankılar | Yıldızlı gece + kuzey ışıkları |
+  | 8 Paradokslar | Hortum (süper hücre) + yıldırım |
+  | 9 Yapay Zekâ Atölyesi | Yıldırım gecesi |
+
 * **Game feel (prosedürel animasyonlar, `scripts/main.gd` → "Game feel" bölümü):** robot üç katmanlıdır — kök düğüm
   ızgara konumu/yönü, `vis` Tween'lerle sürülen katman (iniş ezilmesi, çarpma titremesi, 360° zafer dönüşü ve iki zıplama),
   `pose` her karede hesaplanan katman (boşta nefes, adımda esneme, dönüşte zıplama, anten ışığı nabzı). Bölüm açılışında

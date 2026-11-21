@@ -70,7 +70,7 @@ var level_root: Node3D
 var cam: Camera3D
 var sun: DirectionalLight3D
 var env: Environment
-var bg_tex: GradientTexture2D
+var weather: Weather
 var objs := {}
 var mat_cache := {}
 var rbox_mesh: ArrayMesh
@@ -300,35 +300,6 @@ func _setup_world() -> void:
 	var bg_layer := CanvasLayer.new()
 	bg_layer.layer = -10
 	add_child(bg_layer)
-	var bg := TextureRect.new()
-	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	bg.stretch_mode = TextureRect.STRETCH_SCALE
-	bg_tex = GradientTexture2D.new()
-	bg_tex.gradient = Gradient.new()
-	bg_tex.fill_from = Vector2(0, 0)
-	bg_tex.fill_to = Vector2(0, 1)
-	bg_tex.width = 8
-	bg_tex.height = 256
-	bg.texture = bg_tex
-	bg_layer.add_child(bg)
-	# güneş parıltısı (üstte yumuşak ışık)
-	var glow := TextureRect.new()
-	glow.set_anchors_preset(Control.PRESET_FULL_RECT)
-	glow.stretch_mode = TextureRect.STRETCH_SCALE
-	var gt := GradientTexture2D.new()
-	gt.fill = GradientTexture2D.FILL_RADIAL
-	gt.fill_from = Vector2(0.5, -0.15)
-	gt.fill_to = Vector2(0.5, 0.75)
-	var gg := Gradient.new()
-	gg.set_color(0, Color(1, 1, 1, 0.22))
-	gg.set_color(1, Color(1, 1, 1, 0.0))
-	gt.gradient = gg
-	gt.width = 128
-	gt.height = 128
-	glow.texture = gt
-	glow.set_meta("sun", true)
-	bg_layer.add_child(glow)
-
 	var we := WorldEnvironment.new()
 	env = Environment.new()
 	env.background_mode = Environment.BG_CANVAS
@@ -384,6 +355,10 @@ func _setup_world() -> void:
 	add_child(cam)
 	world = Node3D.new()
 	add_child(world)
+	# gökyüzü + hava durumu (prosedürel shader, 3B yağış, şimşek, ortam sesi)
+	weather = Weather.new()
+	add_child(weather)
+	weather.setup(bg_layer, world, env, sun, audio)
 
 
 # ---------- geometri / malzeme ----------
@@ -572,6 +547,16 @@ func _block_color(p: Vector3i) -> Color:
 		c = c.lightened(0.03)
 	return c
 
+## Seviyenin bölüm sırası (0'dan)
+func _chapter_of(i: int) -> int:
+	var ch := -1
+	var last := ""
+	for k in i + 1:
+		if levels[k]["chapter"] != last:
+			last = levels[k]["chapter"]
+			ch += 1
+	return maxi(ch, 0)
+
 func _sky_colors() -> Array:
 	if pal.get("dark", false):
 		return [Color(pal["bg"][0]), Color(pal["bg"][1])]
@@ -594,19 +579,8 @@ func build_level(i: int, as_preview := false) -> void:
 	preview = as_preview
 	var def: Dictionary = levels[i]
 	pal = PALETTES[int(def.get("palette", i)) % PALETTES.size()]
-	var g := Gradient.new()
-	var sky := _sky_input()
-	g.set_color(0, sky[0])
-	g.set_color(1, sky[1])
-	bg_tex.gradient = g
-	env.fog_light_color = Color(pal["bg"][1])
-	# gölgeler palete göre renklenir (Monument Valley tarzı renkli gölgeler)
-	var dark: bool = pal.get("dark", false)
-	# ortam ışığı hafif soğuk mor-mavi, palete az miktar yaklaştırılır; düşük enerji → derin gölgeler
-	env.ambient_light_color = Color("#9aa2e0").lerp(_sky_colors()[0], 0.3)
-	env.ambient_light_energy = 0.4 if dark else 0.36
-	sun.light_color = Color("#e6ebff") if dark else Color("#ffecd2")
-	sun.light_energy = 0.5 if dark else 0.36
+	# hava durumu bölüme göre: gökyüzü, bulutlar, yağış, şimşek ve sahne ışığı
+	weather.apply(Weather.for_chapter(_chapter_of(i)), float(i) * 7.31 + 1.0)
 	_kill_all_tweens()
 	if level_root:
 		level_root.queue_free()
@@ -827,6 +801,7 @@ func build_level(i: int, as_preview := false) -> void:
 	# kamera
 	cam_target = aabb.get_center()
 	var sz := aabb.size
+	weather.place(cam_target, sz)
 	cam_size = maxf(9.0, (maxf(sz.x, sz.z) * 0.62 + sz.y * 0.55) * 1.2 + 3.2)
 	cam_az = 45.0 + 90.0 * state["view"]
 	cam_az_cur = cam_az + 30.0
@@ -1710,6 +1685,8 @@ func _process(dt: float) -> void:
 	var a := deg_to_rad(cam_az_cur)
 	cam.position = cam_target + Vector3(cos(EL) * cos(a), sin(EL), cos(EL) * sin(a)) * 60.0
 	cam.look_at(cam_target, Vector3.UP)
+	var vsz := get_viewport().get_visible_rect().size
+	weather.set_view(deg_to_rad(cam_az_cur), vsz.x / maxf(vsz.y, 1.0), Vector2(get_viewport().size))
 	var want_size := cam_size / cam_zoom * (1.02 if portrait else 1.0)
 	cam.size = lerpf(cam.size, want_size, minf(1.0, dt * 8.0))
 	_update_offset()
@@ -2469,7 +2446,7 @@ func _animate_enter(k: String) -> void:
 func _fade_veil() -> void:
 	if instant:
 		return
-	veil.color = _sky_colors()[0]
+	veil.color = weather.veil_color()
 	veil.color.a = 1.0
 	var tw := veil.create_tween()
 	tw.tween_property(veil, "color:a", 0.0, 0.55).set_trans(Tween.TRANS_SINE).set_delay(0.05)
@@ -2789,6 +2766,7 @@ func _apply_gfx() -> void:
 	vp.msaa_3d = [Viewport.MSAA_DISABLED, Viewport.MSAA_4X, Viewport.MSAA_8X][gfx]
 	vp.scaling_3d_scale = [0.75, 1.0, 1.5][gfx]
 	RenderingServer.directional_shadow_atlas_set_size([1024, 4096, 4096][gfx], true)
+	weather.set_quality(gfx)
 
 
 # ---------- HUD ----------
@@ -2804,7 +2782,7 @@ func _update_hud() -> void:
 			ch += 1
 	lbl_chap.text = ("BÖLÜM %d · %s" % [ch, def["chapter"]]).to_upper()
 	lbl_name.text = "%d. %s" % [level_idx + 1, def["name"]]
-	var dark: bool = pal.get("dark", false)
+	var dark: bool = weather.is_dark()
 	lbl_chap.add_theme_color_override("font_color", Color("#cfc6ee") if dark else UIKit.INK_SOFT)
 	lbl_name.add_theme_color_override("font_color", Color("#f5efff") if dark else UIKit.INK)
 	for l in [lbl_chap, lbl_name]:
@@ -3347,7 +3325,11 @@ func _shot(spec: String) -> void:
 				wait = int(fl.substr(1))   # fN: ilk görüntü için bekleme karesi (açılış animasyonunu yakalamak için)
 	for f in wait:
 		await get_tree().process_frame
-	if i >= 0 and parts.size() > 2:
+	if parts.size() > 3 and "bolt" in parts[3].split(","):
+		weather.strike(1.0)
+		for f in 1:
+			await get_tree().process_frame
+	if i >= 0 and parts.size() > 2 and int(parts[2]) > 0:
 		_run_toggle()
 		for f in int(parts[2]):
 			await get_tree().process_frame
@@ -3429,6 +3411,21 @@ func _feeltest() -> void:
 	var v2: Node3D = objs["player"].get_meta("vis")
 	if not v2.transform.is_equal_approx(Transform3D.IDENTITY):
 		fails.append("durdurunca robot katmanı sıfırlanmadı")
+	# hava durumu: her ön ayar uygulanır, şimşek gökte ve sahne ışığında görünür
+	for k in Weather.PRESETS:
+		weather.apply(k, 3.0)
+		var base_sun := sun.light_energy
+		weather.strike(1.0)
+		await get_tree().process_frame
+		await get_tree().process_frame
+		if weather.flash <= 0.0 or sun.light_energy <= base_sun:
+			fails.append("şimşek çalışmadı: " + k)
+		await wait.call(0.6)
+		if weather.flash > 0.0:
+			fails.append("şimşek sönmedi: " + k)
+	for ch in 9:
+		if not Weather.PRESETS.has(Weather.for_chapter(ch)):
+			fails.append("bölüm %d için hava yok" % ch)
 	print("feeltest: ", "TAMAM" if fails.is_empty() else "HATA " + str(fails))
 	get_tree().quit(0 if fails.is_empty() else 1)
 
