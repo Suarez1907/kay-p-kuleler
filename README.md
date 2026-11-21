@@ -124,9 +124,14 @@ Tüm referans çözümler `SOLUTIONS.md` dosyasındadır.
 * Modern mobil arayüz: Nunito yazı tipi, kalın "basılabilir" butonlar, cam kartlar, kodla çizilmiş vektör ikonlar.
 * Animasyonlar: buton basma yayları, ekran geçişleri, kart ve yıldız patlamaları, kademeli giriş efektleri, renk perdesi.
 * Ekranlar: animasyonlu başlık, bölüm bantlı seviye haritası, oyun içi ekran, duraklatma, ayarlar, kazanma, tanıtım, yedek.
-* Dikey **ve** yatay ekran: dikeyde program paneli altta, yatayda sağda; sahne her zaman boş alana ortalanır.
-* Görüntü: palete göre renklenen gölgeler, blok tabanlarında sahte ortam gölgesi, kristal ışığı, süzülen ışık zerreleri,
-  güneş parıltısı, vinyet, AgX ton eşleme. **Yüksek grafik** varsayılan olarak 1,5x süper örnekleme, 8x MSAA ve
+* Dikey **ve** yatay ekran: program paneli içeriği kadar yer kaplar (dikeyde altta, yatayda sağ altta); sırası yukarıdan
+  aşağıya kod satırları → komut butonları (başparmak hizası) → aksiyon barı. Sahne her zaman boş alana ortalanır.
+* Kamera: 3B alanda parmakla yatay sürükleyerek kule etrafında döner, bırakınca en yakın 90°'ye oturur (göz yanılması
+  geçitleri bu açılara bağlıdır). Üst sağda yalnızca İpucu ve Kamerayı sıfırla; "Dünyayı başa al" duraklatma menüsünde.
+* Görüntü: sis yok, hafif parıltı, AgX (pozlama 1,05); sıcak güneş (#FFF4E0) blokların üst/sol/sağ yüzlerini üç ayrı tonda
+  gösterir; soğuk mor-mavi ortam ışığı. Temas gölgeleri bloklara gömülüdür (yanında bir üst katta blok olan kenarlar koyulaşır)
+  çünkü Godot'un Mobile renderer'ı SSAO desteklemez. Amber gövdeli, antrasit detaylı, parlayan gözlü robot ve gölge lekesi;
+  merdivenler bloklardan bir ton farklı. Merdiven ve zıplama adımları eğimi izleyen bir yolla canlandırılır. **Yüksek grafik** varsayılan olarak 1,5x süper örnekleme, 8x MSAA ve
   4096 px gölge haritası kullanır; Ayarlar'dan Düşük / Orta / Yüksek seçilebilir.
 * Kodla üretilen ses efektleri ve yumuşak ortam müziği (Ayarlar'dan açılıp kapanır).
 * İlerleme ve her seviyedeki program `user://ilerleme.json` içinde saklanır.
