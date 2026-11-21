@@ -51,6 +51,14 @@ PROGRAM.forEach((src, i) => {
     let r2; try { r2 = runProgram(L, sol, []); } catch (e) { r2 = { result: 'err' }; }
     if (r2.result === 'win') errs.push('dünya işlemleri olmadan da kazanılıyor');
   }
+  if (def.starter) {
+    const st = parseProgram(def.starter);
+    for (const k of ['main', 'p1', 'p2']) if (st[k].length > (def.slots[k] || 0)) errs.push(`hazır program ${k} kapasitesini aşıyor`);
+    for (const k of ['main', 'p1', 'p2']) for (const ins of st[k]) if (!def.cmds.includes(ins.c)) errs.push(`hazır programda '${ins.c}' paletde yok`);
+    let r3; try { r3 = runProgram(L, def.starter, []); } catch (e) { r3 = { result: 'err' }; }
+    if (r3.result === 'win') errs.push('hazır (hatalı) program zaten kazanıyor');
+  }
+  for (const ph of def.phantoms || []) for (const c of ph.cells) if (L.statics.has(c.join(','))) errs.push('hayalet blok statik bloğun içinde: ' + c);
   def.par = blockCount(p);
   if (errs.length) { fail++; console.log(`#${i + 1} ${def.name}: HATA — ${errs.join('; ')}`); }
   else console.log(`#${i + 1} ${def.name}: doğrulandı — par ${def.par} blok, ${r.steps} komut çalıştı`);

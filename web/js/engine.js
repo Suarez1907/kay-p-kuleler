@@ -81,6 +81,9 @@ export function sliderCells(L, i, pos) {
   return s.blocks.map(b => [b[0] + s.axis[0] * pos, b[1] + s.axis[1] * pos, b[2] + s.axis[2] * pos]);
 }
 
+// Hayalet bloklar (perspektif paradoksu): yalnızca belirli kamera açısından bakılırken katıdır.
+export function phantomOn(ph, view) { return Array.isArray(ph.view) ? ph.view.includes(view) : ph.view === view; }
+
 // Dünya: katı hücreler haritası (statik + dinamik), varlıklar haritası
 export function buildWorld(L, s, skip) {
   const solid = new Map();
@@ -90,6 +93,7 @@ export function buildWorld(L, s, skip) {
   (d.rotators || []).forEach((r, i) => { if (!(skip && skip.rot === i)) for (const c of rotatorCells(L, i, s.rots[i])) solid.set(KP(c), { t: 'rot', i }); });
   (d.sliders || []).forEach((r, i) => { if (!(skip && skip.slide === i)) for (const c of sliderCells(L, i, s.slides[i])) solid.set(KP(c), { t: 'sl', i }); });
   (d.crumbles || []).forEach((c, i) => { if (!s.crumbles[i]) solid.set(KP(c), { t: 'cr', i }); });
+  (d.phantoms || []).forEach((ph, i) => { if (phantomOn(ph, s.view)) for (const c of ph.cells) solid.set(KP(c), { t: 'ph', i }); });
   (d.levers || []).forEach((l, i) => solid.set(KP(l.p), { t: 'lv', i }));
   (d.cranks || []).forEach((c, i) => solid.set(KP(c.p), { t: 'ck', i }));
   const ents = new Map();
@@ -341,8 +345,15 @@ export function step(L, s0, a) {
     if (!isManual(sl)) return { ok: false };
     if (!trySlide(L, s, a.i, a.s)) return { ok: false };
   } else if (a.t === 'view') {
+    const W0 = buildWorld(L, s0);
     s.view = ((s.view + a.s) % 4 + 4) % 4;
-    return { ok: true, state: s, frames: [cloneState(s)] };
+    // beliren hayalet blok bir varlığın içine doğamaz
+    for (const ph of L.def.phantoms || []) {
+      if (phantomOn(ph, s.view) && !phantomOn(ph, s0.view) && ph.cells.some(c => W0.ents.has(KP(c)))) return { ok: false };
+    }
+    frames.push(cloneState(s));
+    settle(L, s, frames);
+    return { ok: true, state: s, frames };
   } else return { ok: false };
   s.moves++;
   frames.push(cloneState(s));
@@ -386,7 +397,7 @@ export function actionsFor(L) {
   for (let d = 0; d < 4; d++) acts.push({ t: 'move', d });
   (L.def.rotators || []).forEach((r, i) => { acts.push({ t: 'rot', i, s: 1 }); acts.push({ t: 'rot', i, s: -1 }); });
   (L.def.sliders || []).forEach((r, i) => { if (isManual(r)) { acts.push({ t: 'slide', i, s: 1 }); acts.push({ t: 'slide', i, s: -1 }); } });
-  if ((L.def.links || []).length) { acts.push({ t: 'view', s: 1 }); acts.push({ t: 'view', s: -1 }); }
+  if ((L.def.links || []).length || (L.def.phantoms || []).length) { acts.push({ t: 'view', s: 1 }); acts.push({ t: 'view', s: -1 }); }
   return acts;
 }
 

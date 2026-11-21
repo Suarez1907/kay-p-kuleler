@@ -166,6 +166,86 @@ Gösterim: `İleri`, `Sola`, `Sağa`, `Zıpla`, `Kullan`, `Mola`, `F1`, `F2`; `[
 * 1. molada: döner platform #1 +90°
 * 2. molada: kamera sağa
 
+### Bölüm: Paradokslar
+
+#### 28. Gözlemci — par 7
+
+* Başlamadan önce: kamera sağa
+* Ana: F1 → Mola → F1
+* F1: İleri → İleri → İleri → İleri
+* 1. molada: kamera sola
+
+#### 29. Gölge Basamakları — par 6
+
+* Ana: F1 → F1 → F1 → İleri
+* F1: İleri → Mola
+* 1. molada: kamera sağa
+* 2. molada: kamera sola
+* 3. molada: kamera sağa
+
+#### 30. Düşen Gölge — par 13
+
+* Ana: İleri → Kullan → Mola → Sağa → Zıpla → Sola → Zıpla → İleri → Sola → F1
+* F1: İleri → İleri → İleri
+* 1. molada: kamera sağa
+
+#### 31. Escher Avlusu — par 12
+
+* Başlamadan önce: kamera sağa
+* Ana: F1 → F1 → İleri → Sağa → F1 → Sola → Mola → İleri → Mola → F1
+* F1: İleri → İleri
+* 1. molada: kamera sağa
+* 2. molada: kamera sağa
+
+#### 32. Penrose Merdiveni — par 4
+
+* Başlamadan önce: kamera sola
+* Ana: F1
+* F1: İleri[açıksa] → Sağa[kapalıysa] → F1
+
+#### 33. Paradoks Kulesi — par 15
+
+* Başlamadan önce: kamera sağa
+* Ana: İleri → Sola → Kullan → Sağa → F1 → Sağa → F1 → Sola → F1 → Mola → F1 → Sağa → F1
+* F1: İleri[açıksa] → F1[açıksa]
+* 1. molada: kamera sağa
+
+### Bölüm: Yapay Zekâ Atölyesi
+
+#### 34. Merhaba, Nova — par 8
+
+* Ana: İleri → İleri → Sağa → İleri → İleri → Sola → İleri → Zıpla
+
+#### 35. Hata Ayıklama — par 11
+
+* Ana: İleri → İleri → Sağa → İleri → İleri → Sola → İleri → İleri → Sağa → İleri → İleri
+
+#### 36. Desen İçinde Desen — par 8
+
+* Ana: F1 → F1 → F1
+* F1: F2 → F2 → Sağa
+* F2: Zıpla → İleri
+
+#### 37. Sensör ve Karar — par 4
+
+* Ana: F1
+* F1: İleri[açıksa] → Sola[kapalıysa] → F1
+
+#### 38. Genelleme — par 11
+
+* Ana: F1 → Sağa → F1 → Sola → F1 → Sağa → F1 → Sola → F1
+* F1: İleri[açıksa] → F1[açıksa]
+
+#### 39. Ödül ve Ceza — par 6
+
+* Ana: F1
+* F1: İleri[açıksa] → Sola[kapalıysa] → Sağa[kapalıysa] → Sağa[kapalıysa] → F1
+
+#### 40. Akıllı Ajan — par 5
+
+* Ana: F1
+* F1: İleri[açıksa] → Kullan[kapalıysa] → Sağa[kapalıysa] → F1
+
 ## Klasik seviyeler (Godot sürümü, dokun-yürü)
 
 Bu çözümler tam (BFS) çözücü tarafından otomatik bulunmuştur ve en kısa eylem dizileridir.

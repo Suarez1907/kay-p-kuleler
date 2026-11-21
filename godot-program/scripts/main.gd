@@ -6,6 +6,8 @@ extends Node3D
 const SAVE_PATH := "user://ilerleme.json"
 const DIRS := PuzzleLogic.DIRS
 const EL := 0.6154797
+## Bakış açılarının (0..3) renkleri: hayalet bloklar ve açı göstergesi aynı rengi kullanır.
+const VIEW_COLS := [Color("#5fc8ff"), Color("#b58cff"), Color("#4fe0a0"), Color("#ffb84d")]
 const ROWS := ["main", "p1", "p2"]
 const ROW_LABEL := {"main": "Ana", "p1": "F1", "p2": "F2"}
 const SPEEDS := [1.0, 2.0, 4.0]
@@ -46,6 +48,7 @@ var runner = null
 var step_once = false
 var speed_idx := 0
 var end_reason := ""
+var run_log := {}           # Nova analizi için: {last, first_bump, bumps}
 var prog := {"main": [], "p1": [], "p2": []}
 var active_row := "main"
 var sel = null              # {row, idx}
@@ -105,6 +108,12 @@ var status_pill: PanelContainer
 var lbl_status: Label
 var hint_card: PanelContainer
 var lbl_hint: Label
+var nova_card: PanelContainer
+var lbl_nova_title: Label
+var lbl_nova: Label
+var view_dots: HBoxContainer
+var intro_badge: PanelContainer
+var intro_nova: Control
 var toast_pill: PanelContainer
 var lbl_toast: Label
 var veil: ColorRect
@@ -607,7 +616,7 @@ func build_level(i: int, as_preview := false) -> void:
 	mode = "edit"
 	runner = null
 	objs = {"crates": [], "balls": [], "levers": [], "plates": [], "bridges": [], "rotators": [], "sliders": [],
-		"crumbles": [], "links": [], "cranks": [], "portals": [], "trail": Node3D.new()}
+		"crumbles": [], "links": [], "cranks": [], "portals": [], "phantoms": [], "trail": Node3D.new()}
 	level_root.add_child(objs["trail"])
 	# Not: GDScript lambdaları yerel değişkenleri kopyalar; sınır kutusu bir sözlükte tutulur.
 	var bb := {"box": AABB(Vector3(L.start), Vector3.ZERO)}
@@ -738,6 +747,18 @@ func build_level(i: int, as_preview := false) -> void:
 			var m := _mesh(_torus(0.22, 0.34), _mat(pal["accent"], {"alpha": true, "unique": true, "unshaded": true}), Vector3(c) + Vector3(0, -0.47, 0))
 			m.scale = Vector3(1, 0.15, 1)
 			objs["links"].append({"m": m, "view": ln["view"]})
+	# hayalet bloklar: renk, katılaştıkları bakış açısını gösterir
+	for phi in L.phantoms.size():
+		var ph: Dictionary = L.phantoms[phi]
+		var col: Color = VIEW_COLS[int(ph["views"][0]) % 4]
+		var ms := []
+		for c in ph["cells"]:
+			grow.call(c)
+			var m := _mesh(rbox_mesh, _mat(col, {"alpha": true, "unique": true, "rough": 0.35, "emit": 0.0}), Vector3(c))
+			var edge := _mesh(_box(Vector3(1.04, 1.04, 1.04)), _mat(col, {"alpha": true, "unique": true, "unshaded": true}), Vector3.ZERO, m)
+			edge.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			ms.append({"m": m, "edge": edge})
+		objs["phantoms"].append({"ms": ms, "views": ph["views"], "col": col})
 	# ışınlayıcılar
 	var pcols := ["#5ef0ff", "#c58bff", "#7dffb0", "#ffd36e"]
 	for pi in L.portals.size():
@@ -787,11 +808,12 @@ func build_level(i: int, as_preview := false) -> void:
 	# kamera
 	cam_target = aabb.get_center()
 	var sz := aabb.size
-	cam_size = maxf(9.0, (maxf(sz.x, sz.z) * 0.62 + sz.y * 0.45) * 1.2 + 3.2)
+	cam_size = maxf(9.0, (maxf(sz.x, sz.z) * 0.62 + sz.y * 0.55) * 1.2 + 3.2)
 	cam_az = 45.0 + 90.0 * state["view"]
 	cam_az_cur = cam_az + 30.0
 	cam_zoom = 1.0
 	displayed = state
+	view_dots.get_meta("pill").visible = not L.phantoms.is_empty()
 	_apply_visual(state, state, 1.0)
 	_on_resize()
 
@@ -1057,6 +1079,26 @@ func _apply_visual(sA: Dictionary, sB: Dictionary, t: float, bump := false) -> v
 		objs["plates"][i].material_override.emission_enabled = down
 	for o in objs["links"]:
 		o["m"].material_override.albedo_color.a = 0.95 if sB["view"] == o["view"] else 0.22
+	if not objs["phantoms"].is_empty():
+		for k in 4:
+			var sb := StyleBoxFlat.new()
+			var cur: bool = k == int(sB["view"])
+			sb.bg_color = VIEW_COLS[k] if cur else Color(VIEW_COLS[k], 0.3)
+			sb.set_corner_radius_all(8)
+			if cur:
+				sb.border_color = Color.WHITE
+				sb.set_border_width_all(2)
+			view_dots.get_child(k).add_theme_stylebox_override("panel", sb)
+	for o in objs["phantoms"]:
+		var on := lerpf(1.0 if int(sA["view"]) in o["views"] else 0.0, 1.0 if int(sB["view"]) in o["views"] else 0.0, te)
+		for e in o["ms"]:
+			var mm: StandardMaterial3D = e["m"].material_override
+			mm.albedo_color = Color(o["col"]).lerp(Color("#f4f1ea"), 0.35 * on)
+			mm.albedo_color.a = 0.12 + 0.83 * on
+			mm.emission_energy_multiplier = 0.25 * on
+			e["m"].scale = Vector3.ONE * (0.9 + 0.1 * on)
+			e["m"].cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if on > 0.5 else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			(e["edge"].material_override as StandardMaterial3D).albedo_color.a = 0.16 * (1.0 - on)
 
 func _plate_down(s: Dictionary, p: Vector3i) -> bool:
 	if not s["dead"] and s["p"] == p:
@@ -1166,7 +1208,18 @@ func _tick() -> bool:
 	if n == null:
 		_end_run(runner.error if runner.error != "" else "end")
 		return false
+	if not run_log.has("faced"):
+		var fk := Nova.front_object(L, state)
+		if fk != "":
+			run_log["faced"] = fk
+	if n["ins"]["c"] == "A":
+		run_log["used_A"] = true
 	var r := Program.cmd_step(L, state, n["ins"]["c"])
+	run_log["last"] = {"proc": n["proc"], "idx": n["idx"], "c": n["ins"]["c"]}
+	if r["bump"]:
+		run_log["bumps"] = int(run_log.get("bumps", 0)) + 1
+		if run_log.get("first_bump") == null:
+			run_log["first_bump"] = run_log["last"]
 	if str(step_once) == "true":
 		step_once = "done"
 	if r["pause"]:
@@ -1195,7 +1248,9 @@ func _start_run(step := false) -> void:
 	for c in objs["trail"].get_children():
 		c.queue_free()
 	step_once = "true" if step else false
+	run_log = {"last": null, "first_bump": null, "bumps": 0}
 	_hide_hint()
+	_hide_nova()
 	audio.play("run")
 	_set_mode("running")
 
@@ -1242,6 +1297,36 @@ func _end_run(reason: String) -> void:
 	if not instant and reason != "dead":
 		audio.play("fail")
 	_set_mode("ended")
+	_nova_analyze(reason)
+
+## Nova başarısız çalıştırmayı analiz eder, açıklar ve sorunlu bloğu seçip vurgular.
+func _nova_analyze(reason: String) -> void:
+	var a := Nova.analyze(L, prog, state, reason, run_log)
+	if instant:
+		nova_card.set_meta("last", a)
+		return
+	lbl_nova_title.text = String(a["title"]).to_upper()
+	lbl_nova.text = a["text"]
+	var f = a["focus"]
+	if f != null and int(f["idx"]) < prog[f["row"]].size():
+		sel = {"row": f["row"], "idx": int(f["idx"])}
+		active_row = f["row"]
+		_render_rows()
+	hint_card.visible = false
+	get_tree().create_timer(0.45).timeout.connect(func():
+		if mode == "ended" and _current == "":
+			nova_card.visible = true
+			_layout()
+			UIKit.pop_in(nova_card, 0.0, 0.7)
+			# sorunlu bloğu sallayarak göster (yerleşim oturduktan sonra)
+			if f != null and sel != null and sel["row"] == f["row"] and sel["idx"] == int(f["idx"]):
+				var tiles: Array = tile_nodes.get(f["row"], [])
+				if int(f["idx"]) < tiles.size():
+					UIKit.shake(tiles[int(f["idx"])]))
+
+func _hide_nova() -> void:
+	if nova_card != null:
+		nova_card.visible = false
 
 func _set_mode(m: String, quiet := false) -> void:
 	mode = m
@@ -1298,6 +1383,9 @@ func _rotate_view(s: int) -> bool:
 		cam_az += 90.0 * s
 		audio.play("whoosh")
 		return true
+	if not L.phantoms.is_empty() and _can_edit_world():
+		_toast("Bu açıda bir hayalet blok Robo'nun ya da kutunun içinde belirirdi")
+		UIKit.shake(tools_box)
 	return false
 
 func _sync_view() -> void:
@@ -1480,6 +1568,8 @@ func _on_back() -> void:
 			_show("")
 	elif hint_card.visible:
 		_hide_hint()
+	elif nova_card.visible:
+		_hide_nova()
 	elif sel != null and _current == "":
 		sel = null
 		_render_rows()
@@ -1627,6 +1717,37 @@ func _build_hud() -> void:
 	hint_card.visible = false
 	hint_card.gui_input.connect(func(e): if e is InputEventMouseButton and e.pressed: _hide_hint())
 	hud.add_child(hint_card)
+	# Nova: yapay zekâ öğretmeninin analiz balonu
+	nova_card = UIKit.card(0.97, 24, 16)
+	var nh := HBoxContainer.new()
+	nh.add_theme_constant_override("separation", 12)
+	nh.add_child(UIKit.nova_avatar(48))
+	var nv := VBoxContainer.new()
+	nv.add_theme_constant_override("separation", 2)
+	lbl_nova_title = UIKit.label("", 14, Color("#6a4cff"), UIKit.font_black)
+	nv.add_child(lbl_nova_title)
+	lbl_nova = UIKit.label("", 18)
+	lbl_nova.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	lbl_nova.custom_minimum_size = Vector2(360, 0)
+	nv.add_child(lbl_nova)
+	nh.add_child(nv)
+	nova_card.add_child(nh)
+	nova_card.visible = false
+	nova_card.gui_input.connect(func(e): if e is InputEventMouseButton and e.pressed: _hide_nova())
+	hud.add_child(nova_card)
+	# bakış açısı göstergesi (yalnızca hayalet bloklu seviyelerde)
+	view_dots = HBoxContainer.new()
+	view_dots.add_theme_constant_override("separation", 6)
+	for k in 4:
+		var d := Panel.new()
+		d.custom_minimum_size = Vector2(14, 14)
+		d.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		view_dots.add_child(d)
+	var vp := UIKit.pill(view_dots, Color(1, 1, 1, 0.85), 10)
+	vp.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tools_box.add_child(vp)
+	tools_box.move_child(vp, 0)
+	view_dots.set_meta("pill", vp)
 	_build_panel()
 
 func _build_panel() -> void:
@@ -1959,6 +2080,20 @@ func _build_screens() -> void:
 	var badge := UIKit.pill(UIKit.label("YENİ", 15, Color.WHITE, UIKit.font_black), UIKit.CORAL, 10)
 	badge.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	ivb.add_child(badge)
+	intro_badge = badge
+	# Nova'nın sunduğu kartlarda avatar + isim
+	var nrow := HBoxContainer.new()
+	nrow.add_theme_constant_override("separation", 12)
+	nrow.add_child(UIKit.nova_avatar(58))
+	var ncol := VBoxContainer.new()
+	ncol.alignment = BoxContainer.ALIGNMENT_CENTER
+	ncol.add_theme_constant_override("separation", -4)
+	ncol.add_child(UIKit.label("NOVA", 22, Color("#6a4cff"), UIKit.font_black))
+	ncol.add_child(UIKit.label("Yapay zekâ öğretmenin", 15, UIKit.INK_SOFT, UIKit.font_bold))
+	nrow.add_child(ncol)
+	nrow.visible = false
+	ivb.add_child(nrow)
+	intro_nova = nrow
 	lbl_intro_title = UIKit.label("", 32, UIKit.INK, UIKit.font_black)
 	ivb.add_child(lbl_intro_title)
 	lbl_intro_text = RichTextLabel.new()
@@ -2129,6 +2264,9 @@ func _layout() -> void:
 	var free_w := vs.x if portrait else panel.position.x
 	status_pill.position = Vector2((free_w - status_pill.size.x) / 2, 92)
 	hint_card.position = Vector2(16, 90)
+	lbl_nova.custom_minimum_size = Vector2(minf(460, (vs.x if portrait else panel.position.x) - 130), 0)
+	nova_card.reset_size()
+	nova_card.position = Vector2(16, status_pill.position.y + status_pill.size.y + 10 if status_pill.visible else 90.0)
 	toast_pill.reset_size()
 	toast_pill.position.x = (vs.x - toast_pill.size.x) / 2
 	var tp: Control = screens["title"].get_meta("star_pill")
@@ -2293,7 +2431,13 @@ func _level_bubble(i: int, p: Dictionary, locked: bool, current: bool) -> Contro
 func _start_level(i: int) -> void:
 	build_level(i)
 	var saved = progress["progs"].get(str(i))
-	prog = Program.parse_program(saved) if saved is Dictionary else {"main": [], "p1": [], "p2": []}
+	var starter = levels[i].get("starter")
+	if saved is Dictionary:
+		prog = Program.parse_program(saved)
+	elif starter is Dictionary:
+		prog = Program.parse_program(starter)   # hata ayıklama seviyesi: hazır (hatalı) program
+	else:
+		prog = {"main": [], "p1": [], "p2": []}
 	var slots: Dictionary = levels[i]["slots"]
 	for r in ROWS:
 		var cap := int(slots.get(r, 0))
@@ -2303,6 +2447,7 @@ func _start_level(i: int) -> void:
 	sel = null
 	lbl_hint.text = levels[i].get("hint", "")
 	_hide_hint()
+	_hide_nova()
 	_render_palette()
 	_set_mode("edit")
 	_show("")
@@ -2313,6 +2458,9 @@ func _start_level(i: int) -> void:
 	if intro is Dictionary and not progress["seen"].has(str(i)) and not instant:
 		lbl_intro_title.text = intro["title"]
 		lbl_intro_text.text = _html_to_bb(intro["text"])
+		var ai: bool = intro.get("ai", false)
+		intro_badge.visible = not ai
+		intro_nova.visible = ai
 		get_tree().create_timer(0.35).timeout.connect(func(): if _current == "": _show("intro"))
 
 func _animate_hud_in() -> void:
@@ -2443,6 +2591,7 @@ func _toggle_hint() -> void:
 	if hint_card.visible:
 		_hide_hint()
 	else:
+		_hide_nova()
 		hint_card.visible = true
 		_layout()
 		UIKit.pop_in(hint_card, 0.0, 0.7)
@@ -2475,6 +2624,9 @@ func _prepare_win(stars: int, blocks: int, par: int) -> void:
 		txt += "\nPar'dan da kısa — usta programcı!"
 	elif stars < 3:
 		txt += "\n3 yıldız için en fazla %d blok kullan." % par
+		var tip := Nova.suggest(levels[level_idx], prog)
+		if tip != "":
+			txt += "\n" + tip
 	lbl_win.text = txt
 	btn_next.visible = level_idx < levels.size() - 1
 
@@ -2814,6 +2966,22 @@ func _autotest() -> void:
 		if good:
 			ok += 1
 		print("autotest #%d %s: %s" % [i + 1, levels[i]["name"], "TAMAM" if good else "HATA (" + mode + ")"])
+	# Nova: hatalı hazır programlar analiz edilmeli
+	for i in levels.size():
+		if not levels[i].has("starter"):
+			continue
+		_start_level(i)
+		prog = Program.parse_program(levels[i]["starter"])
+		_run_toggle()
+		for guard in 400:
+			_update_queue(0.0)
+			if mode != "running":
+				break
+		var na: Dictionary = nova_card.get_meta("last", {})
+		var nok: bool = mode == "ended" and String(na.get("text", "")) != ""
+		print("autotest Nova #%d %s: %s [%s] %s" % [i + 1, levels[i]["name"], "TAMAM" if nok else "HATA", end_reason, na.get("text", "")])
+	var tip := Nova.suggest(levels[3], {"main": Program.parse_program({"main": ["F", "L", "F", "R", "F", "L", "F", "R"]})["main"], "p1": [], "p2": []})
+	print("autotest Nova öneri: ", tip)
 	# WebView ilerleme taşıma: sahte bir LevelDB günlüğünden okuma
 	var fake := PackedByteArray([0x01, 0x02])
 	fake.append_array("_https://appassets.androidplatform.net".to_ascii_buffer())
@@ -2864,11 +3032,20 @@ func _shot(spec: String) -> void:
 				await get_tree().process_frame
 			_open_pause()
 	else:
-		progress["seen"][str(i)] = 1
+		# 4. parça: virgüllü bayraklar — vN (kamerayı N kez çevir), intro (kavram kartı), starter (hazır program)
+		var flags: PackedStringArray = parts[3].split(",") if parts.size() > 3 else PackedStringArray()
+		if not "intro" in flags:
+			progress["seen"][str(i)] = 1
+		else:
+			progress["seen"].erase(str(i))
 		_start_level(i)
 		var sol: Dictionary = levels[i]["solution"]
-		prog = Program.parse_program(sol)
+		prog = Program.parse_program(levels[i]["starter"] if "starter" in flags else sol)
 		_render_rows()
+		for fl in flags:
+			if fl.begins_with("v"):
+				for k in int(fl.substr(1)):
+					_rotate_view(1)
 	for f in 90:
 		await get_tree().process_frame
 	if i >= 0 and parts.size() > 2:

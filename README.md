@@ -25,7 +25,7 @@ asansörleri kaldırır, kamerayı çevirip imkânsız geçitleri birleştirirsi
 | Eski Android (v1.x, WebView) | `android/` | Kotlin + WebView; `web/` klasörünü paketler. Artık sürüm olarak yayınlanmaz |
 | Godot (klasik mod) | `godot/` | Godot 4.3, GDScript — programlama öncesi "dokun-yürü" sürümü ve 15 klasik seviyesi |
 
-Android ve tarayıcı sürümü **25 el yapımı seviyelik, 7 bölümlük programlama kampanyasını** içerir; her seviyenin
+Android ve tarayıcı sürümü **40 el yapımı seviyelik, 9 bölümlük programlama kampanyasını** içerir; her seviyenin
 referans programı derleme sırasında gerçek yorumlayıcıda çalıştırılarak doğrulanır.
 
 ---
@@ -86,6 +86,27 @@ Engele çarpan bir komut (ör. duvara doğru İleri) Robo'yu yerinde sarsar ve p
 | 23 | | Kutu Işınlama | kutuyu ışınlayıcıyla uzak plakaya düşürme | 11 |
 | 24 | | Yankı Labirenti | koşullu yol izleyici + çoklu kule portalları | 6 |
 | 25 | | Yıldızlar Arası | döner köprü + ışınlayıcı + asansör + göz yanılması | 12 |
+| 26 | | Paralel Çark | çark + ışınlayıcı + koşullu döngü | 8 |
+| 27 | | Zamanlama Köprüsü | iki molada döner köprü ve kamera | 10 |
+| 28 | Paradokslar | Gözlemci | hayalet bloklar: yalnızca kendi açısından bakınca katı | 7 |
+| 29 | | Gölge Basamakları | hayalet basamağı kaybettirip kat kat inmek | 6 |
+| 30 | | Düşen Gölge | kutuyu hayalet bloğa itip bakışla düşürmek | 13 |
+| 31 | | Escher Avlusu | üç açı, üç gerçeklik: hayalet köprü + göz yanılması | 12 |
+| 32 | | Penrose Merdiveni | sonsuz merdiven; çöken taşla döngüden çıkış | 4 |
+| 33 | | Paradoks Kulesi | çark + göz yanılması + hayalet köprü, "önü açık oldukça yürü" | 15 |
+| 34 | Yapay Zekâ Atölyesi | Merhaba, Nova | algoritma: sırası önemli adımlar | 8 |
+| 35 | | Hata Ayıklama | hazır hatalı programı bulup düzeltme | 11 |
+| 36 | | Desen İçinde Desen | desen tanıma: iç içe fonksiyonlar (F1 → F2) | 8 |
+| 37 | | Sensör ve Karar | ajan: algıla → karar ver → davran | 4 |
+| 38 | | Genelleme | her uzunlukta çalışan tek fonksiyon | 11 |
+| 39 | | Ödül ve Ceza | pekiştirmeli öğrenme metaforu, programı kısaltma | 6 |
+| 40 | | Akıllı Ajan | hazır ajana "Kullan" yeteneği kazandırma | 5 |
+
+**Nova (yapay zekâ öğretmeni):** 9. bölümün kavram kartlarını Nova sunar. Bir program başarısız olduğunda Nova
+çalıştırmayı analiz eder (`godot-program/scripts/nova.gd`): Robo'nun düştüğü ya da ilk takıldığı bloğu bulup seçer ve
+sallar, yanlış yöne dönüşleri, sonsuz döngüleri, koşulsuz özyinelemeyi, kristale kalan mesafeyi ve hiç "Kullan"
+denmeyen kutu/kol/çarkları açıklar. Par'ın üstündeki kazanışlarda ana programdaki tekrar eden deseni bulup
+fonksiyona taşımayı önerir. Tamamen cihaz üzerinde, kurallarla çalışır; ağ gerektirmez.
 
 Tüm referans çözümler `SOLUTIONS.md` dosyasındadır.
 
@@ -180,15 +201,15 @@ Doğrudan bir seviyeyi açmak için: `http://localhost:8765/?level=9`
 
 ### Godot ana sürüm (`godot-program/`)
 **Motor sürümü: Godot 4.8 beta 4** (`4.8.beta4.official`; ön sürümler [godot-builds](https://github.com/godotengine/godot-builds/releases) deposundan). Klasik `godot/` projesi Godot 4.3'te kalır.
-Programlama oyununun yerel motor sürümü: aynı 27 seviye (`data/levels.json`, `tools/build.mjs` üretir), aynı kurallar
+Programlama oyununun yerel motor sürümü: aynı 40 seviye (`data/levels.json`, `tools/build.mjs` üretir), aynı kurallar
 (`scripts/logic.gd` fizik motoru + `scripts/program.gd` yorumlayıcı — web sürümüyle birebir), aynı `KK1:` yedek kodu.
 Mobile (Vulkan) renderer, AgX ton eşleme, parıltı, sis, yumuşak gölgeler; Vulkan olmayan cihazlarda OpenGL'e düşer.
 * **Android APK:** bkz. bölüm 1. Arayüz kiti `scripts/ui_kit.gd`, sesler `scripts/audio.gd`.
 * **Testler:**
   ```bash
-  godot --headless --path godot-program --script res://tests/run_programs.gd   # yorumlayıcı: 27/27
-  godot --headless --path godot-program -- --autotest                          # tam sahne: 27/27
-  godot --path godot-program -- --shot=12:/tmp/seviye12.png:60                # ekran görüntüsü (0 başlık, -1 harita, -2 kazanma, -3 duraklatma)
+  godot --headless --path godot-program --script res://tests/run_programs.gd   # yorumlayıcı: 40/40
+  godot --headless --path godot-program -- --autotest                          # tam sahne: 40/40 + Nova analizi
+  godot --path godot-program -- --shot=12:/tmp/seviye12.png:60                # ekran görüntüsü (0 başlık, -1 harita, -2 kazanma, -3 duraklatma; 4. parça: v2,intro,starter)
   ```
   `--autotest` ayrıca eski WebView ilerlemesinin taşınmasını sahte bir LevelDB günlüğüyle sınar.
 * **Henüz yok:** blok sürükle-bırak (bloklar dokunarak eklenir; seçilen blok taşınır/silinir), iki parmakla yakınlaştırma.
@@ -222,6 +243,8 @@ Mobile (Vulkan) renderer, AgX ton eşleme, parıltı, sis, yumuşak gölgeler; V
 | Çöken zemin | Robo üzerinden ayrılınca parçalanıp düşer | 19 |
 | Terazi | Birbirine bağlı iki platform: ağır kefe aşağı iner, hafif olan yukarı çıkar | 21 |
 | Işınlayıcı (portal) | Üzerine yürüyen Robo ya da itilen kutu aynı renkteki eşleşen halkadan anında çıkar | 22 |
+| Hayalet blok | Yalnızca kendi renginin kamera açısından bakılırken katıdır; üstündeyken açı değişirse Robo/kutu düşer. Beliren blok bir varlığın içine doğamaz (o açıya dönülemez) | 28 |
+| Hazır program (`starter`) | Hata ayıklama seviyelerinde hatalı bir programla başlanır; `build.mjs` kazanmadığını denetler | 35 |
 
 **Mimari:** Bulmaca kuralları **deterministik bir ızgara fizik motorunda** (`web/js/engine.js`) çalışır; programlama katmanı
 (`web/js/program.js`) komutları, koşulları, çağrı yığınını ve yorumlayıcıyı içerir ve render'dan bağımsızdır. Bu sayede
