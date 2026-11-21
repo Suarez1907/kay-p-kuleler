@@ -94,7 +94,9 @@ var fx_layer: CanvasLayer
 var hud: Control
 var panel: PanelContainer
 var panel_sep: ColorRect
-var palette_box: HFlowContainer
+var palette_box: HBoxContainer
+var palette_scroll: ScrollContainer
+var panel_box: VBoxContainer
 var rows_box: VBoxContainer
 var rows_scroll: ScrollContainer
 var sel_bar: HBoxContainer
@@ -104,10 +106,19 @@ var btn_step: Button
 var btn_stop: Button
 var btn_speed: Button
 var btn_clear: Button
+var btn_menu: Button
+var btn_hint: Button
+var btn_cam: Button
 var top_bar: HBoxContainer
 var theme_bar: HBoxContainer
 var lbl_theme: Label
-var tools_box: BoxContainer
+var row_tabs: HBoxContainer
+var tool_row: HBoxContainer
+var run_row: HBoxContainer
+var theme_compact := false
+## Sol, üst, sağ, alt. x < 0 ise DisplayServer güvenli alanı kullanılır (ekran görüntüsünde çentik simülasyonu).
+var safe_override := Vector4(-1, -1, -1, -1)
+var _safe_applied := Vector4(-2, -2, -2, -2)
 var lbl_chap: Label
 var lbl_name: Label
 var lbl_blocks: Label
@@ -175,6 +186,9 @@ func _ready() -> void:
 	for a in args:
 		if a.begins_with("--shot="):
 			_shot.call_deferred(a.substr(7))
+			return
+		if a == "--layouttest":
+			_layouttest.call_deferred()
 			return
 		if a.begins_with("--themecycle="):
 			_themecycle.call_deferred(a.substr(13))
@@ -1412,7 +1426,7 @@ func _rotate_view(s: int) -> bool:
 		return true
 	if not L.phantoms.is_empty() and _can_edit_world():
 		_toast("Bu açıda bir hayalet blok Robo'nun ya da kutunun içinde belirirdi")
-		UIKit.shake(tools_box)
+		UIKit.shake(view_dots.get_meta("pill"))
 	return false
 
 func _sync_view() -> void:
@@ -1708,7 +1722,11 @@ func _process(dt: float) -> void:
 	cam.size = lerpf(cam.size, want_size, minf(1.0, dt * 8.0))
 	_update_offset()
 	if hud != null and hud.visible:
-		_fit_panel()
+		var safe_now := _safe_margins()
+		if safe_now != _safe_applied:
+			_layout()
+		else:
+			_fit_panel()
 	if L != null and objs.has("player"):
 		_update_queue(dt)
 		var gem: MeshInstance3D = objs["gem"]
@@ -1732,13 +1750,13 @@ func _update_offset() -> void:
 		return
 	if portrait:
 		cam.keep_aspect = Camera3D.KEEP_WIDTH
-		var ph := panel.size.y + 20.0 if hud.visible else 0.0
-		var top := 70.0 if hud.visible else 0.0
+		var ph := (vs.y - panel.position.y) if hud.visible and panel != null else 0.0
+		var top_h := (top_bar.position.y + top_bar.size.y + 12.0) if hud.visible and top_bar != null else 0.0
 		cam.h_offset = 0.0
-		cam.v_offset = -(ph - top) * 0.5 * cam.size / vs.x
+		cam.v_offset = -(ph - top_h) * 0.5 * cam.size / vs.x
 	else:
 		cam.keep_aspect = Camera3D.KEEP_HEIGHT
-		var px := (panel.size.x + 24.0) * 0.5 if hud.visible else 0.0
+		var px := (vs.x - panel.position.x) * 0.5 if hud.visible and panel != null else 0.0
 		cam.v_offset = 0.0
 		cam.h_offset = px * cam.size / vs.y
 
@@ -1902,17 +1920,21 @@ func _build_hud() -> void:
 	hud.set_anchors_preset(Control.PRESET_FULL_RECT)
 	hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	ui_root.add_child(hud)
-	# üst çubuk: menü, başlık, puan
+	# üst şerit: yalnızca okunan başlık ve yıldızlar (dokunulan düğmeler alt panelde)
 	top_bar = HBoxContainer.new()
 	top_bar.add_theme_constant_override("separation", 14)
+	top_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	top_bar.position = Vector2(16, 14)
 	hud.add_child(top_bar)
-	top_bar.add_child(UIKit.round_button("menu", _open_pause, 58))
 	var tv := VBoxContainer.new()
 	tv.add_theme_constant_override("separation", -6)
 	tv.alignment = BoxContainer.ALIGNMENT_CENTER
 	lbl_chap = UIKit.label("", 14, UIKit.INK_SOFT, UIKit.font_black)
 	lbl_name = UIKit.label("", 28, UIKit.INK, UIKit.font_black)
+	lbl_chap.clip_text = true
+	lbl_name.clip_text = true
+	lbl_chap.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	lbl_name.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	for l in [lbl_chap, lbl_name]:
 		l.add_theme_color_override("font_outline_color", Color(1, 1, 1, 0.75))
 		l.add_theme_constant_override("outline_size", 6)
@@ -1933,13 +1955,6 @@ func _build_hud() -> void:
 		mini_stars.add_child(st)
 	sc.add_child(mini_stars)
 	top_bar.add_child(UIKit.pill(sc))
-	# üst sağ köşe: yalnızca ipucu ve kamerayı sıfırla (kamera parmakla sürüklenerek döner)
-	tools_box = HBoxContainer.new()
-	tools_box.add_theme_constant_override("separation", 10)
-	hud.add_child(tools_box)
-	tools_box.add_child(UIKit.round_button("bulb", _toggle_hint, 50, Color("#fff4cf"), Color("#b5820f")))
-	_build_theme_bar()
-	tools_box.add_child(UIKit.round_button("cam_r", _reset_camera, 50))
 	# durum bandı (mola / hata)
 	lbl_status = UIKit.label("", 19, Color.WHITE, UIKit.font_bold)
 	status_pill = UIKit.pill(lbl_status, Color("#e8648aee"), 16)
@@ -1990,8 +2005,7 @@ func _build_hud() -> void:
 		view_dots.add_child(d)
 	var vp := UIKit.pill(view_dots, Color(1, 1, 1, 0.85), 10)
 	vp.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	tools_box.add_child(vp)
-	tools_box.move_child(vp, 0)
+	hud.add_child(vp)
 	view_dots.set_meta("pill", vp)
 	_build_panel()
 
@@ -1999,11 +2013,18 @@ func _build_panel() -> void:
 	panel = UIKit.frosted_panel(20, 14)
 	hud.add_child(panel)
 	panel.minimum_size_changed.connect(func(): _layout.call_deferred())
-	var pv := VBoxContainer.new()
-	pv.add_theme_constant_override("separation", 10)
-	panel.add_child(pv)
+	panel_box = VBoxContainer.new()
+	panel_box.add_theme_constant_override("separation", 8)
+	panel.add_child(panel_box)
+	var pv := panel_box
+	# Fonksiyon sekmeleri kaydırmanın DIŞINDA: satır taşınca da kesilmez ve her biri seçilebilir.
+	row_tabs = HBoxContainer.new()
+	row_tabs.add_theme_constant_override("separation", 8)
+	row_tabs.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pv.add_child(row_tabs)
 	rows_scroll = ScrollContainer.new()
 	rows_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	rows_scroll.clip_contents = true
 	pv.add_child(rows_scroll)
 	rows_box = VBoxContainer.new()
 	rows_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -2011,16 +2032,25 @@ func _build_panel() -> void:
 	rows_scroll.add_child(rows_box)
 	# satırlar değişince panel yüksekliği içeriğe göre yeniden hesaplanır
 	rows_box.minimum_size_changed.connect(func(): _layout.call_deferred())
-	palette_box = HFlowContainer.new()
-	palette_box.alignment = FlowContainer.ALIGNMENT_CENTER
-	palette_box.add_theme_constant_override("h_separation", 8)
-	palette_box.add_theme_constant_override("v_separation", 8)
+	palette_scroll = ScrollContainer.new()
+	palette_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	palette_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	palette_scroll.custom_minimum_size = Vector2(0, 64)
+	palette_box = HBoxContainer.new()
+	palette_box.alignment = BoxContainer.ALIGNMENT_CENTER
+	palette_box.add_theme_constant_override("separation", 8)
+	palette_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	palette_scroll.add_child(palette_box)
 	# seçili blok araçları
 	sel_bar = HBoxContainer.new()
 	sel_bar.add_theme_constant_override("separation", 8)
 	sel_bar.add_child(UIKit.round_button("back", func(): _move_sel(-1), 50, Color("#f1ecfb")))
 	btn_cond = UIKit.button("Her zaman", Color("#f1ecfb"), _cycle_cond, 17, "", UIKit.INK, 50)
 	btn_cond.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn_cond.clip_text = true
+	btn_cond.custom_minimum_size = Vector2(80, 50)
+	(btn_cond.get_meta("label") as Label).clip_text = true
+	(btn_cond.get_meta("label") as Label).text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	sel_bar.add_child(btn_cond)
 	var fwd := UIKit.round_button("back", func(): _move_sel(1), 50, Color("#f1ecfb"))
 	var fic: Control = fwd.get_meta("icon")
@@ -2034,23 +2064,39 @@ func _build_panel() -> void:
 	panel_sep.color = Color(UIKit.INK, 0.08)
 	panel_sep.custom_minimum_size = Vector2(0, 2)
 	pv.add_child(panel_sep)
-	pv.add_child(palette_box)
+	pv.add_child(palette_scroll)
+	# sık kullanılanlar: başparmak hizası, panelin içinde (çentikten uzak)
+	tool_row = HBoxContainer.new()
+	tool_row.add_theme_constant_override("separation", 8)
+	tool_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	pv.add_child(tool_row)
+	btn_menu = UIKit.round_button("menu", _open_pause, 50)
+	tool_row.add_child(btn_menu)
+	btn_hint = UIKit.round_button("bulb", _toggle_hint, 50, Color("#fff4cf"), Color("#b5820f"))
+	tool_row.add_child(btn_hint)
+	btn_cam = UIKit.round_button("cam_r", _reset_camera, 50)
+	tool_row.add_child(btn_cam)
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tool_row.add_child(spacer)
+	_build_theme_bar()
 	# çalıştırma kontrolleri
-	var ctl := HBoxContainer.new()
-	ctl.add_theme_constant_override("separation", 8)
-	pv.add_child(ctl)
+	run_row = HBoxContainer.new()
+	run_row.add_theme_constant_override("separation", 8)
+	pv.add_child(run_row)
 	btn_clear = UIKit.round_button("trash", _clear_prog, 54)
-	ctl.add_child(btn_clear)
+	run_row.add_child(btn_clear)
 	btn_stop = UIKit.round_button("stop", _reset_to_setup, 54)
-	ctl.add_child(btn_stop)
+	run_row.add_child(btn_stop)
 	btn_step = UIKit.round_button("step", _step_btn, 54)
-	ctl.add_child(btn_step)
+	run_row.add_child(btn_step)
 	btn_run = _make_run_button()
 	btn_run.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	ctl.add_child(btn_run)
+	run_row.add_child(btn_run)
 	btn_speed = UIKit.button("1×", Color.WHITE, _cycle_speed, 19, "", UIKit.INK, 54)
 	btn_speed.custom_minimum_size = Vector2(58, 54)
-	ctl.add_child(btn_speed)
+	run_row.add_child(btn_speed)
 
 func _make_run_button() -> Button:
 	var b := Button.new()
@@ -2475,16 +2521,102 @@ func _fade_veil() -> void:
 	var tw := veil.create_tween()
 	tw.tween_property(veil, "color:a", 0.0, 0.55).set_trans(Tween.TRANS_SINE).set_delay(0.05)
 
-## Panel yüksekliği = içeriğin en küçük yüksekliği, alt kenarı ekranın altına hizalı. İçerik (satırlar, akış
-## kapsayıcıları) bir sonraki karede büyüyebildiği için her karede ucuz bir kontrolle yeniden hizalanır.
+## Ekran pikseli cinsinden güvenli kenar boşluğu: çentik, ön kamera ve sistem çubukları.
+func _safe_margins() -> Vector4:
+	if safe_override.x >= 0.0:
+		return safe_override
+	var win := DisplayServer.window_get_size()
+	if win.x <= 1 or win.y <= 1:
+		return Vector4.ZERO
+	var vs := get_viewport().get_visible_rect().size
+	var sx := vs.x / float(win.x)
+	var sy := vs.y / float(win.y)
+	var safe := DisplayServer.get_display_safe_area()
+	var left := float(safe.position.x) * sx
+	var top := float(safe.position.y) * sy
+	var right := (float(win.x) - safe.position.x - safe.size.x) * sx
+	var bottom := (float(win.y) - safe.position.y - safe.size.y) * sy
+	for cut in DisplayServer.get_display_cutouts():
+		var c: Rect2 = cut
+		if c.size.x <= 0.0 or c.size.y <= 0.0:
+			continue
+		var cx := c.position.x * sx
+		var cy := c.position.y * sy
+		var cw := c.size.x * sx
+		var ch := c.size.y * sy
+		if cy <= top + 2.0:
+			top = maxf(top, cy + ch)
+		if cx <= left + 2.0:
+			left = maxf(left, cx + cw)
+		if cx + cw >= vs.x - right - 2.0:
+			right = maxf(right, vs.x - cx)
+		if cy + ch >= vs.y - bottom - 2.0:
+			bottom = maxf(bottom, vs.y - cy)
+	return Vector4(left, top, right, bottom)
+
+## Dar ekranda sabit düğme genişlikleri paneli ekrandan taşırıp sağdaki sekmeleri
+## tıklanamaz bırakıyordu. İç genişliğe sığacak şekilde küçültülür.
+func _fit_chrome(inner: float) -> void:
+	if run_row == null:
+		return
+	var sep := 8
+	var side := 52
+	var speed_w := 58
+	var run_w := 136.0
+	var need := float(side * 3 + speed_w) + run_w + sep * 4
+	if need > inner:
+		sep = 4
+		side = 44
+		speed_w = 46
+		run_w = maxf(84.0, inner - side * 3 - speed_w - sep * 4)
+	run_row.add_theme_constant_override("separation", sep)
+	for b in [btn_clear, btn_stop, btn_step]:
+		b.custom_minimum_size = Vector2(side, side)
+	btn_speed.custom_minimum_size = Vector2(speed_w, side)
+	btn_run.custom_minimum_size = Vector2(run_w, maxf(56, side + 4))
+	var tool_side := mini(50, side)
+	for b in [btn_menu, btn_hint, btn_cam]:
+		b.custom_minimum_size = Vector2(tool_side, tool_side)
+	var theme_btn := 40
+	var theme_lbl := 96.0
+	if inner < 440.0:
+		theme_btn = 36
+		theme_lbl = 48.0
+		tool_row.add_theme_constant_override("separation", 6)
+	else:
+		tool_row.add_theme_constant_override("separation", 8)
+	for c in theme_bar.get_children():
+		if c is Button:
+			(c as Button).custom_minimum_size = Vector2(theme_btn, 44)
+	var compact := inner < 460.0
+	lbl_theme.clip_text = compact
+	lbl_theme.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS if compact else TextServer.OVERRUN_NO_TRIMMING
+	lbl_theme.custom_minimum_size.x = theme_lbl if compact else 0.0
+	if compact != theme_compact:
+		theme_compact = compact
+		_update_theme_label()
+
+## Panel yüksekliği = içeriğin en küçük yüksekliği; alt kenar güvenli alanın üstünde.
+## Satırlar bir sonraki karede büyüyebildiği için her karede ucuz bir kontrolle hizalanır.
 func _fit_panel() -> void:
 	if panel == null:
 		return
 	var vs := get_viewport().get_visible_rect().size
+	var safe := _safe_margins()
+	var top_limit := safe.y + 8.0
+	var bottom_limit := vs.y - (safe.w + 8.0)
+	var max_h := maxf(120.0, bottom_limit - top_limit)
 	var ph := panel.get_combined_minimum_size().y
-	var y := vs.y - ph - 12.0
-	if absf(panel.size.y - ph) > 0.5 or absf(panel.position.y - y) > 0.5:
-		panel.size.y = ph
+	if ph > max_h and rows_scroll != null:
+		var shrink := ph - max_h
+		rows_scroll.custom_minimum_size.y = maxf(48.0, rows_scroll.custom_minimum_size.y - shrink)
+		ph = panel.get_combined_minimum_size().y
+	var y := bottom_limit - minf(ph, max_h)
+	if y < top_limit:
+		y = top_limit
+	var h := minf(ph, bottom_limit - y)
+	if absf(panel.size.y - h) > 0.5 or absf(panel.position.y - y) > 0.5:
+		panel.size.y = h
 		panel.position.y = y
 
 func _layout() -> void:
@@ -2492,42 +2624,54 @@ func _layout() -> void:
 		return
 	var vs := get_viewport().get_visible_rect().size
 	portrait = vs.x < vs.y * 0.95
+	var safe := _safe_margins()
+	_safe_applied = safe
 	var m := 12.0
-	# satır alanı içeriği kadar (çok satırda kaydırılır), panel içeriği sarar
-	var rows_h := rows_box.get_combined_minimum_size().y
-	var max_rows := vs.y * (0.3 if portrait else 0.55)
-	rows_scroll.custom_minimum_size.y = minf(rows_h, max_rows)
-	var pw := vs.x - 2 * m if portrait else clampf(vs.x * 0.33, 430.0, 500.0)
+	var left := safe.x + m
+	var right := safe.z + m
+	var top := safe.y + 8.0
+	var avail_w := maxf(160.0, vs.x - left - right)
+	var rows_h := rows_box.get_combined_minimum_size().y if rows_box != null else 0.0
+	var max_rows := vs.y * (0.36 if portrait else 0.5)
+	if rows_scroll != null:
+		rows_scroll.custom_minimum_size.y = minf(rows_h, max_rows)
+	var pw := avail_w if portrait else clampf(vs.x * 0.36, 340.0, minf(520.0, avail_w))
+	_fit_chrome(pw - 28.0)
 	panel.size.x = pw
-	panel.position.x = m if portrait else vs.x - pw - m
+	panel.position.x = left if portrait else vs.x - right - pw
 	_fit_panel()
-	tools_box.reset_size()
-	var right_edge := vs.x if portrait or panel.position.y > 90 else panel.position.x
-	tools_box.position = Vector2(right_edge - tools_box.size.x - 16, 16)
-	if theme_bar:
-		top_bar.reset_size()
-		theme_bar.reset_size()
-		var tx := top_bar.position.x + top_bar.size.x + 8.0
-		var ty := 14.0
-		if tx + theme_bar.size.x > tools_box.position.x - 8.0:
-			tx = 16.0
-			ty = top_bar.position.y + top_bar.size.y + 4.0
-		theme_bar.position = Vector2(tx, ty)
-	lbl_hint.custom_minimum_size = Vector2(minf(520, (vs.x if portrait else panel.position.x) - 80), 0)
+	# başlık: çentiğin altında, oyun alanını kaplamadan
+	top_bar.position = Vector2(left, top)
+	var pill: Control = view_dots.get_meta("pill")
+	pill.reset_size()
+	top_bar.reset_size()
+	var dots_x := vs.x - right - pill.size.x
+	var title_right := panel.position.x - 10.0 if not portrait else dots_x - 8.0
+	var text_w := maxf(72.0, title_right - left - 150.0)
+	lbl_chap.custom_minimum_size.x = text_w
+	lbl_name.custom_minimum_size.x = text_w
+	top_bar.reset_size()
+	if top_bar.position.x + top_bar.size.x + 8.0 > dots_x:
+		pill.position = Vector2(left, top + top_bar.size.y + 6.0)
+	else:
+		pill.position = Vector2(dots_x, top + maxf(0.0, (top_bar.size.y - pill.size.y) * 0.5))
+	var band := maxf(top_bar.position.y + top_bar.size.y, pill.position.y + pill.size.y) + 8.0
+	var free_left := left
+	var free_right := panel.position.x - 8.0 if not portrait else vs.x - right
+	var free_w := maxf(80.0, free_right - free_left)
+	lbl_hint.custom_minimum_size = Vector2(minf(520, free_w - 70), 0)
 	status_pill.reset_size()
-	var free_w := vs.x if portrait else panel.position.x
-	status_pill.position = Vector2((free_w - status_pill.size.x) / 2, 92)
-	hint_card.position = Vector2(16, 90)
-	lbl_nova.custom_minimum_size = Vector2(minf(460, (vs.x if portrait else panel.position.x) - 130), 0)
+	status_pill.position = Vector2(free_left + maxf(0.0, (free_w - status_pill.size.x) / 2.0), band)
+	hint_card.position = Vector2(free_left, band)
+	lbl_nova.custom_minimum_size = Vector2(minf(460, free_w - 90), 0)
 	nova_card.reset_size()
-	nova_card.position = Vector2(16, status_pill.position.y + status_pill.size.y + 10 if status_pill.visible else 90.0)
+	nova_card.position = Vector2(free_left, status_pill.position.y + status_pill.size.y + 8.0 if status_pill.visible else band)
 	toast_pill.reset_size()
-	toast_pill.position.x = (vs.x - toast_pill.size.x) / 2
+	toast_pill.position.x = (vs.x - toast_pill.size.x) / 2.0
 	var tp: Control = screens["title"].get_meta("star_pill")
 	tp.reset_size()
-	tp.position = Vector2(vs.x - tp.size.x - 18, 18)
-	var lsc: ScrollContainer = screens["levels"].get_meta("scroll")
-	levels_list.custom_minimum_size.x = minf(820, vs.x - 32)
+	tp.position = Vector2(vs.x - safe.z - tp.size.x - 12, safe.y + 12)
+	levels_list.custom_minimum_size.x = minf(820, vs.x - left - right)
 
 
 # ---------- seviye haritası ----------
@@ -2721,8 +2865,8 @@ func _animate_hud_in() -> void:
 	_layout()
 	var vs := get_viewport().get_visible_rect().size
 	UIKit.slide_in(panel, Vector2(0, 260) if portrait else Vector2(260, 0), 0.05, 0.55)
-	UIKit.slide_in(top_bar, Vector2(0, -60), 0.1)
-	UIKit.slide_in(tools_box, Vector2(0, -60), 0.15)
+	UIKit.slide_in(top_bar, Vector2(0, -40), 0.1)
+	UIKit.slide_in(view_dots.get_meta("pill"), Vector2(0, -40), 0.15)
 	var k := 0
 	for t in palette_box.get_children():
 		UIKit.pop_in(t, 0.25 + k * 0.04)
@@ -2792,12 +2936,14 @@ func _cycle_gfx() -> void:
 func _build_theme_bar() -> void:
 	theme_bar = HBoxContainer.new()
 	theme_bar.add_theme_constant_override("separation", 6)
-	theme_bar.mouse_filter = Control.MOUSE_FILTER_STOP
-	hud.add_child(theme_bar)
+	theme_bar.mouse_filter = Control.MOUSE_FILTER_PASS
+	theme_bar.size_flags_horizontal = Control.SIZE_SHRINK_END
+	theme_bar.alignment = BoxContainer.ALIGNMENT_CENTER
+	tool_row.add_child(theme_bar)
 	var prev := Button.new()
 	prev.text = "<"
 	prev.focus_mode = Control.FOCUS_NONE
-	prev.custom_minimum_size = Vector2(36, 36)
+	prev.custom_minimum_size = Vector2(40, 44)
 	prev.tooltip_text = "Önceki tema  ["
 	UIKit.style_chunky(prev, Color.WHITE, 12, 3, UIKit.INK)
 	prev.add_theme_font_size_override("font_size", 18)
@@ -2805,11 +2951,14 @@ func _build_theme_bar() -> void:
 	theme_bar.add_child(prev)
 	lbl_theme = UIKit.label("Tema Değiştir (1/15)", 15, UIKit.INK, UIKit.font_black)
 	lbl_theme.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	lbl_theme.clip_text = true
+	lbl_theme.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	lbl_theme.custom_minimum_size = Vector2(72, 0)
 	theme_bar.add_child(lbl_theme)
 	var nxt := Button.new()
 	nxt.text = ">"
 	nxt.focus_mode = Control.FOCUS_NONE
-	nxt.custom_minimum_size = Vector2(36, 36)
+	nxt.custom_minimum_size = Vector2(40, 44)
 	nxt.tooltip_text = "Sonraki tema  ]"
 	UIKit.style_chunky(nxt, Color.WHITE, 12, 3, UIKit.INK)
 	nxt.add_theme_font_size_override("font_size", 18)
@@ -2840,7 +2989,7 @@ func _update_theme_label() -> void:
 	if lbl_theme == null or theme_app == null or theme_app.theme == null:
 		return
 	var t := theme_app.theme
-	lbl_theme.text = "Tema Değiştir (%d/15)" % t.chapter_id
+	lbl_theme.text = ("Tema %d/15" if theme_compact else "Tema Değiştir (%d/15)") % t.chapter_id
 	var tip := "%s · %s" % [t.theme_name, t.concept_name]
 	lbl_theme.tooltip_text = tip
 	if theme_bar:
@@ -2943,7 +3092,8 @@ func _toast(msg: String) -> void:
 	if _toast_tw:
 		_toast_tw.kill()
 	_toast_tw = toast_pill.create_tween()
-	_toast_tw.tween_property(toast_pill, "position:y", 22.0, 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	var toast_y := _safe_margins().y + 8.0
+	_toast_tw.tween_property(toast_pill, "position:y", toast_y, 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	_toast_tw.tween_interval(1.8)
 	_toast_tw.tween_property(toast_pill, "position:y", -80.0, 0.25).set_trans(Tween.TRANS_SINE)
 	_toast_tw.tween_callback(func(): toast_pill.visible = false)
@@ -3098,6 +3248,32 @@ func _style_row(rp: PanelContainer, row: String) -> void:
 		rsb.bg_color = Color(1, 1, 1, 0.35)
 	rp.add_theme_stylebox_override("panel", rsb)
 
+## Sekme şeridi: her fonksiyon kendi dikdörtgeninde, kaydırma kutusunun dışında.
+func _make_row_tab(row: String) -> Button:
+	var active := row == active_row
+	var col := Color(ROW_COLOR[row])
+	if not active:
+		col = col.lerp(Color("#f4f1fb"), 0.72)
+	var font_col := Color.WHITE if active else UIKit.INK
+	var b := UIKit.button(ROW_LABEL[row], col, func(): pass, 20, "", font_col, 56)
+	b.custom_minimum_size = Vector2(72, 56)
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	b.set_meta("row", row)
+	var lb: Label = b.get_meta("label")
+	lb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	lb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lb.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var rr: String = row
+	b.pressed.connect(func():
+		active_row = rr
+		sel = null
+		audio.play("tap")
+		_render_rows()
+		var rp := rows_box.get_node_or_null(NodePath(rr))
+		if rp is Control:
+			rows_scroll.ensure_control_visible(rp))
+	return b
+
 func _render_rows() -> void:
 	if rows_box == null or L == null or preview:
 		return
@@ -3106,27 +3282,28 @@ func _render_rows() -> void:
 		c.queue_free()
 	tile_nodes = {}
 	_run_tile = null
+	for c in row_tabs.get_children():
+		row_tabs.remove_child(c)
+		c.queue_free()
 	var slots: Dictionary = levels[level_idx]["slots"]
 	for row in ROWS:
 		var cap := int(slots.get(row, 0))
 		if cap <= 0:
 			continue
+		row_tabs.add_child(_make_row_tab(row))
 		var rp := PanelContainer.new()
 		rp.name = row
 		_style_row(rp, row)
 		var h := HBoxContainer.new()
 		h.add_theme_constant_override("separation", 10)
 		rp.add_child(h)
-		var chip := UIKit.button(ROW_LABEL[row], Color(ROW_COLOR[row]), func(): pass, 17, "", Color.WHITE, 52)
-		chip.custom_minimum_size = Vector2(58, 52)
+		var tag := UIKit.label(ROW_LABEL[row], 13, Color(ROW_COLOR[row]), UIKit.font_black)
+		tag.custom_minimum_size = Vector2(32, 52)
+		tag.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		tag.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		tag.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		h.add_child(tag)
 		var rr: String = row
-		chip.pressed.connect(func():
-			active_row = rr
-			sel = null
-			audio.play("tap")
-			_render_rows())
-		chip.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
-		h.add_child(chip)
 		var flow := HFlowContainer.new()
 		flow.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		flow.add_theme_constant_override("h_separation", 7)
@@ -3176,10 +3353,13 @@ func _render_rows() -> void:
 	if sel != null and sel["idx"] < prog[sel["row"]].size():
 		var ins: Dictionary = prog[sel["row"]][sel["idx"]]
 		var cname: String = COND_NAME[ins["k"]]
-		btn_cond.text = "Koşul: " + cname
+		var caption := "Koşul: " + cname
 		btn_cond.disabled = not levels[level_idx].get("conds", false) or ins["c"] == "W"
 		if btn_cond.disabled:
-			btn_cond.text = "Koşul yok"
+			caption = "Koşul yok"
+		# Button.text ayrıca çizilir; etiketle üst üste binmesin.
+		btn_cond.text = ""
+		UIKit.set_text(btn_cond, caption)
 	if _exec["proc"] != "" and tile_nodes.has(_exec["proc"]) and _exec["idx"] < tile_nodes[_exec["proc"]].size():
 		var t: Button = tile_nodes[_exec["proc"]][_exec["idx"]]
 		(t.get_meta("ring") as Panel).visible = true
@@ -3412,11 +3592,195 @@ func _themecycle(dir: String) -> void:
 	get_tree().quit(0 if bad.is_empty() else 1)
 
 
+## Telefon genişlikleri, yatay ekran ve üst çentik: sekmeler örtüşmez, her biri seçilir,
+## panel güvenli alanın içinde kalır, menü/ipucu/kamera/tema başparmak hizasındadır.
+## godot --headless --path godot-program -- --layouttest
+func _layouttest() -> void:
+	instant = true
+	var fails: Array = []
+	var cases := [
+		{"win": Vector2i(1080, 2400), "logical": false, "safe": Vector4(0, 100, 0, 72), "levels": [0, 3, 17, 19]},
+		{"win": Vector2i(360, 780), "logical": true, "safe": Vector4(0, 48, 0, 28), "levels": [0, 17, 19]},
+		{"win": Vector2i(480, 960), "logical": true, "safe": Vector4(12, 56, 12, 32), "levels": [0, 17]},
+		{"win": Vector2i(2400, 1080), "logical": false, "safe": Vector4(48, 24, 48, 0), "levels": [0, 17]},
+		{"win": Vector2i(800, 360), "logical": true, "safe": Vector4(20, 12, 20, 0), "levels": [17]},
+	]
+	for c in cases:
+		await _apply_test_view(c["win"], c["logical"], c["safe"])
+		for idx in c["levels"]:
+			await _check_play_layout(int(idx), str(c["win"]), fails)
+	print("layouttest: ", "TAMAM" if fails.is_empty() else "HATA " + str(fails))
+	get_tree().quit(0 if fails.is_empty() else 1)
+
+func _apply_test_view(win: Vector2i, logical: bool, safe: Vector4) -> void:
+	var root := get_tree().root
+	root.content_scale_mode = Window.CONTENT_SCALE_MODE_CANVAS_ITEMS
+	root.content_scale_aspect = Window.CONTENT_SCALE_ASPECT_EXPAND
+	root.content_scale_factor = 1.0
+	root.content_scale_size = win if logical else Vector2i(720, 720)
+	root.size = win
+	safe_override = safe
+	_safe_applied = Vector4(-2, -2, -2, -2)
+	for f in 2:
+		await get_tree().process_frame
+	_layout()
+
+func _check_play_layout(idx: int, tag: String, fails: Array) -> void:
+	progress["seen"][str(idx)] = 1
+	_start_level(idx)
+	prog = Program.parse_program(levels[idx]["solution"])
+	_render_rows()
+	_layout()
+	for f in 2:
+		await get_tree().process_frame
+	_layout()
+	var vs := get_viewport().get_visible_rect().size
+	var safe := _safe_margins()
+	var area := Rect2(safe.x, safe.y, vs.x - safe.x - safe.z, vs.y - safe.y - safe.w)
+	var where := "%s L%d" % [tag, idx + 1]
+	if not _rect_inside(Rect2(panel.position, panel.size), area, 2.0):
+		fails.append("%s panel güvenli alan dışında %s" % [where, panel.get_global_rect()])
+	if panel.position.x < -1.0 or panel.position.y < -1.0 or panel.position.x + panel.size.x > vs.x + 1.0 or panel.position.y + panel.size.y > vs.y + 1.0:
+		fails.append("%s panel ekran dışında" % where)
+	var expect: Array = []
+	for row in ROWS:
+		if int(levels[idx]["slots"].get(row, 0)) > 0:
+			expect.append(row)
+	if row_tabs.get_child_count() != expect.size():
+		fails.append("%s sekme sayısı %d" % [where, row_tabs.get_child_count()])
+	var tab_rects: Array = []
+	for k in row_tabs.get_child_count():
+		var tab: Button = row_tabs.get_child(k)
+		var rr: String = str(tab.get_meta("row"))
+		if rr != expect[k]:
+			fails.append("%s sekme sırası %s" % [where, rr])
+		var tr: Rect2 = tab.get_global_rect()
+		tab_rects.append(tr)
+		if tr.size.x < 40.0 or tr.size.y < 40.0:
+			fails.append("%s sekme küçük %s" % [where, tr])
+		if not _rect_inside(tr, area, 1.0):
+			fails.append("%s sekme güvenli alan dışında %s" % [where, tr])
+		if _ancestor_clips(tab, tr.get_center()):
+			fails.append("%s sekme kırpılmış %s" % [where, rr])
+		var hit := _top_control_at(tr.get_center())
+		if hit != tab:
+			fails.append("%s sekme isabeti %s -> %s" % [where, rr, hit])
+	for a in tab_rects.size():
+		for b in range(a + 1, tab_rects.size()):
+			if _rects_overlap(tab_rects[a], tab_rects[b]):
+				fails.append("%s sekmeler örtüşüyor" % where)
+	for row in expect:
+		var tab: Button = _tab_named(row)
+		tab.pressed.emit()
+		if active_row != row:
+			fails.append("%s seçilemedi %s" % [where, row])
+	# görünen bloklar birbirinin ve paletin üstüne binmesin; merkezi kendi düğmesine gelsin
+	var buttons: Array = []
+	for row in expect:
+		var rp := rows_box.get_node_or_null(NodePath(row))
+		if rp is Control:
+			rows_scroll.ensure_control_visible(rp)
+	for f in 1:
+		await get_tree().process_frame
+	var scroll_r: Rect2 = rows_scroll.get_global_rect()
+	for row in expect:
+		var rp2 := rows_box.get_node_or_null(NodePath(row))
+		if rp2 == null:
+			continue
+		var flow: Node = rp2.get_child(0).get_child(1)
+		for t in flow.get_children():
+			if not (t is BaseButton):
+				continue
+			var br: Rect2 = (t as Control).get_global_rect()
+			buttons.append(br)
+			if scroll_r.encloses(br) and not _ancestor_clips(t, br.get_center()):
+				var hit2 := _top_control_at(br.get_center())
+				if hit2 != t:
+					fails.append("%s blok isabeti %s" % [where, row])
+					break
+	for a in buttons.size():
+		for b in range(a + 1, buttons.size()):
+			if _rects_overlap(buttons[a], buttons[b]):
+				fails.append("%s bloklar örtüşüyor" % where)
+				break
+		if fails.size() > 0 and str(fails.back()).begins_with(where + " bloklar"):
+			break
+	var pals: Array = []
+	for t in palette_box.get_children():
+		if t is BaseButton:
+			pals.append((t as Control).get_global_rect())
+	for a in pals.size():
+		for b in range(a + 1, pals.size()):
+			if _rects_overlap(pals[a], pals[b]):
+				fails.append("%s palet örtüşüyor" % where)
+				break
+	for b in [btn_menu, btn_hint, btn_cam]:
+		var gr: Rect2 = b.get_global_rect()
+		if not _rect_inside(gr, area, 1.0):
+			fails.append("%s araç güvenli alan dışında" % where)
+		if not Rect2(panel.position, panel.size).encloses(gr):
+			fails.append("%s araç panel dışında" % where)
+		if portrait and gr.get_center().y < vs.y * 0.45:
+			fails.append("%s araç üstte kaldı" % where)
+		if _top_control_at(gr.get_center()) != b:
+			fails.append("%s araç isabeti" % where)
+	if _rects_overlap(top_bar.get_global_rect(), theme_bar.get_global_rect()):
+		fails.append("%s tema başlığın üstünde" % where)
+	if idx == 0:
+		_select("main", 0)
+		var shown: String = (btn_cond.get_meta("label") as Label).text
+		if btn_cond.text != "" or shown.find("\n") >= 0 or (shown.find("Her zaman") >= 0 and shown.find("Koşul yok") >= 0):
+			fails.append("%s koşul yazısı üst üste '%s' / '%s'" % [where, btn_cond.text, shown])
+
+func _tab_named(row: String) -> Button:
+	for t in row_tabs.get_children():
+		if str(t.get_meta("row")) == row:
+			return t
+	return null
+
+func _rect_inside(inner: Rect2, outer: Rect2, slack: float) -> bool:
+	return inner.position.x >= outer.position.x - slack and inner.position.y >= outer.position.y - slack \
+			and inner.end.x <= outer.end.x + slack and inner.end.y <= outer.end.y + slack
+
+func _rects_overlap(a: Rect2, b: Rect2) -> bool:
+	var inter := a.intersection(b)
+	return inter.size.x > 0.6 and inter.size.y > 0.6
+
+func _ancestor_clips(n: Node, pos: Vector2) -> bool:
+	var p := n.get_parent()
+	while p is Control:
+		var c: Control = p
+		if c.clip_contents and not c.get_global_rect().has_point(pos):
+			return true
+		p = c.get_parent()
+	return false
+
+func _top_control_at(pos: Vector2) -> Control:
+	var box := {"ctl": null, "area": 1.0e20}
+	_top_walk(ui_root, pos, box)
+	return box["ctl"]
+
+func _top_walk(n: Node, pos: Vector2, box: Dictionary) -> void:
+	for c in n.get_children():
+		if c is Control and (c as Control).visible:
+			var ctl: Control = c
+			var r: Rect2 = ctl.get_global_rect()
+			if r.has_point(pos) and ctl.mouse_filter != Control.MOUSE_FILTER_IGNORE and not _ancestor_clips(ctl, pos):
+				var area := r.size.x * r.size.y
+				if area < float(box["area"]):
+					box["area"] = area
+					box["ctl"] = ctl
+			_top_walk(ctl, pos, box)
+
 ## Ekran görüntüsü: godot --path godot-program -- --shot=<seviye>:<dosya>[:<kare>]
 ## seviye 0 = başlık, -1 = seviye haritası, -2 = kazanma ekranı (seviye 12), -3 = duraklatma menüsü
 func _shot(spec: String) -> void:
 	var parts := spec.split(":")
 	var i := int(parts[0]) - 1
+	var flags: PackedStringArray = parts[3].split(",") if parts.size() > 3 else PackedStringArray()
+	# cutout: üst kamera çentiği + alt hareket çubuğu (görünür alan pikseli)
+	if "cutout" in flags:
+		safe_override = Vector4(18, 108, 18, 64)
 	if i == -1:
 		_show_title()
 	elif i == -2:
@@ -3440,8 +3804,7 @@ func _shot(spec: String) -> void:
 				await get_tree().process_frame
 			_open_pause()
 	else:
-		# 4. parça: virgüllü bayraklar — vN (kamerayı N kez çevir), intro (kavram kartı), starter (hazır program)
-		var flags: PackedStringArray = parts[3].split(",") if parts.size() > 3 else PackedStringArray()
+		# 4. parça: virgüllü bayraklar — vN (kamerayı N kez çevir), intro (kavram kartı), starter (hazır program), cutout
 		if not "intro" in flags:
 			progress["seen"][str(i)] = 1
 		else:
