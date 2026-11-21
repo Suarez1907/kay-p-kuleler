@@ -74,6 +74,7 @@ jobs:
           "$G" --headless --script res://tests/run_themes.gd 2>&1 | grep -E "themes|HATA|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
           "$G" --headless -- --autotest 2>&1 | grep -E "autotest|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
           "$G" --headless -- --feeltest 2>&1 | grep -E "feeltest|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
+          "$G" --headless -- --layouttest 2>&1 | grep -E "layouttest|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
 
       - name: Android APK dışa aktar
         shell: bash
@@ -83,7 +84,7 @@ jobs:
           export GODOT="$HOME/godot48/godot" PROJECT=godot-program
           export RELEASE_KEYSTORE="$PWD/android/keystore/kayipkuleler.jks" RELEASE_KEY_ALIAS=kayipkuleler RELEASE_KEY_PASS=kayipkuleler
           chmod +x "$GODOT" tools/godot-android-export.sh
-          # Elle etiket verilmişse o kullanılır. Aksi halde proje sürümü (ör. 2.4.1) geçerlidir;
+          # Elle etiket verilmişse o kullanılır. Aksi halde proje sürümü (ör. 2.4.2) geçerlidir;
           # main'e push bu sürümle GitHub Release açar.
           if [ -n "${RELEASE_TAG:-}" ]; then
             VER="${RELEASE_TAG#v}"

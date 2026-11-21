@@ -20,7 +20,7 @@ asansörleri kaldırır, kamerayı çevirip imkânsız geçitleri birleştirirsi
 
 | Sürüm | Klasör | Teknoloji |
 |---|---|---|
-| **Android uygulaması (ana sürüm, v2.4.1)** | `godot-program/` | **Godot 4.8 beta 4**, Mobile (Vulkan) renderer, doğrusal ton eşleme, GDScript; modern mobil arayüz, ses ve müzik |
+| **Android uygulaması (ana sürüm, v2.4.2)** | `godot-program/` | **Godot 4.8 beta 4**, Mobile (Vulkan) renderer, doğrusal ton eşleme, GDScript; modern mobil arayüz, ses ve müzik |
 | Tarayıcı | `web/` | Three.js r170 + cannon-es (yerel olarak paketlendi, CDN yok) |
 | Eski Android (v1.x, WebView) | `android/` | Kotlin + WebView; `web/` klasörünü paketler. Artık sürüm olarak yayınlanmaz |
 | Godot (klasik mod) | `godot/` | Godot 4.3, GDScript — programlama öncesi "dokun-yürü" sürümü ve 15 klasik seviyesi |
@@ -131,8 +131,8 @@ Tüm referans çözümler `SOLUTIONS.md` dosyasındadır.
 ### APK'yı indirip kurma
 * **Sürümler:** [Releases](../../releases/latest) sayfasındaki `KayipKuleler-<sürüm>.apk`. Sürüm adı
   `godot-program/project.godot` içindeki `config/version` değeridir. Bu dosya `main`'e birleşince Android iş akışı
-  `v2.4.1` gibi bir etiket ve yayındaki APK'yı oluşturur. Elle yayın için *Actions → Android APK (Godot — ana sürüm) → Run workflow*
-  ve `release_tag` alanına `v2.4.1` gibi bir etiket.
+  `v2.4.2` gibi bir etiket ve yayındaki APK'yı oluşturur. Elle yayın için *Actions → Android APK (Godot — ana sürüm) → Run workflow*
+  ve `release_tag` alanına `v2.4.2` gibi bir etiket.
 * **Her push'tan sonra:** aynı iş akışının **Artifacts** bölümünde `KayipKuleler-apk`.
 * Telefonda APK'yı açın ("bilinmeyen kaynaklardan yükleme" izni istenir). Android 7.0 (API 24) ve üzeri desteklenir.
 
@@ -147,10 +147,12 @@ Tüm referans çözümler `SOLUTIONS.md` dosyasındadır.
 * Modern mobil arayüz: Nunito yazı tipi, kalın "basılabilir" butonlar, cam kartlar, kodla çizilmiş vektör ikonlar.
 * Animasyonlar: buton basma yayları, ekran geçişleri, kart ve yıldız patlamaları, kademeli giriş efektleri, renk perdesi.
 * Ekranlar: animasyonlu başlık, bölüm bantlı seviye haritası, oyun içi ekran, duraklatma, ayarlar, kazanma, tanıtım, yedek.
-* Dikey **ve** yatay ekran: program paneli içeriği kadar yer kaplar (dikeyde altta, yatayda sağ altta); sırası yukarıdan
-  aşağıya kod satırları → komut butonları (başparmak hizası) → aksiyon barı. Sahne her zaman boş alana ortalanır.
+* Dikey **ve** yatay ekran: program paneli içeriği kadar yer kaplar (dikeyde altta, yatayda sağ altta) ve ekran
+  çentiği / güvenli alanı kadar içeriden durur. Sırası yukarıdan aşağıya fonksiyon sekmeleri (Ana, F1, F2) → kod
+  satırları → komut butonları → menü, ipucu, kamera ve tema (başparmak hizası) → aksiyon barı. Başlık üstte, çentiğin
+  altında kalır. Sahne her zaman boş alana ortalanır.
 * Kamera: 3B alanda parmakla yatay sürükleyerek kule etrafında döner, bırakınca en yakın 90°'ye oturur (göz yanılması
-  geçitleri bu açılara bağlıdır). Üst sağda yalnızca İpucu ve Kamerayı sıfırla; "Dünyayı başa al" duraklatma menüsünde.
+  geçitleri bu açılara bağlıdır). İpucu ve kamerayı sıfırla alt paneldeki araç şeridindedir; "Dünyayı başa al" duraklatma menüsünde.
 * Görüntü: ferah soğuk gökyüzü gradyanı (#B8D4E8 → #EBF3F8), mimari taş/krem bloklar (#EAE4DC, #E2DACF, #D8CFC2,
   #C4D3DF; seviyenin paletinden yalnızca hafif ton), keskin ince pahlar (0,03) ve düz yüzler, yürünebilir üst yüzlerde
   karo plakası, mat malzeme (pürüzlülük 0,9). Doğrusal ton eşleme: renkler ekrana olduğu gibi gider (AgX/ACES açık pastel
@@ -211,7 +213,8 @@ Mobile (Vulkan) renderer, AgX ton eşleme, parıltı, sis, yumuşak gölgeler; V
   ```bash
   godot --headless --path godot-program --script res://tests/run_programs.gd   # yorumlayıcı: 40/40
   godot --headless --path godot-program -- --autotest                          # tam sahne: 40/40 + Nova analizi
-  godot --path godot-program -- --shot=12:/tmp/seviye12.png:60                # ekran görüntüsü (0 başlık, -1 harita, -2 kazanma, -3 duraklatma; 4. parça: v2,intro,starter)
+  godot --headless --path godot-program -- --layouttest                       # telefon genişliği, yatay ekran, çentik
+  godot --path godot-program -- --shot=12:/tmp/seviye12.png:60                # ekran görüntüsü (0 başlık, -1 harita, -2 kazanma, -3 duraklatma; 4. parça: v2,intro,starter,cutout)
   ```
   `--autotest` ayrıca eski WebView ilerlemesinin taşınmasını sahte bir LevelDB günlüğüyle sınar.
   `--feeltest` animasyonları gerçek zamanlı sınar: açılış, 1x ve en hızlı modda koşu (esneme, dönüş zıplaması),
