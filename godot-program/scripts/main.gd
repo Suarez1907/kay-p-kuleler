@@ -142,8 +142,8 @@ func _ready() -> void:
 	add_child(audio)
 	audio.sound_on = progress.get("sound", true)
 	gfx = int(progress.get("gfx", 2))
-	rbox_mesh = _rounded_box(Vector3.ONE, 0.08, 4)
-	crate_mesh = _rounded_box(Vector3(0.84, 0.84, 0.84), 0.08, 3)
+	rbox_mesh = _rounded_box(Vector3.ONE, 0.03, 0)
+	crate_mesh = _rounded_box(Vector3(0.84, 0.84, 0.84), 0.04, 0)
 	_setup_world()
 	_setup_ui()
 	_apply_gfx()
@@ -306,7 +306,7 @@ func _setup_world() -> void:
 	gt.fill_from = Vector2(0.5, -0.15)
 	gt.fill_to = Vector2(0.5, 0.75)
 	var gg := Gradient.new()
-	gg.set_color(0, Color(1, 1, 1, 0.55))
+	gg.set_color(0, Color(1, 1, 1, 0.22))
 	gg.set_color(1, Color(1, 1, 1, 0.0))
 	gt.gradient = gg
 	gt.width = 128
@@ -322,9 +322,12 @@ func _setup_world() -> void:
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color("#f4ecff")
 	env.ambient_light_energy = 0.38
-	env.tonemap_mode = Environment.TONE_MAPPER_AGX
-	env.tonemap_exposure = 1.05
-	env.tonemap_white = 2.5
+	# Doğrusal ton eşleme: pastel, düşük dinamik aralıklı bu sahnede renkler ekrana olduğu gibi gider.
+	# AgX beyazları ~%80'de tavanlıyor, ACES (beyaz=1) orta-açık tonları beyaza sıkıştırıyordu; ikisi de
+	# soğuk gökyüzü gradyanını ve taş blok tonlarını birlikte tutturmayı engelliyordu.
+	env.tonemap_mode = Environment.TONE_MAPPER_LINEAR
+	env.tonemap_exposure = 1.0
+	env.tonemap_white = 1.0
 	env.glow_enabled = true
 	env.glow_intensity = 0.3
 	env.glow_strength = 1.0
@@ -336,8 +339,8 @@ func _setup_world() -> void:
 	env.fog_density = 0.0
 	env.fog_light_energy = 1.0
 	env.adjustment_enabled = true
-	env.adjustment_saturation = 1.25
-	env.adjustment_contrast = 1.12
+	env.adjustment_saturation = 1.1
+	env.adjustment_contrast = 1.05
 	we.environment = env
 	add_child(we)
 
@@ -371,16 +374,29 @@ func _setup_world() -> void:
 
 # ---------- geometri / malzeme ----------
 ## Yuvarlatılmış kutu: alt bölümlü bir kutunun köşelerini küreye yaklaştırır.
+## seg == 0: "keskin pah" modu. Kutu eksen başına 3 dilime bölünür ve iç ızgara çizgileri pahın tam
+## başına (yarı boyut − r) taşınır; böylece yumuşak normal geçişi yalnızca ince pah bandında kalır,
+## yüzler düz ve keskin okunur (eskiden geçiş yüzün dörtte birine yayılıp "sabun" görünümü veriyordu).
 func _rounded_box(size: Vector3, r: float, seg: int) -> ArrayMesh:
 	var bm := BoxMesh.new()
 	bm.size = size
-	bm.subdivide_width = seg
-	bm.subdivide_height = seg
-	bm.subdivide_depth = seg
+	var crisp := seg == 0
+	var n_seg := 2 if crisp else seg
+	bm.subdivide_width = n_seg
+	bm.subdivide_height = n_seg
+	bm.subdivide_depth = n_seg
 	var arr := bm.surface_get_arrays(0)
 	var verts: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
 	var norms: PackedVector3Array = arr[Mesh.ARRAY_NORMAL]
 	var inner := size * 0.5 - Vector3(r, r, r)
+	if crisp:
+		var half := size * 0.5
+		for i in verts.size():
+			var v := verts[i]
+			for ax in 3:
+				if absf(v[ax]) < half[ax] - 0.001:
+					v[ax] = signf(v[ax]) * inner[ax]
+			verts[i] = v
 	for i in verts.size():
 		var p := verts[i]
 		var c := p.clamp(-inner, inner)
@@ -399,7 +415,7 @@ func _rounded_box(size: Vector3, r: float, seg: int) -> ArrayMesh:
 		var h := clampf(verts[i].y / size.y + 0.5, 0.0, 1.0)
 		var k := lerpf(0.74, 1.0, pow(h, 0.7))
 		if norms[i].y > 0.5:
-			k = 1.04
+			k = 1.0
 		cols[i] = Color(k, k, k)
 	arr[Mesh.ARRAY_COLOR] = cols
 	var m := ArrayMesh.new()
@@ -524,12 +540,37 @@ func _pick(parent: Node3D, size: Vector3, info: Dictionary, offset := Vector3.ZE
 	body.add_child(sh)
 	parent.add_child(body)
 
+## Mimari taş/krem tonları (kat sırasına göre); seviyenin kimliği için paletten yalnızca hafif ton.
+## Gece paletlerinde paletin kendi renkleri korunur.
+const STONE := ["#EAE4DC", "#E2DACF", "#D8CFC2", "#C4D3DF"]
+const SKY_TOP := "#B8D4E8"
+const SKY_BOTTOM := "#EBF3F8"
+
 func _block_color(p: Vector3i) -> Color:
-	var b: Array = pal["blocks"]
-	var c := Color(b[((p.y - L.min_y) % b.size() + b.size()) % b.size()])
+	var layer := ((p.y - L.min_y) % 4 + 4) % 4
+	var c: Color
+	if pal.get("dark", false):
+		var b: Array = pal["blocks"]
+		c = Color(b[layer % b.size()])
+	else:
+		c = Color(STONE[layer]).lerp(Color(pal["blocks"][layer % pal["blocks"].size()]), 0.16)
 	if (p.x + p.z) % 2 == 0:
-		c = c.lightened(0.04)
+		c = c.lightened(0.03)
 	return c
+
+func _sky_colors() -> Array:
+	if pal.get("dark", false):
+		return [Color(pal["bg"][0]), Color(pal["bg"][1])]
+	return [Color(SKY_TOP), Color(SKY_BOTTOM)]
+
+## Doğrusal ton eşlemede arka plan gradyanı ekranda birebir görünür; giriş renkleri hedef renklerle aynıdır.
+const SKY_TOP_IN := "#B8D4E8"
+const SKY_BOTTOM_IN := "#EBF3F8"
+
+func _sky_input() -> Array:
+	if pal.get("dark", false):
+		return _sky_colors()
+	return [Color(SKY_TOP_IN), Color(SKY_BOTTOM_IN)]
 
 
 # =====================================================================
@@ -540,17 +581,18 @@ func build_level(i: int, as_preview := false) -> void:
 	var def: Dictionary = levels[i]
 	pal = PALETTES[int(def.get("palette", i)) % PALETTES.size()]
 	var g := Gradient.new()
-	g.set_color(0, Color(pal["bg"][0]))
-	g.set_color(1, Color(pal["bg"][1]))
+	var sky := _sky_input()
+	g.set_color(0, sky[0])
+	g.set_color(1, sky[1])
 	bg_tex.gradient = g
 	env.fog_light_color = Color(pal["bg"][1])
 	# gölgeler palete göre renklenir (Monument Valley tarzı renkli gölgeler)
 	var dark: bool = pal.get("dark", false)
 	# ortam ışığı hafif soğuk mor-mavi, palete az miktar yaklaştırılır; düşük enerji → derin gölgeler
-	env.ambient_light_color = Color("#9aa2e0").lerp(Color(pal["bg"][1]), 0.25)
-	env.ambient_light_energy = 0.45 if dark else 0.38
-	sun.light_color = Color("#e6ebff") if dark else Color("#fff4e0")
-	sun.light_energy = 0.8 if dark else 1.0
+	env.ambient_light_color = Color("#9aa2e0").lerp(_sky_colors()[0], 0.3)
+	env.ambient_light_energy = 0.4 if dark else 0.36
+	sun.light_color = Color("#e6ebff") if dark else Color("#ffecd2")
+	sun.light_energy = 0.5 if dark else 0.36
 	if level_root:
 		level_root.queue_free()
 	level_root = Node3D.new()
@@ -575,7 +617,8 @@ func build_level(i: int, as_preview := false) -> void:
 		var v: Dictionary = L.statics[p]
 		grow.call(p)
 		if v["t"] == "b":
-			_mesh(_ao_box(p), _mat(_block_color(p), {"vc": true, "rim": true}), Vector3(p))
+			_mesh(_ao_box(p), _mat(_block_color(p), {"vc": true, "rough": 0.9}), Vector3(p))
+			_add_tile(p, _block_color(p))
 			_add_window(p)
 		else:
 			var sg := Node3D.new()
@@ -605,7 +648,8 @@ func build_level(i: int, as_preview := false) -> void:
 		for b in r["blocks"]:
 			grow.call(b)
 			var local := Vector3(b.x - r["pivot"].x, b.y, b.z - r["pivot"].y)
-			_mesh(rbox_mesh, _mat(pal["mech"], {"vc": true, "rim": true}), local, rg)
+			_mesh(rbox_mesh, _mat(pal["mech"], {"vc": true, "rough": 0.88}), local, rg)
+			_tile_plate(rg, local, Color(pal["mech"]))
 			_mesh(_cyl(0.13, 0.13, 0.02), _mat("#ffffff", {"unshaded": true}), local + Vector3(0, 0.51, 0), rg)
 			_pick(rg, Vector3.ONE, {"kind": "rot", "i": ri}, local)
 			grow.call(Vector3i(r["pivot"].x + (b.z - r["pivot"].y), b.y, r["pivot"].y + (b.x - r["pivot"].x)))
@@ -651,7 +695,7 @@ func build_level(i: int, as_preview := false) -> void:
 			grow.call(b)
 			grow.call(b + s["axis"] * s["max"])
 			grow.call(b + s["axis"] * s["min"])
-			_mesh(rbox_mesh, _mat(col, {"vc": true, "rim": true}), Vector3(b), sg)
+			_mesh(rbox_mesh, _mat(col, {"vc": true, "rough": 0.88}), Vector3(b), sg)
 			_mesh(_box(Vector3(1.01, 0.12, 1.01)), _mat("#ffffff", {"rough": 0.5}), Vector3(b) + Vector3(0, 0.25, 0), sg)
 			_pick(sg, Vector3.ONE, {"kind": "slide", "i": si}, Vector3(b))
 		if L.is_manual(si):
@@ -739,8 +783,7 @@ func build_level(i: int, as_preview := false) -> void:
 	objs["player"] = _make_robot()
 	level_root.add_child(objs["player"])
 	var aabb: AABB = bb["box"]
-	_build_clouds(aabb)
-	_build_motes(aabb)
+	_build_goal_sparkles(Vector3(L.goal))
 	# kamera
 	cam_target = aabb.get_center()
 	var sz := aabb.size
@@ -751,6 +794,21 @@ func build_level(i: int, as_preview := false) -> void:
 	displayed = state
 	_apply_visual(state, state, 1.0)
 	_on_resize()
+
+## Yürünebilir üst yüz karo detayı: bloğun üstünde açıkta kalan yüze biraz daha açık, kenarlardan içeri
+## çekilmiş ince bir plaka. Aradaki şerit karo çerçevesi gibi okunur; ızgara kareleri anında sayılır.
+var _plate_mesh: BoxMesh = null
+
+func _add_tile(p: Vector3i, col: Color) -> void:
+	if L.statics.has(p + Vector3i.UP):
+		return
+	_tile_plate(level_root, Vector3(p), col)
+
+func _tile_plate(parent: Node3D, pos: Vector3, col: Color) -> void:
+	if _plate_mesh == null:
+		_plate_mesh = _box(Vector3(0.82, 0.014, 0.82))
+	var m := _mesh(_plate_mesh, _mat(col.lightened(0.06), {"rough": 0.92}), pos + Vector3(0, 0.503, 0), parent)
+	m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
 func _gem_mesh() -> ArrayMesh:
 	var s := SphereMesh.new()
@@ -783,60 +841,37 @@ func _add_window(p: Vector3i) -> void:
 		var top := _mesh(_cyl(0.13, 0.13, 0.01), dark, Vector3(0, 0.05, 0), w)
 		top.rotation.x = PI / 2
 
-func _build_clouds(aabb: AABB) -> void:
-	var c := aabb.get_center()
-	var radius := maxf(aabb.size.x, aabb.size.z) * 0.8 + 6.0
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 7
-	var cm := _mat("#ffffff", {"alpha": true, "rough": 1.0})
-	cm.albedo_color = Color("#8f88c4") if pal.get("dark", false) else Color("#ffffff")
-	cm.albedo_color.a = 0.3 if pal.get("dark", false) else 0.42
-	cm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	cm.albedo_color = cm.albedo_color.lerp(Color(pal["bg"][0], cm.albedo_color.a), 0.35)
-	for i in 12:
-		var g := Node3D.new()
-		var a := i / 12.0 * TAU + rng.randf() * 0.3
-		var r := radius * (0.9 + rng.randf() * 0.8)
-		g.position = Vector3(c.x + cos(a) * r, L.min_y - 6.0 - rng.randf() * 3.0, c.z + sin(a) * r)
-		level_root.add_child(g)
-		for k in 3 + rng.randi() % 3:
-			var m := _mesh(_sphere(1.0), cm, Vector3((k - 2) * 1.3 + rng.randf(), rng.randf() * 0.6, rng.randf() * 1.2), g)
-			var scl := 0.6 + rng.randf() * 0.8
-			m.scale = Vector3(scl * 1.4, scl * 0.8, scl)
-			m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-
-## Havada süzülen ışık zerreleri
-func _build_motes(aabb: AABB) -> void:
+func _build_goal_sparkles(at: Vector3) -> void:
 	var pm := CPUParticles3D.new()
-	pm.amount = 70
-	pm.lifetime = 9.0
-	pm.preprocess = 9.0
-	pm.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
-	pm.emission_box_extents = aabb.size * 0.5 + Vector3(4, 2, 4)
-	pm.position = aabb.get_center()
-	pm.direction = Vector3(0, 1, 0)
-	pm.spread = 40.0
+	pm.amount = 14
+	pm.lifetime = 2.6
+	pm.preprocess = 2.6
+	pm.emission_shape = CPUParticles3D.EMISSION_SHAPE_RING
+	pm.emission_ring_axis = Vector3.UP
+	pm.emission_ring_radius = 0.34
+	pm.emission_ring_inner_radius = 0.12
+	pm.emission_ring_height = 0.05
+	pm.position = at + Vector3(0, -0.35, 0)
+	pm.direction = Vector3.UP
+	pm.spread = 12.0
 	pm.gravity = Vector3.ZERO
-	pm.initial_velocity_min = 0.05
-	pm.initial_velocity_max = 0.25
-	pm.scale_amount_min = 0.5
-	pm.scale_amount_max = 1.3
+	pm.initial_velocity_min = 0.18
+	pm.initial_velocity_max = 0.32
+	pm.scale_amount_min = 0.6
+	pm.scale_amount_max = 1.0
 	var curve := Curve.new()
 	curve.add_point(Vector2(0, 0))
-	curve.add_point(Vector2(0.2, 1))
-	curve.add_point(Vector2(0.8, 1))
+	curve.add_point(Vector2(0.25, 1))
 	curve.add_point(Vector2(1, 0))
 	pm.scale_amount_curve = curve
 	var q := QuadMesh.new()
-	q.size = Vector2(0.07, 0.07)
+	q.size = Vector2(0.06, 0.06)
 	var m := StandardMaterial3D.new()
 	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	m.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
 	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	m.albedo_color = Color("#fff4c2") if pal.get("dark", false) else Color(1, 1, 1, 0.85)
-	m.emission_enabled = true
-	m.emission = m.albedo_color
-	m.emission_energy_multiplier = 1.5
+	m.albedo_color = Color(pal["accent"]).lerp(Color.WHITE, 0.55)
+	m.albedo_color.a = 0.85
 	q.material = m
 	pm.mesh = q
 	pm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -1348,6 +1383,8 @@ func _process(dt: float) -> void:
 	var want_size := cam_size / cam_zoom * (1.02 if portrait else 1.0)
 	cam.size = lerpf(cam.size, want_size, minf(1.0, dt * 8.0))
 	_update_offset()
+	if hud != null and hud.visible:
+		_fit_panel()
 	if L != null and objs.has("player"):
 		_update_queue(dt)
 		var gem: MeshInstance3D = objs["gem"]
@@ -1593,8 +1630,9 @@ func _build_hud() -> void:
 	_build_panel()
 
 func _build_panel() -> void:
-	panel = UIKit.card(0.86, 30, 14)
+	panel = UIKit.frosted_panel(20, 14)
 	hud.add_child(panel)
+	panel.minimum_size_changed.connect(func(): _layout.call_deferred())
 	var pv := VBoxContainer.new()
 	pv.add_theme_constant_override("separation", 10)
 	panel.add_child(pv)
@@ -1652,7 +1690,7 @@ func _make_run_button() -> Button:
 	var b := Button.new()
 	b.focus_mode = Control.FOCUS_NONE
 	b.custom_minimum_size = Vector2(136, 62)
-	UIKit.style_chunky(b, UIKit.GREEN, 31, 6)
+	UIKit.style_chunky(b, UIKit.GREEN, 31, 4)
 	var hb := HBoxContainer.new()
 	hb.alignment = BoxContainer.ALIGNMENT_CENTER
 	hb.add_theme_constant_override("separation", 10)
@@ -1680,7 +1718,7 @@ func _ui_mode_changed(m: String, quiet: bool) -> void:
 	ic.kind = "pause" if m == "running" else "play"
 	ic.queue_redraw()
 	lb.text = {"running": "Duraklat", "paused": "Devam"}.get(m, "Çalıştır")
-	UIKit.style_chunky(btn_run, Color("#f5a524") if m == "running" else UIKit.GREEN, 31, 6)
+	UIKit.style_chunky(btn_run, Color("#f5a524") if m == "running" else UIKit.GREEN, 31, 4)
 	var show_status := m == "paused" or m == "ended"
 	if show_status:
 		var col := Color("#e8648aee") if m == "paused" else Color("#d8435cee")
@@ -2052,10 +2090,22 @@ func _animate_enter(k: String) -> void:
 func _fade_veil() -> void:
 	if instant:
 		return
-	veil.color = Color(pal["bg"][0])
+	veil.color = _sky_colors()[0]
 	veil.color.a = 1.0
 	var tw := veil.create_tween()
 	tw.tween_property(veil, "color:a", 0.0, 0.55).set_trans(Tween.TRANS_SINE).set_delay(0.05)
+
+## Panel yüksekliği = içeriğin en küçük yüksekliği, alt kenarı ekranın altına hizalı. İçerik (satırlar, akış
+## kapsayıcıları) bir sonraki karede büyüyebildiği için her karede ucuz bir kontrolle yeniden hizalanır.
+func _fit_panel() -> void:
+	if panel == null:
+		return
+	var vs := get_viewport().get_visible_rect().size
+	var ph := panel.get_combined_minimum_size().y
+	var y := vs.y - ph - 12.0
+	if absf(panel.size.y - ph) > 0.5 or absf(panel.position.y - y) > 0.5:
+		panel.size.y = ph
+		panel.position.y = y
 
 func _layout() -> void:
 	if ui_root == null:
@@ -2068,10 +2118,9 @@ func _layout() -> void:
 	var max_rows := vs.y * (0.3 if portrait else 0.55)
 	rows_scroll.custom_minimum_size.y = minf(rows_h, max_rows)
 	var pw := vs.x - 2 * m if portrait else clampf(vs.x * 0.33, 430.0, 500.0)
-	panel.size = Vector2(pw, 0)
-	var ph := panel.get_combined_minimum_size().y
-	panel.size = Vector2(pw, ph)
-	panel.position = Vector2(m if portrait else vs.x - pw - m, vs.y - ph - m)
+	panel.size.x = pw
+	panel.position.x = m if portrait else vs.x - pw - m
+	_fit_panel()
 	tools_box.reset_size()
 	var right_edge := vs.x if portrait or panel.position.y > 90 else panel.position.x
 	tools_box.position = Vector2(right_edge - tools_box.size.x - 16, 16)
@@ -2435,7 +2484,7 @@ func _tile(ins: Dictionary, size := 52.0) -> Button:
 	var b := Button.new()
 	b.custom_minimum_size = Vector2(size, size)
 	b.focus_mode = Control.FOCUS_NONE
-	UIKit.style_chunky(b, Color(CMD_COLOR.get(ins["c"], "#888888")), 16, 5)
+	UIKit.style_chunky(b, Color(CMD_COLOR.get(ins["c"], "#888888")), 16, 4)
 	for st in ["normal", "hover", "pressed"]:
 		var sb: StyleBoxFlat = b.get_theme_stylebox(st)
 		sb.content_margin_left = 0
@@ -2610,11 +2659,16 @@ func _render_rows() -> void:
 		for k in range(prog[row].size(), cap):
 			var e := Panel.new()
 			e.custom_minimum_size = Vector2(52, 52)
+			# içeri göçük yuva: biraz daha koyu zemin, üstte kalın (iç gölge), diğer kenarlarda ince açık çizgi
 			var esb := StyleBoxFlat.new()
-			esb.bg_color = Color(UIKit.INK, 0.035)
-			esb.border_color = Color(UIKit.INK, 0.1)
-			esb.set_border_width_all(2)
-			esb.set_corner_radius_all(16)
+			esb.bg_color = Color(0.36, 0.4, 0.52, 0.1)
+			esb.border_color = Color(0.22, 0.25, 0.36, 0.16)
+			esb.border_width_top = 3
+			esb.border_width_left = 1
+			esb.border_width_right = 1
+			esb.border_width_bottom = 1
+			esb.set_corner_radius_all(14)
+			esb.corner_detail = 8
 			e.add_theme_stylebox_override("panel", esb)
 			e.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			flow.add_child(e)
