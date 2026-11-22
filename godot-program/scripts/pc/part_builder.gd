@@ -18,9 +18,14 @@ static func build(p: PCPartData) -> Node3D:
 	if glb != null:
 		root.add_child(glb)
 		var ms := _meshes_in(glb)
+		# küçük parçalar gölge düşürmez (gölge geçişindeki çizim çağrılarını azaltır)
+		var tiny := maxf(p.assembly_scale.x, maxf(p.assembly_scale.y, p.assembly_scale.z)) < 0.3
 		for m in ms:
-			(m as MeshInstance3D).material_overlay = AssetLoader.glow_overlay()   # enerji dalgası için
+			if tiny:
+				(m as MeshInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		# parlama katmanı (material_overlay) yalnızca parlarken takılır: aksi halde her yüzey iki kez çizilirdi
 		root.set_meta("bodies", ms)
+		root.set_meta("overlay_glow", true)
 		return root
 	var bodies := []
 	var key := "%s|%s|%s" % [p.procedural_shape, p.assembly_scale, p.color.to_html()]
@@ -52,6 +57,15 @@ static func build(p: PCPartData) -> Node3D:
 
 ## Parçanın tüm gövdelerine enerji parlaması
 static func set_glow(n: Node3D, v: float) -> void:
+	if n.get_meta("overlay_glow", false):
+		var on := v > 0.01
+		if on == bool(n.get_meta("glow_on", false)):
+			if not on:
+				return
+		else:
+			n.set_meta("glow_on", on)
+			for b in n.get_meta("bodies", []):
+				(b as GeometryInstance3D).material_overlay = AssetLoader.glow_overlay() if on else null
 	for b in n.get_meta("bodies", []):
 		if b is GeometryInstance3D and ((b as GeometryInstance3D).material_override is ShaderMaterial or (b as GeometryInstance3D).material_overlay is ShaderMaterial):
 			(b as GeometryInstance3D).set_instance_shader_parameter("glow", v)

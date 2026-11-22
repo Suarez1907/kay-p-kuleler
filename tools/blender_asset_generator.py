@@ -35,10 +35,12 @@ def _arg(name, default):
 OUT = os.path.abspath(_arg("--out", os.path.join(HERE, "..", "godot-program", "assets", "models")))
 ONLY = set(_arg("--only", "robot,components,parts").split(","))
 
-BUDGET_ROBOT = 10000
-BUDGET_COMPONENT = 8000
-BUDGET_PART = 6000
-BUDGET_PART_BIG = 14000
+# Ayrıntı çarpanı (KK_DETAIL, varsayılan 2): silindir/torus/küre bölümleri ve pah segmentleri bununla çoğalır
+DETAIL = max(1, int(os.environ.get("KK_DETAIL", "2")))
+BUDGET_ROBOT = 10000 * DETAIL * 2
+BUDGET_COMPONENT = 8000 * DETAIL * 2
+BUDGET_PART = 6000 * DETAIL * 2
+BUDGET_PART_BIG = 14000 * DETAIL * 2
 BIG_SHAPES = {"keys", "fins_z", "fins_y", "shroud", "dimm", "psu", "pins", "heatsink", "frame_top", "pcb_board", "vram", "panel_v"}
 
 # ---------------------------------------------------------------------------
@@ -82,7 +84,7 @@ def _finish_obj(o, m, bevel):
     if bevel and bevel > 0:
         b = o.modifiers.new("Bevel", "BEVEL")
         b.width = bevel
-        b.segments = 2 if bevel < 0.02 else 3
+        b.segments = (2 if bevel < 0.02 else 3) + (DETAIL - 1)
         b.limit_method = "ANGLE"
         b.angle_limit = math.radians(35)
         b.use_clamp_overlap = True
@@ -103,24 +105,28 @@ def box(c, s, m, rot=None, bevel=None):
 
 _AX = {"x": (0, math.pi / 2, 0), "y": (0, 0, 0), "z": (math.pi / 2, 0, 0)}   # Godot eksenleri (Blender'da y↔z)
 def cyl(c, r, h, m, axis="y", verts=24, bevel=None):
+    verts = verts * DETAIL if verts >= 8 else verts
     bpy.ops.mesh.primitive_cylinder_add(vertices=verts, radius=r, depth=h, location=G(*c), rotation=_AX[axis])
     o = bpy.context.active_object
     bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
     return _finish_obj(o, m, bw(r * 2, h) if bevel is None else bevel)
 
 def cone(c, r1, r2, h, m, axis="y", verts=24):
+    verts = verts * DETAIL if verts >= 8 else verts
     bpy.ops.mesh.primitive_cone_add(vertices=verts, radius1=r1, radius2=r2, depth=h, location=G(*c), rotation=_AX[axis])
     o = bpy.context.active_object
     bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
     return _finish_obj(o, m, 0)
 
 def torus(c, R, r, m, axis="y", major=32, minor=10):
+    major, minor = major * DETAIL, max(minor, minor * DETAIL // 1)
     bpy.ops.mesh.primitive_torus_add(major_radius=R, minor_radius=r, major_segments=major, minor_segments=minor, location=G(*c), rotation=_AX[axis])
     o = bpy.context.active_object
     bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
     return _finish_obj(o, m, 0)
 
 def sphere(c, r, m, seg=16):
+    seg = seg * DETAIL
     bpy.ops.mesh.primitive_uv_sphere_add(segments=seg, ring_count=seg // 2, radius=r, location=G(*c))
     return _finish_obj(bpy.context.active_object, m, 0)
 
@@ -357,6 +363,157 @@ def _actions(arm):
     def look():
         for f, r in ((1, 0.0), (15, 0.6), (30, 0.6), (45, -0.6), (60, -0.6), (75, 0.0)):
             _key(pbs["head"], f, rot=(0, r, 0))
+    # --- genişletilmiş set: hareket, tepki, boşta davranışlar, duygular ---
+    W = [w for w in wheels]
+    def roll(f0, f1, turns=1.0, sign=1.0):
+        for w in W:
+            _key(w, f0, rot=(0, 0, 0))
+            _key(w, f1, rot=(-2 * math.pi * turns * sign, 0, 0))
+    def turn_left():
+        for f, y, r in ((1, 0.0, 0.0), (3, -0.02, 0.0), (6, 0.07, 0.12), (9, 0.0, 0.0)):
+            _key(pbs["body"], f, loc=(0, y, 0), rot=(0, 0, r))
+        for f, r in ((1, 0), (5, 0.25), (9, 0)):
+            _key(pbs["head"], f, rot=(0, r, 0))
+        for i, w in enumerate(W):
+            sgn = 1.0 if w.name.startswith("wheel.L") else -1.0
+            _key(w, 1, rot=(0, 0, 0))
+            _key(w, 9, rot=(math.pi * sgn, 0, 0))
+    def turn_right():
+        for f, y, r in ((1, 0.0, 0.0), (3, -0.02, 0.0), (6, 0.07, -0.12), (9, 0.0, 0.0)):
+            _key(pbs["body"], f, loc=(0, y, 0), rot=(0, 0, r))
+        for f, r in ((1, 0), (5, -0.25), (9, 0)):
+            _key(pbs["head"], f, rot=(0, r, 0))
+        for i, w in enumerate(W):
+            sgn = -1.0 if w.name.startswith("wheel.L") else 1.0
+            _key(w, 1, rot=(0, 0, 0))
+            _key(w, 9, rot=(math.pi * sgn, 0, 0))
+    def climb():
+        for f, y, rx in ((1, 0, 0), (5, 0.03, -0.18), (10, 0.06, -0.12), (15, 0.0, 0.0)):
+            _key(pbs["body"], f, loc=(0, y, 0), rot=(rx, 0, 0))
+        for f, r in ((1, 0), (8, -0.2), (15, 0)):
+            _key(pbs["head"], f, rot=(r, 0, 0))
+        roll(1, 15, 1.2)
+    def jump_prep():
+        for f, y, rx in ((1, 0, 0), (5, -0.07, 0.12), (8, -0.09, 0.15)):
+            _key(pbs["body"], f, loc=(0, y, 0), rot=(rx, 0, 0))
+        for f, up in ((1, 0.2), (8, -0.5)):
+            _key(pbs["arm.L"], f, rot=(0, 0, -up))
+            _key(pbs["arm.R"], f, rot=(0, 0, up))
+    def jump_air():
+        for f, y, rx in ((1, 0.0, -0.15), (6, 0.04, -0.05), (12, 0.0, 0.1)):
+            _key(pbs["body"], f, loc=(0, y, 0), rot=(rx, 0, 0))
+        for f, up in ((1, 2.2), (12, 1.2)):
+            _key(pbs["arm.L"], f, rot=(0, 0, -up))
+            _key(pbs["arm.R"], f, rot=(0, 0, up))
+        for f, r in ((1, -0.3), (12, 0.2)):
+            _key(pbs["antenna"], f, rot=(r, 0, 0))
+    def land():
+        for f, y, rx in ((1, -0.1, 0.12), (4, -0.04, 0.05), (7, 0.02, -0.02), (11, 0.0, 0.0)):
+            _key(pbs["body"], f, loc=(0, y, 0), rot=(rx, 0, 0))
+        for f, r in ((1, 0.45), (4, -0.3), (7, 0.15), (11, 0)):
+            _key(pbs["antenna"], f, rot=(r, 0, 0))
+    def bump():
+        for f, z, rx in ((1, 0, 0), (3, -0.06, -0.25), (6, 0.02, 0.08), (10, 0, 0)):
+            _key(pbs["body"], f, loc=(0, 0, z), rot=(rx, 0, 0))
+        for f, r in ((1, 0), (3, 0.5), (6, -0.35), (9, 0.2), (13, 0)):
+            _key(pbs["antenna"], f, rot=(r, 0, r * 0.3))
+        for f, r in ((1, 0), (4, -0.3), (12, 0)):
+            _key(pbs["head"], f, rot=(r, 0.15, 0))
+    def stumble():
+        for f, z, rx, rz in ((1, 0, 0, 0), (4, 0.03, 0.35, 0.1), (8, -0.01, -0.12, -0.08), (12, 0, 0.05, 0.03), (16, 0, 0, 0)):
+            _key(pbs["body"], f, loc=(0, 0, z), rot=(rx, 0, rz))
+        for f, up in ((1, 0.2), (5, 1.6), (10, 0.6), (16, 0.2)):
+            _key(pbs["arm.L"], f, rot=(0, 0, -up))
+            _key(pbs["arm.R"], f, rot=(0, 0, up * 0.7))
+    def push():
+        for f, z, rx in ((1, 0, 0), (6, 0.04, 0.12), (10, 0.06, 0.16), (16, 0, 0)):
+            _key(pbs["body"], f, loc=(0, 0, z), rot=(rx, 0, 0))
+        for f, r in ((1, 0), (6, -1.5), (10, -1.6), (16, 0)):
+            _key(pbs["arm.L"], f, rot=(r, 0, 0))
+            _key(pbs["arm.R"], f, rot=(r, 0, 0))
+    def wait_tap():
+        for k in range(4):
+            f = 1 + k * 8
+            _key(pbs["arm.R"], f, rot=(0, 0, 0.3))
+            _key(pbs["arm.R"], f + 4, rot=(0, 0, 0.55))
+        _key(pbs["arm.R"], 33, rot=(0, 0, 0.3))
+        for f, r in ((1, 0), (16, 0.3), (33, 0)):
+            _key(pbs["head"], f, rot=(0, r, 0.1))
+    def yawn():
+        for f, y, rx in ((1, 0, 0), (15, 0.03, -0.12), (30, 0.04, -0.15), (45, 0, 0), (60, 0, 0)):
+            _key(pbs["body"], f, loc=(0, y, 0), rot=(rx, 0, 0))
+        for f, up in ((1, 0.1), (18, 2.6), (32, 2.7), (48, 0.1), (60, 0.1)):
+            _key(pbs["arm.L"], f, rot=(0, 0, -up))
+            _key(pbs["arm.R"], f, rot=(0, 0, up))
+        for f, r in ((1, 0), (20, -0.35), (40, -0.3), (60, 0)):
+            _key(pbs["head"], f, rot=(r, 0, 0))
+    def wipe():
+        for f, r in ((1, 0.2), (8, 2.0), (14, 1.7), (20, 2.0), (26, 1.7), (32, 2.0), (42, 0.2)):
+            _key(pbs["arm.R"], f, rot=(-0.9 if 8 <= f <= 32 else 0, 0, r))
+        for f, r in ((1, 0), (10, -0.2), (32, -0.2), (42, 0)):
+            _key(pbs["head"], f, rot=(r, 0, 0))
+    def whistle():
+        for f, r, y in ((1, 0, 0), (10, 0.25, 0.01), (20, -0.25, 0.0), (30, 0.25, 0.01), (40, 0, 0)):
+            _key(pbs["head"], f, rot=(0, 0, r))
+            _key(pbs["body"], f, loc=(0, y, 0))
+        for f, r in ((1, 0.0), (5, 0.3), (10, -0.3), (15, 0.3), (20, -0.3), (25, 0.3), (30, -0.3), (40, 0)):
+            _key(pbs["antenna"], f, rot=(0, 0, r))
+    def happy():
+        for f, y in ((1, 0), (5, 0.12), (10, 0), (15, 0.12), (20, 0), (24, 0)):
+            _key(pbs["root"], f, loc=(0, y, 0))
+        for f, up in ((1, 0.2), (5, 1.8), (10, 1.2), (15, 1.8), (24, 0.2)):
+            _key(pbs["arm.L"], f, rot=(0, 0, -up))
+            _key(pbs["arm.R"], f, rot=(0, 0, up))
+    def sad():
+        for f, y, rx in ((1, 0, 0), (14, -0.04, 0.22), (40, -0.04, 0.24), (55, 0, 0)):
+            _key(pbs["body"], f, loc=(0, y, 0), rot=(rx, 0, 0))
+            _key(pbs["head"], f, rot=(rx * 1.4, 0, 0))
+        for f, r in ((1, 0), (14, 0.6), (40, 0.6), (55, 0)):
+            _key(pbs["antenna"], f, rot=(r, 0, 0))
+    def think():
+        for f, r in ((1, 0.1), (10, 1.6), (40, 1.6), (50, 0.1)):
+            _key(pbs["arm.R"], f, rot=(-1.2 if 10 <= f <= 40 else 0, 0, r))
+        for f, r, z in ((1, 0, 0), (12, -0.1, 0.25), (40, -0.1, 0.3), (50, 0, 0)):
+            _key(pbs["head"], f, rot=(r, 0, z))
+    def point():
+        for f, r in ((1, 0.1), (8, 1.5), (30, 1.5), (38, 0.1)):
+            _key(pbs["arm.R"], f, rot=(-1.4 if 8 <= f <= 30 else 0, 0, r * 0.3))
+        for f, r in ((1, 0), (8, -0.15), (30, -0.15), (38, 0)):
+            _key(pbs["head"], f, rot=(r, -0.2, 0))
+    def surprised():
+        for f, y in ((1, 0), (4, 0.08), (8, 0.0), (20, 0)):
+            _key(pbs["root"], f, loc=(0, y, 0))
+        for f, r in ((1, 0), (4, -0.5), (10, -0.2), (20, 0)):
+            _key(pbs["antenna"], f, rot=(r, 0, 0))
+        for f, up in ((1, 0.2), (4, 1.2), (20, 0.2)):
+            _key(pbs["arm.L"], f, rot=(0, 0, -up))
+            _key(pbs["arm.R"], f, rot=(0, 0, up))
+    def spin():
+        for f, a in ((1, 0), (12, math.pi), (24, 2 * math.pi)):
+            _key(pbs["root"], f, rot=(0, a, 0))
+        for f, y in ((1, 0), (12, 0.1), (24, 0)):
+            _key(pbs["root"], f, loc=(0, y, 0))
+    def teleport():
+        for f, sy in ((1, 1.0), (6, 1.3), (12, 0.2)):
+            pbs["root"].scale = (1.0 / max(0.5, sy) if f > 1 else 1.0, sy, 1.0 / max(0.5, sy) if f > 1 else 1.0)
+            pbs["root"].keyframe_insert("scale", frame=f)
+        for f, a in ((1, 0), (12, 2 * math.pi)):
+            _key(pbs["root"], f, rot=(0, a, 0))
+    def sleep():
+        for f, y, rx in ((1, -0.02, 0.18), (30, -0.035, 0.2), (60, -0.02, 0.18)):
+            _key(pbs["body"], f, loc=(0, y, 0), rot=(rx, 0, 0))
+            _key(pbs["head"], f, rot=(0.25, 0, 0.05))
+        for f, r in ((1, 0.7), (30, 0.75), (60, 0.7)):
+            _key(pbs["antenna"], f, rot=(r, 0, 0))
+    def dance():
+        for k in range(6):
+            f = 1 + k * 6
+            s_ = 1 if k % 2 else -1
+            _key(pbs["body"], f, rot=(0, 0, 0.15 * s_), loc=(0, 0.03 if k % 2 else 0.0, 0))
+            _key(pbs["arm.L"], f, rot=(0, 0, -(2.2 if k % 2 else 0.6)))
+            _key(pbs["arm.R"], f, rot=(0, 0, (0.6 if k % 2 else 2.2)))
+            _key(pbs["head"], f, rot=(0, 0.3 * s_, 0))
+        _key(pbs["body"], 37, rot=(0, 0, 0), loc=(0, 0, 0))
     act("idle", 40, idle)
     act("walk", 13, walk)
     act("turn", 7, turn)
@@ -364,6 +521,16 @@ def _actions(arm):
     act("victory", 30, victory)
     act("wave", 30, wave)
     act("look", 75, look)
+    for name, n, fn in (("turn_left", 9, turn_left), ("turn_right", 9, turn_right), ("climb", 15, climb), ("jump_prep", 8, jump_prep),
+                        ("jump_air", 12, jump_air), ("land", 11, land), ("bump", 13, bump), ("stumble", 16, stumble), ("push", 16, push),
+                        ("wait_tap", 33, wait_tap), ("idle_yawn", 60, yawn), ("idle_wipe", 42, wipe), ("idle_whistle", 40, whistle),
+                        ("happy", 24, happy), ("sad", 55, sad), ("think", 50, think), ("point", 38, point), ("surprised", 20, surprised),
+                        ("spin", 24, spin), ("teleport", 12, teleport), ("sleep", 60, sleep), ("dance", 37, dance)):
+        act(name, n, fn)
+
+ROBOT_ANIMS = ["idle", "walk", "turn", "fall", "victory", "wave", "look", "turn_left", "turn_right", "climb", "jump_prep", "jump_air",
+               "land", "bump", "stumble", "push", "wait_tap", "idle_yawn", "idle_wipe", "idle_whistle", "happy", "sad", "think",
+               "point", "surprised", "spin", "teleport", "sleep", "dance"]
 
 def _fcurves(a):
     try:
@@ -437,7 +604,7 @@ def build_robot():
                               export_materials="EXPORT", export_tangents=True, export_animations=True,
                               export_animation_mode="NLA_TRACKS", export_skins=True, export_def_bones=False)
     return {"file": "robot.glb", "tris": tris, "budget": BUDGET_ROBOT, "ok": tris <= BUDGET_ROBOT,
-            "materials": [m.name for m in mesh.data.materials if m], "animations": ["idle", "walk", "turn", "fall", "victory", "wave", "look"]}
+            "materials": [m.name for m in mesh.data.materials if m], "animations": ROBOT_ANIMS}
 
 # ---------------------------------------------------------------------------
 # 2) Devre elemanları: 1×1 taban, üst yüz y=1.0 (Godot), orijin taban merkezi

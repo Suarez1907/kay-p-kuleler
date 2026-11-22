@@ -3,7 +3,7 @@
  "items": [
   {
    "file": "level_end_rigs.glb",
-   "bytes": 207444,
+   "bytes": 277372,
    "frames": 240,
    "fps": 30,
    "animations": [
@@ -16,7 +16,7 @@
   },
   {
    "file": "phase_finale_01.glb",
-   "bytes": 109820,
+   "bytes": 146268,
    "frames": 360,
    "fps": 30,
    "animations": [
@@ -25,7 +25,7 @@
   },
   {
    "file": "phase_finale_02.glb",
-   "bytes": 78456,
+   "bytes": 83416,
    "frames": 360,
    "fps": 30,
    "animations": [
@@ -34,7 +34,7 @@
   },
   {
    "file": "phase_finale_03.glb",
-   "bytes": 56812,
+   "bytes": 65172,
    "frames": 360,
    "fps": 30,
    "animations": [
@@ -43,7 +43,7 @@
   },
   {
    "file": "phase_finale_04.glb",
-   "bytes": 41460,
+   "bytes": 43228,
    "frames": 360,
    "fps": 30,
    "animations": [
@@ -52,7 +52,7 @@
   },
   {
    "file": "phase_finale_05.glb",
-   "bytes": 61572,
+   "bytes": 68748,
    "frames": 360,
    "fps": 30,
    "animations": [
@@ -61,7 +61,7 @@
   },
   {
    "file": "phase_finale_06.glb",
-   "bytes": 53532,
+   "bytes": 54656,
    "frames": 360,
    "fps": 30,
    "animations": [
@@ -79,7 +79,7 @@
   },
   {
    "file": "phase_finale_08.glb",
-   "bytes": 163324,
+   "bytes": 185728,
    "frames": 360,
    "fps": 30,
    "animations": [
@@ -88,7 +88,7 @@
   },
   {
    "file": "phase_finale_09.glb",
-   "bytes": 99652,
+   "bytes": 127544,
    "frames": 360,
    "fps": 30,
    "animations": [
@@ -97,7 +97,7 @@
   },
   {
    "file": "robot_cinematic_anims.glb",
-   "bytes": 499580,
+   "bytes": 891404,
    "frames": 90,
    "fps": 30,
    "animations": [
@@ -204,6 +204,6 @@
   "bios": 450,
   "desktop": 670
  },
- "total_kb": 1582.0,
- "seconds": 6.6
+ "total_kb": 2140.5,
+ "seconds": 6.2
 }

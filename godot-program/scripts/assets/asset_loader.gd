@@ -44,6 +44,7 @@ static func load_model(path: String, target := Vector3.ONE, align = true) -> Nod
 	elif align is String and align == "top":
 		y = -box.end.y * s
 	n.position = Vector3(-c.x, y, -c.z)
+	enhance_materials(holder)
 	return holder
 
 ## Sahne modeli (assets/models/scenes/<ad>.glb): Blender'daki dünya koordinatlarıyla, ölçeklenmeden yüklenir.
@@ -56,6 +57,7 @@ static func scene_model(name: String) -> Node3D:
 		return null
 	var inst: Node = (res as PackedScene).instantiate()
 	if inst is Node3D:
+		enhance_materials(inst)
 		return inst
 	inst.queue_free()
 	return null
@@ -95,7 +97,9 @@ static func unique_surfaces(root: Node, mat_name: String) -> Array:
 		for i in m.mesh.get_surface_count():
 			var sm := m.mesh.surface_get_material(i)
 			if sm != null and sm.resource_name == mat_name:
-				var cp: Material = sm.duplicate()
+				# zenginleştirilmiş (PBR) kopya varsa onu çoğalt ki doku kaybolmasın
+				var cur := m.get_surface_override_material(i)
+				var cp: Material = (cur if cur != null else sm).duplicate()
 				m.set_surface_override_material(i, cp)
 				out.append(cp)
 	return out
@@ -164,3 +168,69 @@ static func pbr_material(name: String) -> StandardMaterial3D:
 			mat.ao_texture = load(dir + "ao.png")
 	_pbr_cache[name] = mat
 	return mat
+
+
+# ---------------------------------------------------------------------------
+# PBR ayrıntı: glTF malzemeleri adlarına göre tools/generate_pbr_textures.py doku setlerine bağlanır (triplanar).
+# "full": doku rengi kullanılır (metaller, epoksi); "detail": yalnızca normal + pürüzlülük (renk modelden kalır).
+static var pbr_detail := true
+const PBR_MAP := {
+	"Copper": ["copper", "full"], "Gold": ["gold", "full"], "Brass": ["gold", "full"], "BrassWool": ["gold", "detail"],
+	"Aluminum": ["brushed_aluminum", "full"], "Steel": ["brushed_aluminum", "full"], "Nickel": ["brushed_aluminum", "full"],
+	"Pins": ["brushed_aluminum", "full"], "Hinge": ["brushed_aluminum", "full"], "BrushedDarkMetal": ["dark_metal", "full"],
+	"DarkMetal": ["dark_metal", "full"], "Anthracite": ["dark_metal", "detail"], "Epoxy": ["epoxy", "full"],
+	"BlackPlastic": ["black_plastic", "full"], "RelayBase": ["black_plastic", "full"], "RubberBase": ["rubber", "full"],
+	"Rubber": ["rubber", "full"], "TreadRubber": ["rubber", "full"], "Ceramic": ["ceramic", "full"],
+	"AmberCeramic": ["black_plastic", "detail"], "WhitePlastic": ["black_plastic", "detail"], "BluePlastic": ["black_plastic", "detail"],
+	"RedPlastic": ["black_plastic", "detail"], "Sleeve": ["black_plastic", "detail"], "DeskWood": ["ceramic", "detail"],
+}
+static var _pbr_mats := {}       # kaynak malzeme id → zenginleştirilmiş kopya
+static var _pbr_tex := {}
+
+static func _tex(set_name: String, kind: String) -> Texture2D:
+	var k := set_name + "/" + kind
+	if not _pbr_tex.has(k):
+		var p := PBR + k + ".png"
+		_pbr_tex[k] = load(p) if ResourceLoader.exists(p) else null
+	return _pbr_tex[k]
+
+static func enhance_materials(root: Node) -> void:
+	if not pbr_detail or root == null:
+		return
+	for mi in PartBuilder._meshes_in(root):
+		var m: MeshInstance3D = mi
+		if m.mesh == null:
+			continue
+		for i in m.mesh.get_surface_count():
+			var src := m.mesh.surface_get_material(i)
+			if not (src is StandardMaterial3D) or not PBR_MAP.has(src.resource_name):
+				continue
+			if m.get_surface_override_material(i) != null:
+				continue
+			var id := src.get_instance_id()
+			if not _pbr_mats.has(id):
+				var e := _enhanced(src as StandardMaterial3D, PBR_MAP[src.resource_name])
+				_pbr_mats[id] = e
+			if _pbr_mats[id] != null:
+				m.set_surface_override_material(i, _pbr_mats[id])
+
+static func _enhanced(src: StandardMaterial3D, spec: Array) -> StandardMaterial3D:
+	var set_name: String = spec[0]
+	var nrm := _tex(set_name, "normal")
+	if nrm == null:
+		return null
+	var e: StandardMaterial3D = src.duplicate()
+	e.resource_name = src.resource_name          # adla bulunan yuvalar (unique_surfaces) çalışmaya devam eder
+	e.uv1_triplanar = true
+	e.uv1_scale = Vector3(2.2, 2.2, 2.2)
+	e.normal_enabled = true
+	e.normal_texture = nrm
+	e.normal_scale = 0.6
+	e.roughness_texture = _tex(set_name, "roughness")
+	e.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_GRAYSCALE
+	e.roughness = 1.0
+	if spec[1] == "full":
+		e.albedo_texture = _tex(set_name, "albedo")
+		e.albedo_color = Color(1, 1, 1, src.albedo_color.a)
+	return e
+

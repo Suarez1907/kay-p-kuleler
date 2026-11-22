@@ -34,13 +34,13 @@ def _arg(name, default):
     return argv[argv.index(name) + 1] if name in argv else default
 ROOT = os.path.abspath(os.path.join(HERE, "..", "godot-program"))
 MODELS = os.path.join(ROOT, "assets", "models")
-ONLY = set(_arg("--only", "puzzle,pcb,workshop,title,phases,themes,icon,cmds,store").split(","))
+ONLY = set(_arg("--only", "puzzle,pcb,workshop,title,phases,themes,backdrops,icon,cmds,store").split(","))
 A.OUT = MODELS
 SCRATCH = os.path.abspath(_arg("--tmp", os.path.join(HERE, "..", ".blender_tmp")))
 
-BUDGET_PUZZLE = 6000
-BUDGET_SCENE = 40000
-BUDGET_THEME = 8000
+BUDGET_PUZZLE = 6000 * A.DETAIL * 2
+BUDGET_SCENE = 40000 * A.DETAIL * 2
+BUDGET_THEME = 8000 * A.DETAIL * 2
 
 # ---------------------------------------------------------------------------
 # ortak malzemeler
@@ -786,6 +786,114 @@ def _reset_and(fn):
     return fn()
 
 # ---------------------------------------------------------------------------
+# 7) Faz uzak manzaraları: uçan PCB adasının altında/çevresinde uzanan dev donanım dünyası (ortografik kamera için
+#    aşağıda; Godot renkleri gökyüzü rengine doğru karıştırır = atmosferik derinlik). Orijin manzaranın tepe merkezi.
+def _bd_mats():
+    return {"base": mat("BdBase", "#1b2436", 0.4, 0.6), "metal": mat("BdMetal", "#3a4256", 0.8, 0.35),
+            "pcb": mat("BdPCB", "#0e3a2c", 0.1, 0.6), "glow": mat("BdGlow", "#00E5FF", 0.0, 0.3, emission="#00E5FF", strength=4.0),
+            "amber": mat("BdAmber", "#F59E0B", 0.0, 0.3, emission="#F59E0B", strength=3.5), "gold": mat("BdGold", "#b8902e", 1.0, 0.3),
+            "glass": mat("BdGlass", "#9fd8ff", 0.0, 0.05, transmission=0.6, alpha=0.35)}
+
+def _ring(n, r0, r1, rnd):
+    for k in range(n):
+        a = k * 2 * math.pi / n + rnd.uniform(-0.12, 0.12)
+        r = rnd.uniform(r0, r1)
+        yield k, math.cos(a) * r, math.sin(a) * r, a
+
+def _backdrop(ph):
+    reset(); m = _bd_mats()
+    rnd = random.Random(100 + ph)
+    # taban: manzaranın altında koyu PCB zemini (yapılar üstünde yükselir)
+    cyl((0, -14.3, 0), 40, 0.4, m["pcb"], "y", 64)
+    if ph == 1:      # anakart şehri: çip gökdelenler + bakır yollar
+        for k, x, z, a in _ring(26, 12, 36, rnd):
+            h = rnd.uniform(4, 18)
+            w = rnd.uniform(1.5, 4)
+            box((x, -14 + h / 2, z), (w, h, w), m["base"], bevel=0.12)
+            box((x, -14 + h * 0.7, z + w / 2 + 0.02), (w * 0.7, 0.15, 0.05), m["glow"] if k % 3 else m["amber"], bevel=0)
+            for j in range(int(h / 2)):
+                box((x + w / 2 + 0.05, -14 + 1 + j * 2, z), (0.12, 0.3, w * 0.8), m["metal"], bevel=0)
+    elif ph == 2:    # PSU: dev bobinler ve transformatörler
+        for k, x, z, a in _ring(14, 14, 34, rnd):
+            r = rnd.uniform(1.2, 3)
+            for j in range(rnd.randint(4, 9)):
+                torus((x, -12 + j * 0.9, z), r, 0.4, m["gold"] if j % 2 else m["metal"], "y", 24, 8)
+            cyl((x, -12 + 4, z), r * 0.5, 9, m["base"], "y", 16)
+    elif ph == 3:    # CPU: pin ormanı + soket kraterleri
+        for k in range(160):
+            x, z = rnd.uniform(-34, 34), rnd.uniform(-34, 34)
+            if abs(x) < 10 and abs(z) < 10:
+                continue
+            h = rnd.uniform(2, 10)
+            cyl((x, -14 + h / 2, z), 0.22, h, m["gold"], "y", 6, 0)
+        for k, x, z, a in _ring(6, 18, 30, rnd):
+            box((x, -13.5, z), (8, 0.6, 8), m["base"], bevel=0.2)
+            box((x, -13.0, z), (5, 0.3, 5), m["glow"], bevel=0)
+    elif ph == 4:    # RAM: dev bellek modülü sıraları
+        for k in range(10):
+            z = -30 + k * 6.5
+            if abs(z) < 8:
+                continue
+            for x in (-24, -12, 12, 24):
+                box((x + rnd.uniform(-2, 2), -10, z), (9, 8, 0.6), m["pcb"], bevel=0.1)
+                box((x, -6.2, z), (9, 0.4, 0.7), m["glow"] if k % 2 else m["amber"], bevel=0)
+    elif ph == 5:    # NVMe: uzun veri yolları
+        for k in range(12):
+            a = k * math.pi / 6
+            for j in range(4):
+                r = 14 + j * 6
+                box((math.cos(a) * r, -12, math.sin(a) * r), (5, 0.4, 1.6), m["base"], rot=(0, 0, a), bevel=0.1)
+                box((math.cos(a) * r, -11.7, math.sin(a) * r), (1.2, 0.3, 1.2), m["glow"], rot=(0, 0, a), bevel=0)
+    elif ph == 6:    # GPU: dev fan halkaları
+        for k, x, z, a in _ring(8, 16, 30, rnd):
+            R = rnd.uniform(3, 6)
+            torus((x, -9, z), R, 0.35, m["metal"], "z" if k % 2 else "x", 40, 8)
+            for b in range(7):
+                ang = b * 2 * math.pi / 7
+                box((x + math.cos(ang) * R * 0.5, -9 + math.sin(ang) * R * 0.5, z), (R * 0.8, 0.12, 0.4), m["base"], rot=(0, ang, 0) if k % 2 else (ang, 0, 0), bevel=0)
+            torus((x, -9, z), R * 0.25, 0.15, m["glow"], "z" if k % 2 else "x", 24, 6)
+    elif ph == 7:    # soğutma: soğutucu kanyonları
+        for k in range(46):
+            x = -34 + k * 1.5
+            if abs(x) < 9:
+                continue
+            for zc in (-22, 22):
+                h = 8 + 4 * math.sin(k * 0.4)
+                box((x, -14 + h / 2, zc + rnd.uniform(-2, 2)), (0.25, h, 14), m["metal"], bevel=0)
+        for k, x, z, a in _ring(10, 12, 30, rnd):
+            cyl((x, -10, z), 0.3, 10, m["glow"], "y", 8)
+    elif ph == 8:    # I/O: port kuleleri + anten direkleri
+        for k, x, z, a in _ring(18, 12, 34, rnd):
+            h = rnd.uniform(5, 14)
+            box((x, -14 + h / 2, z), (2, h, 2), m["metal"], bevel=0.08)
+            for j in range(int(h / 1.4)):
+                box((x, -13.5 + j * 1.4, z + 1.02), (1.2, 0.5, 0.05), m["base"] if j % 3 else m["amber"], bevel=0)
+            if k % 3 == 0:
+                cyl((x, -14 + h + 3, z), 0.08, 6, m["metal"], "y", 6)
+                sphere((x, -14 + h + 6, z), 0.3, m["amber"], 8)
+    elif ph == 9:    # kasa: dev cam paneller ve çerçeveler
+        for k, x, z, a in _ring(8, 16, 30, rnd):
+            box((x, -8, z), (12, 14, 0.2), m["glass"], rot=(0, 0, a + math.pi / 2), bevel=0.05)
+            box((x, -1, z), (12.4, 0.4, 0.4), m["metal"], rot=(0, 0, a + math.pi / 2), bevel=0.05)
+            box((x, -15, z), (12.4, 0.4, 0.4), m["glow"], rot=(0, 0, a + math.pi / 2), bevel=0)
+    else:            # çekirdek: kristal kuleler + yörünge halkaları
+        for k, x, z, a in _ring(16, 12, 32, rnd):
+            h = rnd.uniform(6, 18)
+            cone((x, -14 + h / 2, z), rnd.uniform(0.8, 2), 0.0, h, m["glow"] if k % 2 else m["glass"], "y", 6)
+        for r in (20, 28, 36):
+            torus((0, -10 + r * 0.1, 0), r, 0.25, m["amber"], "y", 96, 6)
+    return finalize(os.path.join(MODELS, "backdrops", "backdrop_%02d.glb" % ph), 60000, recenter=False)
+
+def build_backdrops():
+    # uzak manzara her zaman düşük ayrıntıyla (ekranda küçük; üçgen bütçesi oyun alanına kalsın)
+    keep = A.DETAIL
+    A.DETAIL = 1
+    try:
+        return [_backdrop(ph) for ph in range(1, 11)]
+    finally:
+        A.DETAIL = keep
+
+# ---------------------------------------------------------------------------
 def main():
     t0 = time.time()
     os.makedirs(SCRATCH, exist_ok=True)
@@ -804,6 +912,8 @@ def main():
         items.extend(build_phases())
     if "themes" in ONLY:
         items.extend(build_themes())
+    if "backdrops" in ONLY:
+        items.extend(build_backdrops())
     if ONLY & {"icon", "cmds", "store"}:
         import blender_2d_generator as B2  # noqa: E402  (ikon, komut ikonları, mağaza görseli)
     for key, fn in (("icon", "build_icon"), ("cmds", "build_cmds"), ("store", "build_store")):

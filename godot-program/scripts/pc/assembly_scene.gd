@@ -92,6 +92,10 @@ func _ready() -> void:
 	vp.msaa_3d = Viewport.MSAA_4X
 	vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	svc.add_child(vp)
+	# montaj için son işlem (kendi katmanında, arayüzün altında)
+	var post := VisualFX.post_rect()
+	add_child(post)
+	VisualFX.apply_grade(post, 9, VisualFX.quality)
 	_build_world()
 	_build_ui()
 
@@ -103,6 +107,7 @@ func setup(m: String, unlocked_ids: Array, pid := 0) -> void:
 		final_seq.queue_free()
 		final_seq = null
 	_end_director()
+	_unbatch()
 	duration = DURATION
 	_whooshed = false
 	fan_speed = float(FAN_MODES[int(pc_style.get("fan", 1)) % FAN_MODES.size()][1])
@@ -155,6 +160,7 @@ func setup(m: String, unlocked_ids: Array, pid := 0) -> void:
 		cam_target = f["target"]
 		dist = f["dist"]
 		lbl_title.text = "BİLGİSAYARIM"
+		_batch_static.call_deferred()
 		lbl_caption.text = "Sürükle: döndür · iki parmak: yakınlaştır"
 		lbl_sub.text = _phase_summary()
 		caption_box.modulate.a = 1.0
@@ -201,6 +207,72 @@ func _spawn(id: int) -> Node3D:
 	return n
 
 ## Kasa parçalarının (faz 9) koyu yüzeyleri kasa rengine, tüm RGB/Accent yüzeyleri seçili ışık rengine boyanır
+## Performans (vitrin): parlamayan, dönmeyen bütün parça yüzeyleri malzemeye göre birkaç birleşik meshte toplanır
+## (~1000 çizim çağrısı → malzeme sayısı kadar). Montaj/final animasyonları için _unbatch() orijinallere döner.
+var _batch_root: Node3D = null
+
+func _batch_static() -> void:
+	_unbatch()
+	if mode != "showcase" or final_seq != null:
+		return
+	var groups := {}
+	var hidden := []
+	for id in nodes:
+		var n: Node3D = nodes[id]
+		var spinner = n.get_meta("spinner") if n.has_meta("spinner") else null
+		for mi in PartBuilder._meshes_in(n):
+			var m: MeshInstance3D = mi
+			if m.mesh == null or not m.visible or (spinner != null and (m == spinner or spinner.is_ancestor_of(m))):
+				continue
+			if m.material_override is ShaderMaterial:
+				continue
+			var xf := parts_root.global_transform.affine_inverse() * m.global_transform
+			for si in m.mesh.get_surface_count():
+				var mat: Material = m.get_active_material(si)
+				var key = _mat_key(mat)
+				if not groups.has(key):
+					var st := SurfaceTool.new()
+					st.begin(Mesh.PRIMITIVE_TRIANGLES)
+					groups[key] = {"st": st, "mat": mat, "shadow": false}
+				var g: Dictionary = groups[key]
+				(g["st"] as SurfaceTool).append_from(m.mesh, si, xf)
+				if m.cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_OFF:
+					g["shadow"] = true
+			hidden.append(m)
+	if groups.is_empty():
+		return
+	_batch_root = Node3D.new()
+	_batch_root.name = "StaticBatch"
+	parts_root.add_child(_batch_root)
+	for key in groups:
+		var g: Dictionary = groups[key]
+		var bm := MeshInstance3D.new()
+		bm.mesh = (g["st"] as SurfaceTool).commit()
+		bm.material_override = g["mat"]
+		bm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if g["shadow"] else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_batch_root.add_child(bm)
+	for m in hidden:
+		m.visible = false
+	_batch_root.set_meta("hidden", hidden)
+
+## Görsel olarak eş malzemeler aynı gruba düşer (glTF her dosyada aynı adlı malzemeyi ayrı kopyalar)
+static func _mat_key(mat: Material):
+	if mat is StandardMaterial3D:
+		var m: StandardMaterial3D = mat
+		return "%s|%s|%.2f|%.2f|%s|%s|%d|%s|%s" % [m.albedo_color.to_html(), m.albedo_texture.resource_path if m.albedo_texture else "",
+			m.metallic, m.roughness, m.emission_enabled, m.emission.to_html(), m.transparency, m.emission_energy_multiplier, m.normal_texture != null]
+	return mat.get_instance_id() if mat != null else 0
+
+func _unbatch() -> void:
+	if _batch_root == null or not is_instance_valid(_batch_root):
+		_batch_root = null
+		return
+	for m in _batch_root.get_meta("hidden", []):
+		if is_instance_valid(m):
+			(m as MeshInstance3D).visible = true
+	_batch_root.queue_free()
+	_batch_root = null
+
 func _style_node(id: int, n: Node3D) -> void:
 	var cc := Color(CASE_COLORS[int(pc_style.get("case", 0)) % CASE_COLORS.size()][1])
 	var rc := Color(RGB_COLORS[int(pc_style.get("rgb", 0)) % RGB_COLORS.size()][1])
@@ -219,8 +291,11 @@ func _style_node(id: int, n: Node3D) -> void:
 				sm.emission_energy_multiplier = 3.0
 
 func _restyle() -> void:
+	_unbatch()
 	for id in nodes:
 		_style_node(int(id), nodes[id])
+	if mode == "showcase" and final_seq == null:
+		_batch_static()
 	if final_seq == null:
 		fan_speed = float(FAN_MODES[int(pc_style.get("fan", 1)) % FAN_MODES.size()][1])
 	_update_style_panel()
@@ -535,6 +610,8 @@ func _skip() -> void:
 		advance(duration - t + 0.001)
 
 func _end_director() -> void:
+	for id in nodes:
+		(nodes[id] as Node3D).visible = true
 	if director != null:
 		director.end(cam)
 		director.queue_free()
@@ -643,6 +720,7 @@ func advance(dt: float) -> void:
 ## Blender sinematiği akışı: zaman rig'e aktarılır, oturmadan sonra komşu parçalarda enerji dalgası
 func _advance_cinematic() -> void:
 	director.seek(t)
+	_clear_view()
 	var snap_t := float(CinematicDirector.SNAP.get(director.anim, CinematicDirector.PHASE_SNAP) if director.kind == "level" else CinematicDirector.PHASE_SNAP) / CinematicDirector.FPS
 	if t < snap_t:
 		PartBuilder.set_glow(new_node, 0.5 + 0.5 * sin(t * 10.0))
@@ -674,6 +752,29 @@ func _advance_cinematic() -> void:
 		_layout()
 		UIKit.pop_in(btn_next, 0.0, 0.5)
 
+## Görüş açıcı: sinematik kameradan hedef parçaya giden doğruyu kesen (ya da kamerayı içine alan) parçalar
+## o kare gizlenir — yakın çekim kamera başka parçaların içinde kalmaz.
+var _aabbs := {}
+func _part_aabb(id: int) -> AABB:
+	if not _aabbs.has(id):
+		var p := PCPartLibrary.part(id)
+		_aabbs[id] = AABB(p.assembly_position - p.assembly_scale / 2.0, p.assembly_scale)
+	return _aabbs[id]
+
+func _clear_view() -> void:
+	if director == null or director.cam == null or new_node == null:
+		return
+	var from := director.cam.global_position
+	var to := new_node.global_position
+	for id in nodes:
+		if id == part_id:
+			continue
+		var n: Node3D = nodes[id]
+		var b := _part_aabb(int(id)).grow(0.05)
+		var block := b.has_point(from) or b.intersects_segment(from, to.lerp(from, 0.08)) != null
+		if n.visible == block:
+			n.visible = not block
+
 ## Büyük final: 100. parçanın montajı bittiğinde ya da test butonundan
 func start_final(skip_assembly: bool) -> void:
 	if final_seq != null:
@@ -684,6 +785,7 @@ func start_final(skip_assembly: bool) -> void:
 			return
 	finished = true
 	_end_director()
+	_unbatch()
 	btn_next.visible = false
 	final_seq = FINAL_SCRIPT.new()
 	add_child(final_seq)
@@ -713,6 +815,16 @@ func _update_cam() -> void:
 	var dir := Vector3(cos(pitch) * sin(yaw), sin(pitch), cos(pitch) * cos(yaw))
 	cam.position = cam_target + dir * dist
 	cam.look_at(cam_target, Vector3.UP)
+	# alan derinliği hedefe odaklı (yakın çekimde belirgin bokeh)
+	if VisualFX.quality >= 2:
+		if not (cam.attributes is CameraAttributesPractical):
+			VisualFX.dof(cam, dist, 2, 0.06)
+		var a: CameraAttributesPractical = cam.attributes
+		a.dof_blur_far_distance = dist * 1.25
+		a.dof_blur_far_transition = dist * 1.4
+		a.dof_blur_near_enabled = dist < 3.0
+		a.dof_blur_near_distance = dist * 0.45
+		a.dof_blur_amount = 0.06 if mode == "assembly" else 0.03
 
 func _animate_parts(dt: float) -> void:
 	for id in nodes:

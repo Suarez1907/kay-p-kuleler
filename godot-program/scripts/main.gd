@@ -98,6 +98,9 @@ var ptr = null
 # ---------- arayüz (bkz. "Arayüz" bölümü) ----------
 var audio: GameAudio
 var gfx := 2                # 0 düşük, 1 orta, 2 yüksek
+var perf: PerfGovernor = null
+var perf_label: Label = null
+var post_fx: ColorRect = null
 var ui: CanvasLayer
 var ui_root: Control
 var fx_layer: CanvasLayer
@@ -201,6 +204,10 @@ func _ready() -> void:
 		ah.sound_on = audio.sound_on
 		ah.haptics_on = progress.get("haptics", true)
 	gfx = int(progress.get("gfx", 2))
+	perf = PerfGovernor.new()
+	perf.name = "PerfGovernor"
+	add_child(perf)
+	perf.setup(get_viewport())
 	rbox_mesh = _rounded_box(Vector3.ONE, 0.03, 0)
 	crate_mesh = _rounded_box(Vector3(0.84, 0.84, 0.84), 0.04, 0)
 	_setup_world()
@@ -221,11 +228,28 @@ func _ready() -> void:
 		if a == "--layouttest":
 			_layouttest.call_deferred()
 			return
+		if a == "--perftest":
+			_perftest.call_deferred()
+			return
+		if a == "--perfcheck":
+			_perfcheck.call_deferred()
+			return
 		if a.begins_with("--themecycle="):
 			_themecycle.call_deferred(a.substr(13))
 			return
 	var migrated := _migrate_webview()
 	_show_title()
+	# varlık önbelleği + shader ısıtma; ilk açılışta cihaz ölçülüp grafik kalitesi otomatik seçilir
+	perf.start_warmup()
+	if not progress.has("intro_film"):
+		_play_intro_film.call_deferred()
+	if not progress.has("gfx"):
+		perf.quality_picked.connect(_on_quality_picked, CONNECT_ONE_SHOT)
+		var bench_wait := func():
+			while not perf.warm_done:
+				await get_tree().process_frame
+			perf.start_benchmark()
+		bench_wait.call()
 	audio.set_music(progress.get("music", true))
 	_apply_access()
 	if migrated:
@@ -561,6 +585,91 @@ func _mat(color, opts := {}) -> StandardMaterial3D:
 	if not opts.get("unique", false):
 		mat_cache[key] = m
 	return m
+
+## Performans: statik blokların (devre elemanı + merdiven) gölgesi tek bir birleşik "yalnızca gölge" meshinden
+## gelir; hücrelerin çok yüzeyli modelleri gölge geçişinde ayrı ayrı çizilmez. Açılış (cascade) bitince görünür.
+## Görsel kalite: faz renk derecelendirmesi, yansıma probu, ortam zerreleri
+func _build_visual_fx(box: AABB) -> void:
+	var ph := LevelProgressionManager.phase_of(mini(level_idx, LEVEL_CUSTOM - 1)) if level_idx < LEVEL_CUSTOM else 9
+	if preview:
+		ph = 0
+	VisualFX.apply_grade(post_fx, ph, gfx)
+	VisualFX.probe(level_root, box, gfx)
+	if not preview and gfx >= 1:
+		_build_backdrop(ph, box)
+	if not instant:
+		var acc: Color = theme_app.theme.accent_color if theme_app != null and theme_app.theme != null else Color("#9fd8ff")
+		VisualFX.motes(level_root, box, acc.lerp(Color.WHITE, 0.4), gfx)
+
+## Uzak manzara: adanın altında uzanan dev donanım dünyası; renkler gökyüzüne karışır (atmosferik derinlik)
+func _build_backdrop(ph: int, box: AABB) -> void:
+	var path := "res://assets/models/backdrops/backdrop_%02d.glb" % (ph + 1)
+	if not ResourceLoader.exists(path):
+		return
+	var ps = load(path)
+	if not (ps is PackedScene):
+		return
+	var bd: Node3D = (ps as PackedScene).instantiate()
+	# ortografik izometrik kamera: manzara ölçeklenip adanın çok altına konur ("bulutların altındaki şehir")
+	bd.scale = Vector3.ONE * 0.6
+	bd.position = Vector3(box.get_center().x, float(L.min_y) - 6.0, box.get_center().z)
+	var haze: Color = weather.veil_color()
+	for mi in PartBuilder._meshes_in(bd):
+		var m: MeshInstance3D = mi
+		m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		for i in m.mesh.get_surface_count():
+			var src := m.mesh.surface_get_material(i)
+			if src is StandardMaterial3D:
+				var e: StandardMaterial3D = src.duplicate()
+				if not e.emission_enabled:
+					e.albedo_color = Color(e.albedo_color.lerp(haze, 0.5), e.albedo_color.a)
+					e.metallic *= 0.5
+				e.disable_receive_shadows = true
+				m.set_surface_override_material(i, e)
+	level_root.add_child(bd)
+	objs["backdrop"] = bd
+
+func _build_shadow_proxy() -> void:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var n := 0
+	for p in cell_nodes:
+		var cell: Node3D = cell_nodes[p]
+		for mi in PartBuilder._meshes_in(cell):
+			(mi as GeometryInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		var c := Vector3(p)
+		var v: Dictionary = L.statics.get(p, {})
+		var top := 0.5 if String(v.get("t", "b")) == "b" else 0.15
+		_shadow_box(st, c + Vector3(0, (top - 0.5) / 2.0, 0), Vector3(0.96, top + 0.5, 0.96))
+		n += 1
+	if n == 0:
+		return
+	var proxy := MeshInstance3D.new()
+	proxy.mesh = st.commit()
+	proxy.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
+	proxy.material_override = StandardMaterial3D.new()
+	level_root.add_child(proxy)
+	objs["shadow_proxy"] = proxy
+	if not instant and not preview:
+		proxy.visible = false
+		get_tree().create_timer(0.85).timeout.connect(func(): if is_instance_valid(proxy): proxy.visible = true)
+
+func _shadow_box(st: SurfaceTool, c: Vector3, s: Vector3) -> void:
+	var h := s / 2.0
+	var faces := [[Vector3.UP, Vector3.RIGHT, Vector3.BACK], [Vector3.DOWN, Vector3.RIGHT, Vector3.FORWARD], [Vector3.RIGHT, Vector3.BACK, Vector3.UP],
+		[Vector3.LEFT, Vector3.FORWARD, Vector3.UP], [Vector3.BACK, Vector3.LEFT, Vector3.UP], [Vector3.FORWARD, Vector3.RIGHT, Vector3.UP]]
+	for f in faces:
+		var nrm: Vector3 = f[0]
+		var u: Vector3 = f[1]
+		var w: Vector3 = f[2]
+		var o := c + nrm * h
+		var a := o + (-u - w) * h
+		var b := o + (u - w) * h
+		var cc := o + (u + w) * h
+		var d := o + (-u + w) * h
+		for q in [a, b, cc, a, cc, d]:
+			st.set_normal(nrm)
+			st.add_vertex(q)
 
 ## Çöken blok / sigorta hücresi: sigortanın şeridi geçiş sayısına göre renk değiştirir
 class FuseCell extends Node3D:
@@ -1014,6 +1123,8 @@ func build_level(i: int, as_preview := false) -> void:
 	level_root.add_child(holo)
 	objs["clone"] = holo
 	_build_relay_traces()
+	_build_shadow_proxy()
+	_build_visual_fx(bb["box"])
 	var aabb: AABB = bb["box"]
 	_build_goal_sparkles(Vector3(L.goal))
 	# kamera
@@ -1027,8 +1138,11 @@ func build_level(i: int, as_preview := false) -> void:
 	_update_theme_label()
 	cam_size = maxf(9.0, (maxf(sz.x, sz.z) * 0.62 + sz.y * 0.55) * 1.2 + 3.2)
 	cam_az = 45.0 + 90.0 * state["view"]
-	cam_az_cur = cam_az + 30.0
+	cam_az_cur = cam_az + (75.0 if not preview and not instant else 30.0)
 	cam_zoom = 1.0
+	if not preview and not instant and cam != null:
+		# açılış uçuşu: geniş ve dönük başlar, kuleye süzülür
+		cam.size = cam_size * 1.9
 	displayed = state
 	view_dots.get_meta("pill").visible = not L.phantoms.is_empty()
 	_apply_visual(state, state, 1.0)
@@ -1251,6 +1365,17 @@ func _make_robot() -> Node3D:
 	var ring := _mesh(_torus(0.34, 0.4), _mat("#ffffff", {"unshaded": true, "alpha": true, "unique": true}), Vector3(0, 0.02, 0), g)
 	ring.scale = Vector3(1, 0.05, 1)
 	ring.material_override.albedo_color.a = 0.55
+	# gözlerden gerçek ışık (yakın yüzeyleri cyan boyar)
+	if VisualFX.quality >= 2:
+		var eye_l := OmniLight3D.new()
+		eye_l.light_color = Color("#6ff6ff")
+		eye_l.light_energy = 0.7
+		eye_l.omni_range = 1.3
+		eye_l.omni_attenuation = 1.6
+		eye_l.shadow_enabled = false
+		eye_l.position = Vector3(0, 0.38, 0.32)
+		pose.add_child(eye_l)
+		g.set_meta("eye_light", eye_l)
 	# res://assets/models/robot.glb varsa prosedürel gövde gizlenir, model yerine konur (meta düğümler korunur)
 	var rglb := AssetLoader.robot_model()
 	if rglb != null:
@@ -1259,10 +1384,12 @@ func _make_robot() -> Node3D:
 				(c as MeshInstance3D).visible = false
 		pose.add_child(rglb)
 		g.set_meta("led_mats", AssetLoader.unique_surfaces(rglb, "RobotLED"))
+		g.set_meta("paint_mats", AssetLoader.unique_surfaces(rglb, "AmberCeramic"))
 		var ap := AssetLoader.anim_player(rglb)
 		if ap != null:
 			g.set_meta("anim", ap)
 			ap.play("idle")
+		_attach_face(g, rglb)
 	# direnç bekleme göstergesi: başın üstünde dönen şarj halkası
 	var wr := _mesh(_torus(0.16, 0.2), _mat("#ffb84d", {"unshaded": true, "unique": true}), Vector3(0, 0.95, 0), g)
 	wr.scale = Vector3(1, 0.2, 1)
@@ -1277,6 +1404,7 @@ func _make_robot() -> Node3D:
 	g.set_meta("arrow", arrow)
 	g.set_meta("ring", ring)
 	_robot_accessory(g)
+	_robot_paint(g)
 	return g
 
 
@@ -1407,8 +1535,10 @@ func _apply_visual(sA: Dictionary, sB: Dictionary, t: float, bump := false) -> v
 		var v := lerpf(1.0 if sA["bridges"][i] else 0.0, 1.0 if sB["bridges"][i] else 0.0, te)
 		for m in objs["bridges"][i]:
 			if m.has_meta("glb"):
+				# menteşe: köprü yandan katlanarak açılır, sonunda hafif sekme
 				m.visible = v > 0.02
 				m.scale = Vector3(1, maxf(0.05, v), 1)
+				m.rotation.z = (1.0 - v) * PI * 0.5
 				continue
 			m.material_override.albedo_color.a = 0.16 + 0.84 * v
 			m.scale = Vector3.ONE * (0.86 + 0.14 * v)
@@ -1559,11 +1689,94 @@ func _update_queue(dt: float) -> void:
 			return
 
 ## Devre elemanı olayları: kondansatör fırlatması, direnç beklemesi, röle devresi
+## Zafer anı: kısa yavaş çekim + kameranın Robo'ya yaklaşması (gerçek zamanlı zamanlayıcıyla geri döner)
+func _slow_mo(scale: float, real_sec: float) -> void:
+	if instant:
+		return
+	Engine.time_scale = scale
+	var z0 := cam_zoom
+	cam_zoom = z0 * 1.25
+	get_tree().create_timer(real_sec, true, false, true).timeout.connect(func():
+		Engine.time_scale = 1.0
+		cam_zoom = z0)
+
+## Arayüz: seviye kartı büyüyerek ekranı kaplar, sonra seviye açılır (bağlamı koruyan geçiş)
+func _card_zoom(card: Control, then: Callable) -> void:
+	if instant or card == null:
+		then.call()
+		return
+	var r := card.get_global_rect()
+	var cover := Panel.new()
+	cover.add_theme_stylebox_override("panel", BP.chamfer(BP.SURFACE_MODAL, BP.R_STD, BP.ACCENT_CYAN, BP.BORDER_W, 0))
+	cover.position = r.position
+	cover.size = r.size
+	cover.mouse_filter = Control.MOUSE_FILTER_STOP
+	fx_layer.get_child(0).add_child(cover)
+	var vs := get_viewport().get_visible_rect().size
+	var tw := cover.create_tween().set_parallel(true)
+	tw.tween_property(cover, "position", Vector2.ZERO, 0.28).set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_IN_OUT)
+	tw.tween_property(cover, "size", vs, 0.28).set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_IN_OUT)
+	tw.chain().tween_callback(then)
+	tw.chain().tween_property(cover, "modulate:a", 0.0, 0.35)
+	tw.chain().tween_callback(cover.queue_free)
+
+## Arayüz: eklenen komut paletten yuvasına uçar
+func _fly_tile(c: String, from_rect: Rect2) -> void:
+	if instant or not tile_nodes.has(active_row) or (tile_nodes[active_row] as Array).is_empty():
+		return
+	var target: Button = (tile_nodes[active_row] as Array).back()
+	await get_tree().process_frame
+	if not is_instance_valid(target):
+		return
+	var to := target.get_global_rect()
+	var ghost := _tile({"c": c, "k": ""}, from_rect.size.x)
+	ghost.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ghost.position = from_rect.position
+	fx_layer.get_child(0).add_child(ghost)
+	target.modulate.a = 0.0
+	var tw := ghost.create_tween().set_parallel(true)
+	tw.tween_property(ghost, "position", to.position, 0.2).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	tw.tween_property(ghost, "size", to.size, 0.2)
+	tw.tween_property(ghost, "custom_minimum_size", to.size, 0.2)
+	tw.chain().tween_callback(func():
+		if is_instance_valid(target):
+			target.modulate.a = 1.0
+		ghost.queue_free())
+
+## Sayılar sayarak değişir
+func _count_to(l: Label, from: int, to: int, fmt: String, dur := 0.8) -> void:
+	if instant or l == null:
+		l.text = fmt % to
+		return
+	var tw := l.create_tween()
+	tw.tween_method(func(v: float): l.text = fmt % int(round(v)), float(from), float(to), dur).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+
+## Ortam tepkisi: zeminde genişleyip sönen ışık halkası
+func _shockwave(at: Vector3, col: Color, size := 1.5) -> void:
+	if instant or level_root == null:
+		return
+	var m := _mesh(_torus(0.42, 0.5), _mat(col, {"unshaded": true, "alpha": true, "unique": true, "emit": 2.0}), at)
+	m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	m.scale = Vector3(0.3, 0.05, 0.3)
+	var mat: StandardMaterial3D = m.material_override
+	var tw := m.create_tween().set_parallel(true)
+	tw.tween_property(m, "scale", Vector3(size, 0.05, size), 0.55).set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_OUT)
+	tw.tween_property(mat, "albedo_color:a", 0.0, 0.55).set_trans(Tween.TRANS_SINE)
+	tw.chain().tween_callback(m.queue_free)
+
+## Kamera sarsıntısı (darbe anları); _process'te sönümlenir
+var _shake_amp := 0.0
+func _cam_shake(amp: float) -> void:
+	if not instant:
+		_shake_amp = maxf(_shake_amp, amp)
+
 func _comp_events(a: Dictionary) -> void:
 	var sa: Dictionary = a["from"]
 	var sb: Dictionary = a["to"]
 	if sa.get("circuits", {}) != sb.get("circuits", {}) or sa.get("relays", []) != sb.get("relays", []):
 		Sfx.call_ah("relay")
+		if not sb["dead"]:
+			_shockwave(Vector3(sb["p"]) + Vector3(0, -0.45, 0), BP.ACCENT_AMBER, 1.3)
 	if String(a.get("kind", "")) == "wait" and not sb["dead"]:
 		_comp_flash(Vector3i(sb["p"]) + Vector3i.DOWN, "glow", 0.8)
 	if a.get("first", false) or sa["dead"] or sb["dead"]:
@@ -1573,6 +1786,8 @@ func _comp_events(a: Dictionary) -> void:
 	if c.get("t", "") == "cap" and sa["p"] != sb["p"]:
 		_comp_flash(below, "charge", 1.0)
 		Sfx.call_ah("cap_launch")
+		_shockwave(Vector3(below) + Vector3(0, 0.52, 0), Color("#59e1ff"), 1.8)
+		_cam_shake(0.18)
 	elif c.get("t", "") == "res" and sa == sb:
 		_comp_flash(below, "glow", 0.7)
 
@@ -1659,6 +1874,7 @@ func _tick() -> bool:
 		state = t["state"]
 		_bump_fx(pre, n["ins"]["c"])
 		_enqueue([state], "bump", true)
+		_cam_shake(0.08)
 		return true
 	if n["ins"]["c"] in ["F", "J"] and not instant:
 		var dot := _mesh(_cyl(0.11, 0.11, 0.01), _mat(pal["accent"], {"unshaded": true}), Vector3(pre["p"]) + Vector3(0, -0.47, 0), objs["trail"])
@@ -2094,28 +2310,123 @@ func _robot_pose() -> void:
 ## İskeletli robot modelinin klibi komut / duruma göre: yürü (F/J), dön (L/R), düş (ölüm), zafer, boşta nefes +
 ## ara sıra etrafa bakınma. Model yoksa (prosedürel robot) hiçbir şey yapmaz.
 func _robot_clip(pl: Node3D) -> void:
+	# Duruma göre iskelet klibi: hareket, tepki, boşta davranış ve duygu. Yüz ifadesi (vizör) de buradan beslenir.
 	var ap: AnimationPlayer = pl.get_meta("anim") if pl.has_meta("anim") else null
 	if ap == null:
 		return
 	var want := "idle"
 	var spd := _speed()
+	var mood := "normal"
 	if pl.get_meta("victory_until", 0.0) > time:
-		want = "victory"
+		want = "dance" if ap.has_animation("dance") else "victory"
 		spd = 1.0
+		mood = "happy"
 	elif anim != null:
+		var a = anim["from"]
+		var b = anim["to"]
+		var t := clampf(float(anim["t"]), 0.0, 1.0)
 		match String(anim.get("kind", "")):
-			"F", "J":
-				want = "fall" if anim["to"]["dead"] else "walk"
-			"L", "R":
-				want = "turn"
+			"F":
+				want = "walk"
+				if b["dead"]:
+					want = "fall"
+					mood = "surprised"
+				elif not a["dead"] and a["p"] != b["p"] and (b["p"] as Vector3i).y > (a["p"] as Vector3i).y:
+					want = "climb"
+				elif not a["dead"] and _jumpy(a["p"], b["p"], a, b):
+					want = "teleport"
+			"J":
+				want = "jump_prep" if t < 0.22 else ("jump_air" if t < 0.75 else "land")
+				if b["dead"]:
+					want = "fall"
+					mood = "surprised"
+			"L":
+				want = "turn_left"
+			"R":
+				want = "turn_right"
+			"A":
+				want = "push"
+			"bump":
+				want = "bump"
+				mood = "surprised"
+			"wait":
+				want = "wait_tap"
+			"C", "clone":
+				want = "spin"
 			_:
 				want = "idle"
-	elif queue.is_empty() and fmod(time, 9.0) > 6.5:
-		want = "look"
+	elif mode == "ended":
+		want = "sad"
+		mood = "sad"
+	elif hint_card != null and hint_card.visible:
+		want = "think"
+	elif queue.is_empty():
+		# boşta: uzun beklemede uyur; arada bakınır, esner, vizörünü siler, ıslık çalar
+		var idle_for := time - float(pl.get_meta("last_active", 0.0))
+		if idle_for > 45.0:
+			want = "sleep"
+			mood = "sleep"
+		else:
+			var slot := int(time / 7.0) % 6
+			var phase := fmod(time, 7.0)
+			if phase > 4.6:
+				want = ["look", "idle_yawn", "idle_wipe", "idle_whistle", "look", "think"][slot]
+				if want == "idle_yawn":
+					mood = "sleepy"
+	if anim != null or mode == "running":
+		pl.set_meta("last_active", time)
+	if not ap.has_animation(want):
+		want = {"climb": "walk", "turn_left": "turn", "turn_right": "turn", "jump_prep": "walk", "jump_air": "walk", "land": "walk",
+			"dance": "victory", "sad": "idle", "think": "look"}.get(want, "idle")
 	if ap.current_animation != want:
-		ap.play(want, 0.12, spd)
+		ap.play(want, 0.1, spd)
 	else:
 		ap.speed_scale = spd
+	_robot_face(pl, mood)
+
+## Vizör yüzü: kafa kemiğine bağlı ifade dörtgeni (robot_face.gdshader)
+const FACE_MOODS := {"normal": 0, "happy": 1, "sad": 2, "surprised": 3, "sleep": 4, "sleepy": 5}
+func _attach_face(g: Node3D, rglb: Node3D) -> void:
+	var sks := rglb.find_children("*", "Skeleton3D", true, false)
+	if sks.is_empty():
+		return
+	var sk: Skeleton3D = sks[0]
+	var hi := sk.find_bone("head")
+	if hi < 0:
+		return
+	var ba := BoneAttachment3D.new()
+	ba.bone_name = "head"
+	sk.add_child(ba)
+	var q := MeshInstance3D.new()
+	var qm := QuadMesh.new()
+	qm.size = Vector2(0.34, 0.19)
+	q.mesh = qm
+	var fm := ShaderMaterial.new()
+	fm.shader = load("res://shaders/robot_face.gdshader")
+	fm.set_shader_parameter("blink_seed", randf() * 4.0)
+	q.material_override = fm
+	q.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	# vizör merkezi model uzayında (Blender üreticisiyle aynı); kafa kemiğinin dinlenme pozuna göre yerel konum
+	var rest := sk.get_bone_global_rest(hi)
+	q.transform = rest.affine_inverse() * Transform3D(Basis(), Vector3(0, 0.37, 0.262))
+	ba.add_child(q)
+	g.set_meta("face", fm)
+
+func _robot_face(pl: Node3D, mood: String) -> void:
+	if not pl.has_meta("face"):
+		return
+	var fm: ShaderMaterial = pl.get_meta("face")
+	var m: int = FACE_MOODS.get(mood, 0)
+	if int(pl.get_meta("face_mood", -1)) != m:
+		pl.set_meta("face_mood", m)
+		fm.set_shader_parameter("mood", m)
+	if pl.has_meta("led_mats") and not (pl.get_meta("led_mats") as Array).is_empty():
+		var c: Color = (pl.get_meta("led_mats")[0] as StandardMaterial3D).albedo_color
+		fm.set_shader_parameter("eye_color", c)
+
+func _wake_robot() -> void:
+	if objs.has("player") and is_instance_valid(objs["player"]):
+		(objs["player"] as Node3D).set_meta("last_active", time)
 
 # =====================================================================
 # Bilgisayar toplama: parçalar, montaj sahnesi ve vitrin
@@ -2245,11 +2556,15 @@ func _on_win() -> void:
 		_gem_collect()
 		_robot_victory()
 		audio.play("win")
+		_slow_mo(0.38, 0.65)
 	if replaying:
 		replaying = false
 		get_tree().create_timer(1.2).timeout.connect(func(): if win_shown: _show("win"))
 		return
 	if level_idx >= LEVEL_CUSTOM:
+		if custom_kind == "bug":
+			_bug_edits = BugHunt.edits(levels[level_idx]["starter"], Program.program_to_src(prog))
+			stars = BugHunt.stars(_bug_edits, int(levels[level_idx].get("bugs", 1)))
 		_custom_win(blocks, par)
 		_check_achievements({"rep": used_rep})
 		_prepare_win(stars, blocks, par)
@@ -2318,6 +2633,10 @@ func _confetti(at: Vector3) -> void:
 # =====================================================================
 # Döngü, kamera, giriş
 func _process(dt: float) -> void:
+	if _film != null and screens.has("title") and screens["title"].visible:
+		screens["title"].visible = false
+	if perf_label != null and Engine.get_process_frames() % 15 == 0:
+		_update_perf_label()
 	dt = minf(dt, 0.05)
 	time += dt
 	if theme_app:
@@ -2326,8 +2645,15 @@ func _process(dt: float) -> void:
 		cam_az += dt * 7.0
 	cam_az_cur += (cam_az - cam_az_cur) * minf(1.0, dt * 8.0)
 	var a := deg_to_rad(cam_az_cur)
-	cam.position = cam_target + Vector3(cos(EL) * cos(a), sin(EL), cos(EL) * sin(a)) * 60.0
+	var el := EL
+	if _current == "photo":
+		_photo_el_cur += (photo_el - _photo_el_cur) * minf(1.0, dt * 8.0)
+		el = _photo_el_cur
+	cam.position = cam_target + Vector3(cos(el) * cos(a), sin(el), cos(el) * sin(a)) * 60.0
 	cam.look_at(cam_target, Vector3.UP)
+	if _shake_amp > 0.001:
+		cam.position += Vector3(randf_range(-1, 1), randf_range(-1, 1), randf_range(-1, 1)) * _shake_amp
+		_shake_amp = move_toward(_shake_amp, 0.0, dt * 0.9)
 	var vsz := get_viewport().get_visible_rect().size
 	weather.set_view(deg_to_rad(cam_az_cur), vsz.x / maxf(vsz.y, 1.0), Vector2(get_viewport().size))
 	var want_size := cam_size / cam_zoom * (1.02 if portrait else 1.0)
@@ -2380,6 +2706,9 @@ func _on_resize() -> void:
 		_layout()
 
 func _unhandled_input(ev: InputEvent) -> void:
+	if _current == "photo":
+		_photo_input(ev)
+		return
 	if _current == "editor" and L != null:
 		_editor_input(ev)
 		return
@@ -2477,6 +2806,9 @@ func _on_back() -> void:
 		else:
 			_close_assembly()
 		return
+	if _current == "photo":
+		_photo_exit()
+		return
 	if _current in ["intro", "backup", "settings"]:
 		if _current == "settings":
 			_close_settings()
@@ -2559,6 +2891,12 @@ func _setup_ui() -> void:
 	vt.gradient = vg
 	vig.texture = vt
 	ui_root.add_child(vig)
+	# son işlem: 3D'nin üstünde, arayüzün altında
+	var post_layer := CanvasLayer.new()
+	post_layer.layer = 0
+	add_child(post_layer)
+	post_fx = VisualFX.post_rect()
+	post_layer.add_child(post_fx)
 	_build_hud()
 	_build_screens()
 	fx_layer = CanvasLayer.new()
@@ -3139,9 +3477,55 @@ func _build_screens() -> void:
 	pvb.add_child(_bp_button("SEVİYELER", BP.Variant.DEFAULT, _open_levels, "grid", 50))
 	btn_pc_pause = _pc_button(50)
 	pvb.add_child(btn_pc_pause)
+	pvb.add_child(_bp_button("FOTOĞRAF MODU", BP.Variant.CYAN_OUTLINE, _photo_enter, "sparkle", 50))
 	pvb.add_child(_bp_button("AYARLAR", BP.Variant.DEFAULT, _open_settings, "gear", 50))
 	pvb.add_child(_bp_button("ANA MENÜ", BP.Variant.DANGER, _show_title, "home", 50))
 	_center_box(pz, pcard)
+
+	# --- fotoğraf modu: arayüzsüz sahne, serbest kamera, filtre, alan derinliği, kare kaydetme ---
+	var ph := Control.new()
+	ph.set_anchors_preset(Control.PRESET_FULL_RECT)
+	ph.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ph.visible = false
+	ui_root.add_child(ph)
+	screens["photo"] = ph
+	var pbar := PanelContainer.new()
+	pbar.add_theme_stylebox_override("panel", BP.chamfer(Color("#0B192EC8"), BP.R_STD, Color(BP.BORDER_STEEL, 0.8), BP.BORDER_W, 10))
+	pbar.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	pbar.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	pbar.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	pbar.offset_bottom = -18
+	ph.add_child(pbar)
+	var pcol := VBoxContainer.new()
+	pcol.add_theme_constant_override("separation", 6)
+	pbar.add_child(pcol)
+	var ptag := BP.tag("FOTOĞRAF MODU // sürükle: döndür · dikey: açı · tekerlek/çimdik: yakınlaş", 11, Color(BP.ACCENT_CYAN, 0.85))
+	ptag.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	pcol.add_child(ptag)
+	var prow := HFlowContainer.new()
+	prow.alignment = FlowContainer.ALIGNMENT_CENTER
+	prow.add_theme_constant_override("h_separation", 6)
+	prow.add_theme_constant_override("v_separation", 6)
+	pcol.add_child(prow)
+	var pmk := func(txt: String, cb: Callable, w: float, v := BP.Variant.DEFAULT) -> Button:
+		var b := Button.new()
+		b.text = txt
+		b.focus_mode = Control.FOCUS_NONE
+		b.custom_minimum_size = Vector2(w, 46)
+		b.add_theme_font_override("font", UIKit.font_black)
+		b.add_theme_font_size_override("font_size", 14)
+		BP.style_button(b, v, BP.R_SMALL)
+		b.pressed.connect(cb)
+		prow.add_child(b)
+		return b
+	ph.set_meta("filter", pmk.call("FİLTRE: NORMAL", _photo_filter, 170))
+	ph.set_meta("dof", pmk.call("DOF: KAPALI", _photo_dof, 120))
+	pmk.call("−", func(): cam_zoom = clampf(cam_zoom / 1.2, 0.4, 4.0), 46)
+	pmk.call("+", func(): cam_zoom = clampf(cam_zoom * 1.2, 0.4, 4.0), 46)
+	pmk.call("ROBO", _photo_focus_robot, 80)
+	pmk.call("● ÇEK", _photo_capture, 100, BP.Variant.PRIMARY)
+	pmk.call("ÇIK", _photo_exit, 70, BP.Variant.DANGER)
+	ph.set_meta("bar", pbar)
 
 	# --- ayarlar ---
 	var st_o := _overlay(0.4)
@@ -3238,6 +3622,9 @@ func _build_screens() -> void:
 		st_o.set_meta("acc_" + key, cb)
 	svb.add_child(_bp_button("İLERLEME YEDEĞİ", BP.Variant.DEFAULT, _open_backup, "save", 48))
 	svb.add_child(_bp_button("BAŞARIMLAR", BP.Variant.DEFAULT, _open_achievements, "star", 48))
+	svb.add_child(_bp_button("AÇILIŞ FİLMİNİ İZLE", BP.Variant.DEFAULT, func():
+		_show_title()
+		_play_intro_film(), "play", 48))
 	# geliştirici / test: yalnızca debug derlemesinde
 	var dev_p := PanelContainer.new()
 	dev_p.add_theme_stylebox_override("panel", BP.chamfer(Color("#F59E0B0F"), BP.R_STD, BP.ACCENT_AMBER, BP.BORDER_W, 12))
@@ -3258,6 +3645,9 @@ func _build_screens() -> void:
 	dev.add_child(dj)
 	dvb.add_child(dev)
 	dvb.add_child(_bp_button("FİNALİ TEST ET (100/100)", BP.Variant.AMBER, _final_test, "sparkle", 44, 15))
+	_dev_row(dvb, [["FPS GÖSTERGESİ", _toggle_perf_label, true], ["DİNAMİK ÇÖZÜNÜRLÜK", func():
+		perf.enabled = not perf.enabled
+		_toast("Dinamik çözünürlük " + ("açık" if perf.enabled else "kapalı"))]])
 	_build_asmr_test(dvb)
 	_build_cinematic_test(dvb)
 	dev_p.visible = OS.is_debug_build()
@@ -3596,7 +3986,7 @@ func _show_title() -> void:
 	cam_az_cur = 20.0
 	cam_zoom = 0.85
 	_title_diorama()
-	lbl_title_stars.text = "%d / %d" % [_total_stars(), LEVEL_CUSTOM * 3]
+	_count_to(lbl_title_stars, 0, _total_stars(), "%d / " + str(LEVEL_CUSTOM * 3), 1.1)
 	_update_pc_buttons()
 	audio.set_phase(-1)
 	var db: Button = screens["title"].get_meta("daily_btn")
@@ -3621,6 +4011,10 @@ func _title_diorama() -> void:
 		rb.position = spot.position if spot != null else Vector3(2.7, 0, 0)
 		rb.rotation.y = 0.5
 		d.add_child(rb)
+		var pg := Node3D.new()
+		pg.set_meta("paint_mats", AssetLoader.unique_surfaces(rb, "AmberCeramic"))
+		_robot_paint(pg)
+		pg.free()
 		var ap := AssetLoader.anim_player(rb, [])
 		if ap != null:
 			ap.play("wave")
@@ -3738,7 +4132,7 @@ func _level_bubble(i: int, _p: Dictionary, locked: bool, current: bool) -> Contr
 	else:
 		b.pressed.connect(func():
 			audio.play("tap")
-			_start_level(i))
+			_card_zoom(b, func(): _start_level(i)))
 	return b
 
 func _start_level(i: int) -> void:
@@ -3995,17 +4389,51 @@ func _apply_led_color() -> void:
 
 
 ## Grafik kalitesi: Düşük = hafif çözünürlük, Orta = doğal çözünürlük + 4x MSAA, Yüksek = 1,5x süper örnekleme + 8x MSAA
+func _on_quality_picked(lvl: int) -> void:
+	progress["gfx"] = mini(gfx, lvl)
+	_save_progress()
+	if lvl < gfx:
+		gfx = lvl
+		_apply_gfx()
+		_toast("Grafik otomatik ayarlandı: " + ["Düşük", "Orta", "Yüksek"][gfx])
+
+func _toggle_perf_label() -> void:
+	if perf_label == null:
+		perf_label = BP.tag("", 13, BP.ACCENT_CYAN)
+		perf_label.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+		perf_label.position = Vector2(-260, 70)
+		perf_label.size = Vector2(250, 20)
+		perf_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		fx_layer.get_child(0).add_child(perf_label)
+		perf_label.visible = false
+	perf_label.visible = not perf_label.visible
+
+func _update_perf_label() -> void:
+	if perf_label == null or not perf_label.visible or perf == null:
+		return
+	perf_label.text = "%d FPS · %.1f ms · %d çizim · 3D %%%d" % [roundi(perf.fps()), perf.frame_ms(),
+		RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME), roundi(get_viewport().scaling_3d_scale * 100.0)]
+
 func _apply_gfx() -> void:
 	var vp := get_viewport()
 	env.glow_enabled = gfx >= 1
 	env.fog_enabled = false
 	sun.shadow_enabled = gfx >= 1
 	sun.shadow_blur = 2.4 if gfx == 2 else 1.6
-	vp.msaa_3d = [Viewport.MSAA_DISABLED, Viewport.MSAA_4X, Viewport.MSAA_8X][gfx]
-	vp.scaling_3d_scale = [0.75, 1.0, 1.5][gfx]
+	# akıcılık: telefonlar zaten yüksek DPI — yerel çözünürlük + 4x MSAA en iyi kalite/kare dengesi;
+	# dinamik çözünürlük (PerfGovernor) zorlanınca ölçeği kademeli düşürür
+	vp.msaa_3d = [Viewport.MSAA_DISABLED, Viewport.MSAA_2X, Viewport.MSAA_4X][gfx]
+	if perf != null:
+		perf.set_base_scale([0.7, 0.85, 1.0][gfx])
+	else:
+		vp.scaling_3d_scale = [0.7, 0.85, 1.0][gfx]
 	RenderingServer.directional_shadow_atlas_set_size([1024, 4096, 4096][gfx], true)
 	weather.set_quality(gfx)
 	ComponentFactory.use_models = gfx >= 1
+	AssetLoader.pbr_detail = gfx >= 2
+	VisualFX.quality = gfx
+	if post_fx != null:
+		post_fx.visible = gfx >= 1
 
 
 # ---------- HUD ----------
@@ -4088,6 +4516,8 @@ func _prepare_win(stars: int, blocks: int, par: int) -> void:
 		match custom_kind:
 			"daily":
 				txt = "Günlük bulmaca çözüldü · %d blok · par %d\nSeri: %d gün" % [blocks, par, int(progress.get("daily", {}).get("streak", 0))]
+			"bug":
+				txt = "Hata ayıklandı · %d düzenleme (%d hata vardı)\nToplam av: %d" % [_bug_edits, int(levels[level_idx].get("bugs", 1)), int(progress.get("stats", {}).get("bugs", 0))]
 			"editor":
 				txt = "Kulen doğrulandı! Par: %d blok.\nAtölyeye dön ve KAYDET ile paylaşım kodunu al." % blocks
 			_:
@@ -4124,7 +4554,7 @@ func _prepare_win(stars: int, blocks: int, par: int) -> void:
 	var lb: Label = btn_next.get_meta("label")
 	if level_idx >= LEVEL_CUSTOM:
 		btn_next.visible = true
-		lb.text = "ATÖLYEYE DÖN" if custom_kind == "editor" else "ANA MENÜ"
+		lb.text = {"editor": "ATÖLYEYE DÖN", "bug": "YENİ AV"}.get(custom_kind, "ANA MENÜ")
 	else:
 		lb.text = "SONRAKİ"
 		btn_next.visible = level_idx < LEVEL_CUSTOM - 1
@@ -4217,7 +4647,12 @@ func _render_palette() -> void:
 		var b := _tile({"c": c, "k": ""}, 52)
 		b.tooltip_text = Program.COMMANDS[c]["name"] + " — " + Program.COMMANDS[c]["desc"]
 		var cc: String = c
-		b.pressed.connect(func(): _insert(cc))
+		b.pressed.connect(func():
+			var fr := b.get_global_rect()
+			var n0 := (prog[active_row] as Array).size()
+			_insert(cc)
+			if (prog[active_row] as Array).size() > n0:
+				_fly_tile(cc, fr))
 		if level_idx > 0 and not (c in prev_cmds):
 			# yeni komut: altın halka nabzı
 			var ring: Panel = b.get_meta("ring")
@@ -4423,6 +4858,7 @@ func _insert(c: String) -> void:
 	audio.play("pop", randf_range(0.95, 1.1))
 	Sfx.call_ah("ui_thock")
 	_speak(String(Program.COMMANDS[c]["name"]))
+	_wake_robot()
 	Sfx.asmr().notify_code()
 	_prog_changed()
 
@@ -4899,6 +5335,11 @@ func _shot(spec: String) -> void:
 	# cutout: üst kamera çentiği + alt hareket çubuğu (görünür alan pikseli)
 	if "cutout" in flags:
 		safe_override = Vector4(18, 108, 18, 64)
+	for fl in flags:
+		if fl.begins_with("acc="):
+			progress["accessory"] = fl.substr(4)
+		elif fl.begins_with("paint="):
+			progress["paint"] = fl.substr(6)
 	if i == -1:
 		_show_title()
 	elif i <= -5 and i >= -9:
@@ -4955,6 +5396,15 @@ func _shot(spec: String) -> void:
 			if fl.begins_with("v"):
 				for k in int(fl.substr(1)):
 					_rotate_view(1)
+		for fl in flags:
+			if fl.begins_with("photo="):
+				# photo=N[d]: fotoğraf modu, filtre N, d → alan derinliği, robota odak
+				_photo_enter()
+				_photo_filter_i = int(fl.substr(6, 1))
+				_photo_dof_on = fl.ends_with("d")
+				photo_el = 0.35
+				_photo_focus_robot()
+				_photo_apply()
 	var wait := 90
 	if parts.size() > 3:
 		for fl in parts[3].split(","):
@@ -5322,6 +5772,8 @@ func _win_next() -> void:
 		if custom_kind == "editor":
 			_editor_rebuild(true)
 			_show("editor")
+		elif custom_kind == "bug":
+			_start_bug_hunt()
 		else:
 			_show_title()
 		return
@@ -5362,6 +5814,7 @@ func _build_feature_screens() -> void:
 	wcard.add_child(wvb)
 	_modal_head(wvb, "KULE ATÖLYESİ", "EDITOR // PAYLAŞIM")
 	wvb.add_child(_bp_button("YENİ KULE TASARLA", BP.Variant.PRIMARY, func(): _open_editor({}), "grid", 52))
+	wvb.add_child(_bp_button("HATA AVI // BOZUK PROGRAMI ONAR", BP.Variant.AMBER, _start_bug_hunt, "play", 52))
 	wvb.add_child(BP.tag("PAYLAŞIM KODU (KKL1:…)", 12))
 	var code_edit := TextEdit.new()
 	code_edit.custom_minimum_size = Vector2(410, 70)
@@ -5407,11 +5860,29 @@ func _build_feature_screens() -> void:
 	asc.add_child(alist)
 	avb.add_child(asc)
 	DragScroller.attach(asc)
-	avb.add_child(BP.tag("ROBO // AKSESUAR (YILDIZLA AÇILIR)", 12))
+	var coll_l := BP.tag("ROBO // KOLEKSİYON", 12)
+	avb.add_child(coll_l)
+	var csc := ScrollContainer.new()
+	csc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	csc.custom_minimum_size = Vector2(0, 170)
+	var cvb := VBoxContainer.new()
+	cvb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cvb.add_theme_constant_override("separation", 6)
+	csc.add_child(cvb)
+	avb.add_child(csc)
+	DragScroller.attach(csc)
+	cvb.add_child(BP.tag("AKSESUAR", 11, BP.TEXT_LABEL))
 	var arow := HFlowContainer.new()
 	arow.add_theme_constant_override("h_separation", 6)
 	arow.add_theme_constant_override("v_separation", 6)
-	avb.add_child(arow)
+	cvb.add_child(arow)
+	cvb.add_child(BP.tag("GÖVDE BOYASI", 11, BP.TEXT_LABEL))
+	var prow := HFlowContainer.new()
+	prow.add_theme_constant_override("h_separation", 6)
+	prow.add_theme_constant_override("v_separation", 6)
+	cvb.add_child(prow)
+	ac.set_meta("paint", prow)
+	ac.set_meta("coll", coll_l)
 	avb.add_child(_bp_button("KAPAT", BP.Variant.DANGER, func(): _show(screens.get("_ach_back", "title")), "close", 46))
 	ac.set_meta("list", alist)
 	ac.set_meta("acc", arow)
@@ -5477,7 +5948,7 @@ func _build_feature_screens() -> void:
 	tools.add_theme_constant_override("v_separation", 6)
 	evb.add_child(tools)
 	var tool_btns := {}
-	for tdef in [["b", "BLOK"], ["cr", "ÇÖKEN"], ["fu", "SİGORTA"], ["x", "SİL"], ["s", "BAŞLA"], ["g", "HEDEF"]]:
+	for tdef in [["b", "BLOK"], ["cr", "ÇÖKEN"], ["fu", "SİGORTA"], ["re", "RÖLE"], ["br", "KÖPRÜ"], ["bn", "KÖPRÜ ¬"], ["bt", "ZAMANLI"], ["x", "SİL"], ["s", "BAŞLA"], ["g", "HEDEF"]]:
 		var tb := Button.new()
 		tb.text = tdef[1]
 		tb.focus_mode = Control.FOCUS_NONE
@@ -5506,6 +5977,8 @@ func _build_feature_screens() -> void:
 	mk.call("KAT ▲", func(): _editor_layer(1), 70)
 	mk.call("KAT ▼", func(): _editor_layer(-1), 70)
 	mk.call("YÖN ↻", _editor_rotate_start, 70)
+	var b_mode: Button = mk.call("DEVRE: OR", _editor_cmode, 104)
+	ed.set_meta("cmode", b_mode)
 	mk.call("ANA −", func(): _editor_slots("main", -1))
 	mk.call("ANA +", func(): _editor_slots("main", 1))
 	mk.call("F1 −", func(): _editor_slots("p1", -1))
@@ -5540,7 +6013,7 @@ func _play_custom(d: Dictionary, kind: String) -> void:
 	if not def.has("chapter"):
 		def["chapter"] = "Özel"
 	if not def.has("chapter_tag"):
-		def["chapter_tag"] = {"daily": "GÜNLÜK", "editor": "ATÖLYE // TEST", "code": "ÖZEL // KULE", "mine": "KULELERİM"}.get(kind, "ÖZEL") as String
+		def["chapter_tag"] = {"daily": "GÜNLÜK", "editor": "ATÖLYE // TEST", "bug": "HATA AVI", "code": "ÖZEL // KULE", "mine": "KULELERİM"}.get(kind, "ÖZEL") as String
 	if not def.has("par"):
 		def["par"] = 99
 	_set_custom_def(def)
@@ -5570,6 +6043,26 @@ func _open_daily() -> void:
 		st.add_child(p)
 	_show("daily")
 
+func _start_bug_hunt() -> void:
+	# yalnızca bitirilmiş kampanya seviyelerinden seçilir (çözümü ifşa etmez); hiç yoksa ilk 10 seviye
+	var pool := []
+	for k in progress["best"]:
+		if int(k) < LEVEL_CUSTOM and levels[int(k)].has("hint_solution"):
+			pool.append(int(k))
+	if pool.is_empty():
+		pool = range(0, 10)
+	var rng := RandomNumberGenerator.new()
+	rng.randomize()
+	for attempt in 8:
+		var i: int = pool[rng.randi() % pool.size()]
+		var d := BugHunt.make(levels[i], rng.randi(), 1 if i < 30 else 2)
+		if not d.is_empty():
+			d["par"] = 99
+			_play_custom(d, "bug")
+			_toast("HATA AVI // %d hata gizli" % int(d["bugs"]))
+			return
+	_toast("Hata avı üretilemedi")
+
 func _start_daily() -> void:
 	var seed := DailyGenerator.date_seed()
 	var d := DailyGenerator.make(seed)
@@ -5578,6 +6071,132 @@ func _start_daily() -> void:
 		return
 	daily_seed = seed
 	_play_custom(d, "daily")
+
+var _bug_edits := 0
+
+# ---------- fotoğraf modu ----------
+const PHOTO_FILTERS := ["NORMAL", "SEPYA", "NOIR", "NEON", "BLUEPRINT"]
+var photo_el := EL
+var _photo_el_cur := EL
+var _photo_filter_i := 0
+var _photo_dof_on := false
+var _photo_saved := {}
+
+func _photo_enter() -> void:
+	if L == null or preview:
+		return
+	audio.play("tap")
+	_photo_saved = {"az": cam_az, "zoom": cam_zoom, "target": cam_target}
+	photo_el = EL
+	_photo_el_cur = EL
+	_photo_filter_i = 0
+	_photo_dof_on = false
+	_show("photo")
+	_photo_apply()
+
+func _photo_exit() -> void:
+	if _current != "photo":
+		return
+	audio.play("tap")
+	_photo_filter_i = 0
+	_photo_dof_on = false
+	_photo_apply()
+	VisualFX.apply_grade(post_fx, LevelProgressionManager.phase_of(mini(level_idx, LEVEL_CUSTOM - 1)) if level_idx < LEVEL_CUSTOM else 9, gfx)
+	if not _photo_saved.is_empty():
+		cam_az = _photo_saved["az"]
+		cam_zoom = clampf(_photo_saved["zoom"], 0.5, 2.5)
+		cam_target = _photo_saved["target"]
+	_show("")
+
+func _photo_apply() -> void:
+	var ph: Control = screens["photo"]
+	(ph.get_meta("filter") as Button).text = "FİLTRE: " + PHOTO_FILTERS[_photo_filter_i]
+	(ph.get_meta("dof") as Button).text = "DOF: " + ("AÇIK" if _photo_dof_on else "KAPALI")
+	if post_fx != null:
+		(post_fx.material as ShaderMaterial).set_shader_parameter("filter", _photo_filter_i)
+		post_fx.visible = gfx >= 1 or _photo_filter_i > 0
+	if _photo_dof_on:
+		# ortografik kamera 60 birim uzakta: odak düzlemi sahnenin ortası, ön ve arka bulanır
+		var a := CameraAttributesPractical.new()
+		a.dof_blur_far_enabled = true
+		a.dof_blur_far_distance = 63.0
+		a.dof_blur_far_transition = 14.0
+		a.dof_blur_near_enabled = true
+		a.dof_blur_near_distance = 55.0
+		a.dof_blur_near_transition = 8.0
+		a.dof_blur_amount = 0.12
+		cam.attributes = a
+	else:
+		cam.attributes = null
+
+func _photo_filter() -> void:
+	_photo_filter_i = (_photo_filter_i + 1) % PHOTO_FILTERS.size()
+	audio.play("tap")
+	_photo_apply()
+
+func _photo_dof() -> void:
+	_photo_dof_on = not _photo_dof_on
+	audio.play("tap")
+	_photo_apply()
+
+func _photo_focus_robot() -> void:
+	if objs.has("player"):
+		cam_target = (objs["player"] as Node3D).global_position + Vector3(0, 0.4, 0)
+		cam_zoom = clampf(maxf(cam_zoom, 2.4), 0.4, 4.0)
+		audio.play("tap")
+
+func _photo_input(ev: InputEvent) -> void:
+	if ev is InputEventMouseButton:
+		if ev.button_index == MOUSE_BUTTON_WHEEL_UP:
+			cam_zoom = clampf(cam_zoom * 1.1, 0.4, 4.0)
+		elif ev.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			cam_zoom = clampf(cam_zoom / 1.1, 0.4, 4.0)
+		elif ev.button_index == MOUSE_BUTTON_LEFT:
+			ptr = {"pos": ev.position, "moved": false, "drag": 0.0} if ev.pressed else null
+	elif ev is InputEventMagnifyGesture:
+		cam_zoom = clampf(cam_zoom * ev.factor, 0.4, 4.0)
+	elif ev is InputEventMouseMotion and ptr != null:
+		cam_az += ev.relative.x * 0.35
+		photo_el = clampf(photo_el + ev.relative.y * 0.004, 0.12, 1.45)
+
+func _photo_capture() -> void:
+	var ph: Control = screens["photo"]
+	var bar: Control = ph.get_meta("bar")
+	bar.visible = false
+	await RenderingServer.frame_post_draw
+	await RenderingServer.frame_post_draw
+	var img := get_viewport().get_texture().get_image()
+	bar.visible = true
+	var stamp := Time.get_datetime_string_from_system().replace(":", "").replace("-", "").replace("T", "_")
+	var name := "kayip_kuleler_%s.png" % stamp
+	DirAccess.make_dir_recursive_absolute("user://photos")
+	var err := img.save_png("user://photos/" + name)
+	# mümkünse cihazın Resimler klasörüne de kopyala (izin yoksa sessizce atlanır)
+	var where := "uygulama klasörü"
+	var pics := OS.get_system_dir(OS.SYSTEM_DIR_PICTURES)
+	if pics != "":
+		var d := pics.path_join("KayipKuleler")
+		if DirAccess.make_dir_recursive_absolute(d) == OK and img.save_png(d.path_join(name)) == OK:
+			where = "Resimler/KayipKuleler"
+	if err != OK:
+		_toast("Fotoğraf kaydedilemedi")
+		return
+	# deklanşör flaşı
+	var fl := ColorRect.new()
+	fl.color = Color(1, 1, 1, 0.85)
+	fl.set_anchors_preset(Control.PRESET_FULL_RECT)
+	fl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ph.add_child(fl)
+	var tw := fl.create_tween()
+	tw.tween_property(fl, "color:a", 0.0, 0.35)
+	tw.tween_callback(fl.queue_free)
+	audio.play("pop")
+	var st: Dictionary = progress.get("stats", {})
+	st["photos"] = int(st.get("photos", 0)) + 1
+	progress["stats"] = st
+	_save_progress()
+	_check_achievements()
+	_toast("Fotoğraf kaydedildi · " + where)
 
 func _custom_win(blocks: int, par: int) -> void:
 	match custom_kind:
@@ -5594,6 +6213,10 @@ func _custom_win(blocks: int, par: int) -> void:
 				dd["best_blocks"] = mini(int(dd.get("best_blocks", blocks)), blocks)
 			dd["last"] = daily_seed
 			progress["daily"] = dd
+		"bug":
+			var st: Dictionary = progress.get("stats", {})
+			st["bugs"] = int(st.get("bugs", 0)) + 1
+			progress["stats"] = st
 		"editor":
 			editor["verified"] = true
 			editor["par"] = blocks
@@ -5685,9 +6308,19 @@ func _open_editor(d: Dictionary) -> void:
 		cells[Vector3i(int(c[0]), int(c[1]), int(c[2]))] = "cr"
 	for c in d.get("fuses", []):
 		cells[Vector3i(int(c[0]), int(c[1]), int(c[2]))] = "fu"
+	var cmode := "OR"
+	for c in d.get("comps", []):
+		if String(c.get("t", "")) == "relay":
+			cells[Vector3i(int(c["p"][0]), int(c["p"][1]), int(c["p"][2]))] = "re"
+			cmode = String(c.get("mode", "OR"))
+	for b in d.get("bridges", []):
+		var on := String(b.get("on", ""))
+		var k := "bt" if on.begins_with("T:") else ("bn" if on.begins_with("!") else "br")
+		for c in b.get("cells", []):
+			cells[Vector3i(int(c[0]), int(c[1]), int(c[2]))] = k
 	editor = {"name": d.get("name", "Kulem"), "cells": cells, "start": Vector3i(int(d["start"][0]), int(d["start"][1]), int(d["start"][2])),
 		"dir": int(d.get("startDir", 0)), "goal": Vector3i(int(d["goal"][0]), int(d["goal"][1]), int(d["goal"][2])),
-		"slots": (d.get("slots", {"main": 8, "p1": 4, "p2": 0}) as Dictionary).duplicate(), "tool": "b", "layer": 0,
+		"slots": (d.get("slots", {"main": 8, "p1": 4, "p2": 0}) as Dictionary).duplicate(), "tool": "b", "layer": 0, "cmode": cmode,
 		"verified": false, "par": 99, "solution": {}}
 	custom_kind = "editor"
 	_editor_rebuild(true)
@@ -5698,20 +6331,36 @@ func _editor_def() -> Dictionary:
 	var boxes := []
 	var crumbles := []
 	var fuses := []
+	var comps := []
+	var bridges := []
+	var groups := {}
 	for c in editor["cells"]:
 		var v: Vector3i = c
 		match String(editor["cells"][c]):
 			"b": boxes.append([v.x, v.y, v.z, v.x, v.y, v.z])
 			"cr": crumbles.append([v.x, v.y, v.z])
 			"fu": fuses.append([v.x, v.y, v.z])
+			"re":
+				boxes.append([v.x, v.y, v.z, v.x, v.y, v.z])
+				comps.append({"p": [v.x, v.y, v.z], "t": "relay", "id": "E", "mode": String(editor.get("cmode", "OR"))})
+			"br", "bn", "bt":
+				var k: String = editor["cells"][c]
+				var on: String = {"br": "C:E", "bn": "!C:E", "bt": "T:3"}[k]
+				if not groups.has(on):
+					groups[on] = []
+				groups[on].append([v.x, v.y, v.z])
+	for on in groups:
+		bridges.append({"cells": groups[on], "on": on})
 	var cmds := ["F", "L", "R", "J"]
+	if groups.has("T:3"):
+		cmds.append("W")
 	if int(editor["slots"].get("p1", 0)) > 0:
 		cmds.append("1")
 	var s: Vector3i = editor["start"]
 	var g: Vector3i = editor["goal"]
-	return {"name": editor["name"], "boxes": boxes, "crumbles": crumbles, "fuses": fuses, "start": [s.x, s.y, s.z],
+	return {"name": editor["name"], "boxes": boxes, "crumbles": crumbles, "fuses": fuses, "comps": comps, "bridges": bridges, "start": [s.x, s.y, s.z],
 		"startDir": int(editor["dir"]), "goal": [g.x, g.y, g.z], "slots": editor["slots"].duplicate(), "cmds": cmds,
-		"reps": true, "conds": true, "par": int(editor.get("par", 99)), "chapter": "Atölye", "chapter_tag": "ATÖLYE // " + String(editor["name"]).to_upper(),
+		"reps": true, "conds": true, "relay_cond": not comps.is_empty(), "par": int(editor.get("par", 99)), "chapter": "Atölye", "chapter_tag": "ATÖLYE // " + String(editor["name"]).to_upper(),
 		"palette": 3, "hint": "Kendi kulen: önce çözebildiğini göster, sonra paylaş."}
 
 func _editor_rebuild(reset_cam := false) -> void:
@@ -5759,6 +6408,7 @@ func _editor_update_info() -> void:
 		var b: Button = tb[k]
 		BP.style_button(b, BP.Variant.CYAN_OUTLINE if k == editor["tool"] else (BP.Variant.DANGER if k == "x" else BP.Variant.DEFAULT), BP.R_SMALL)
 	(ed.get_meta("save") as Button).disabled = not editor["verified"]
+	(ed.get_meta("cmode") as Button).text = "DEVRE: " + String(editor.get("cmode", "OR"))
 
 func _editor_tool(t: String) -> void:
 	editor["tool"] = t
@@ -5774,6 +6424,13 @@ func _editor_rotate_start() -> void:
 	editor["dir"] = (int(editor["dir"]) + 1) % 4
 	editor["verified"] = false
 	audio.play("pop")
+	_editor_rebuild()
+
+func _editor_cmode() -> void:
+	# tüm röleler tek bir sinyal hattına bağlıdır: OR (kilitlenir) ya da XOR (tam bir röle basılıyken)
+	editor["cmode"] = "XOR" if String(editor.get("cmode", "OR")) == "OR" else "OR"
+	editor["verified"] = false
+	audio.play("tap")
 	_editor_rebuild()
 
 func _editor_slots(row: String, d: int) -> void:
@@ -5796,7 +6453,7 @@ func _editor_click(pos: Vector2) -> void:
 	var cells: Dictionary = editor["cells"]
 	var tool: String = editor["tool"]
 	match tool:
-		"b", "cr", "fu":
+		"b", "cr", "fu", "re", "br", "bn", "bt":
 			if cells.size() >= 160 and not cells.has(cell):
 				_toast("En fazla 160 blok")
 				return
@@ -5897,6 +6554,9 @@ const ACH := [
 	["rep", "SAYAÇ", "Sayaçlı tekrarla bir bulmaca çöz"],
 	["architect", "MİMAR", "Kendi kuleni doğrula ve kaydet"],
 	["chal10", "MEYDAN OKUYAN", "10 meydan okuma tamamla"],
+	["bug1", "BÖCEK AVCISI", "Bir Hata Avı görevini tamamla"],
+	["bug10", "HATA AYIKLAYICI", "10 Hata Avı görevi tamamla"],
+	["photo", "FOTOĞRAFÇI", "Fotoğraf modunda bir kare kaydet"],
 ]
 
 func _phase_done(ph: int) -> bool:
@@ -5932,6 +6592,9 @@ func _check_achievements(ctx := {}) -> void:
 		"rep": bool(ctx.get("rep", false)),
 		"architect": not (progress.get("my_towers", []) as Array).is_empty(),
 		"chal10": int(st.get("chal", 0)) >= 10,
+		"bug1": int(st.get("bugs", 0)) >= 1,
+		"bug10": int(st.get("bugs", 0)) >= 10,
+		"photo": int(st.get("photos", 0)) >= 1,
 	}
 	var newly := []
 	for a in ACH:
@@ -5944,7 +6607,77 @@ func _check_achievements(ctx := {}) -> void:
 		if not instant:
 			get_tree().create_timer(0.6).timeout.connect(func(): _toast("BAŞARIM // " + ", ".join(newly)))
 
-const ACCESSORIES := [["none", "YOK", 0], ["cap", "BARET", 20], ["phones", "KULAKLIK", 60], ["crown", "TAÇ", 150], ["halo", "HALE", 250]]
+## Koleksiyon: [id, ad, koşul] — koşul int ise toplam yıldız, String ise başarım kimliği
+const ACCESSORIES := [["none", "YOK", 0], ["antenna", "ANTEN", 5], ["cap", "BARET", 20], ["bow", "PAPYON", 40], ["phones", "KULAKLIK", 60],
+	["glasses", "GÖZLÜK", 90], ["crown", "TAÇ", 150], ["tophat", "SİLİNDİR", 200], ["halo", "HALE", 250],
+	["scarf", "ATKI", "streak3"], ["wizard", "BÜYÜCÜ", "bug1"], ["propeller", "PERVANE", "chal10"], ["visor", "VİZÖR", "photo"],
+	["ears", "KEDİ KULAĞI", "rep"], ["flower", "ÇİÇEK", "daily1"]]
+## Gövde boyaları: [id, ad, koşul, renk, metal, pürüz, ışıma]
+const PAINTS := [["amber", "KEHRİBAR", 0, "#ff9a3c", 0.0, 0.45, 0.0], ["ice", "BUZ", 10, "#7fe3ff", 0.1, 0.35, 0.0],
+	["crimson", "KIZIL", 30, "#d8344a", 0.1, 0.4, 0.0], ["forest", "ORMAN", 50, "#3fae6a", 0.0, 0.5, 0.0],
+	["porcelain", "PORSELEN", 80, "#eef1f4", 0.0, 0.25, 0.0], ["chrome", "KROM", 120, "#e4e8ee", 0.75, 0.16, 0.0],
+	["pearl", "İNCİ", 280, "#f3e6f2", 0.35, 0.2, 0.0], ["gold", "ALTIN", "parts100", "#e6b93c", 1.0, 0.18, 0.0],
+	["copper", "BAKIR", "daily1", "#c87533", 1.0, 0.3, 0.0], ["carbon", "KARBON", "streak7", "#1f2229", 0.6, 0.3, 0.0],
+	["blueprint", "BLUEPRINT", "architect", "#1f5fbf", 0.2, 0.35, 0.4], ["neon", "NEON", "bug10", "#ff3fd8", 0.0, 0.3, 1.6]]
+
+func _coll_ok(req) -> bool:
+	if req is String:
+		return (progress.get("ach", {}) as Dictionary).has(req)
+	return _total_stars() >= int(req)
+
+func _coll_req_text(req) -> String:
+	if req is String:
+		for a in ACH:
+			if a[0] == req:
+				return "🔒 " + String(a[1])
+		return "🔒"
+	return "★%d" % int(req)
+
+func _coll_row(arow: HFlowContainer, items: Array, key: String, def_id: String, apply: Callable) -> void:
+	for c in arow.get_children():
+		c.queue_free()
+	var cur: String = progress.get(key, def_id)
+	for a in items:
+		var ok := _coll_ok(a[2])
+		var b := Button.new()
+		b.text = String(a[1]) if ok else "%s %s" % [a[1], _coll_req_text(a[2])]
+		b.focus_mode = Control.FOCUS_NONE
+		b.custom_minimum_size = Vector2(80, 44)
+		b.add_theme_font_override("font", UIKit.font_black)
+		b.add_theme_font_size_override("font_size", 13)
+		BP.style_button(b, BP.Variant.CYAN_OUTLINE if cur == a[0] else BP.Variant.DEFAULT, BP.R_SMALL)
+		if a.size() > 3:
+			b.add_theme_color_override("font_color", Color(String(a[3])).lerp(Color.WHITE, 0.35))
+		b.disabled = not ok
+		var id: String = a[0]
+		b.pressed.connect(func():
+			progress[key] = id
+			_save_progress()
+			audio.play("pop")
+			if objs.has("player"):
+				apply.call(objs["player"])
+			_open_achievements())
+		arow.add_child(b)
+
+func _robot_paint(g: Node3D) -> void:
+	if not g.has_meta("paint_mats"):
+		return
+	var id: String = progress.get("paint", "amber")
+	var p: Array = PAINTS[0]
+	for e in PAINTS:
+		if e[0] == id:
+			p = e
+	for m in g.get_meta("paint_mats"):
+		var sm := m as StandardMaterial3D
+		if sm == null:
+			continue
+		sm.albedo_color = Color(String(p[3]))
+		sm.metallic = float(p[4])
+		sm.roughness = float(p[5])
+		sm.emission_enabled = float(p[6]) > 0.0
+		if sm.emission_enabled:
+			sm.emission = Color(String(p[3]))
+			sm.emission_energy_multiplier = float(p[6])
 
 func _open_achievements() -> void:
 	audio.play("tap")
@@ -5976,30 +6709,13 @@ func _open_achievements() -> void:
 		al.add_child(p)
 	var vs := get_viewport().get_visible_rect().size
 	(ac.get_meta("scroll") as ScrollContainer).custom_minimum_size.y = clampf(vs.y - 380.0, 160.0, 420.0)
-	var arow: HFlowContainer = ac.get_meta("acc")
-	for c in arow.get_children():
-		c.queue_free()
-	var stars := _total_stars()
-	var cur: String = progress.get("accessory", "none")
-	for a in ACCESSORIES:
-		var ok: bool = stars >= int(a[2])
-		var b := Button.new()
-		b.text = String(a[1]) if ok else "%s ★%d" % [a[1], a[2]]
-		b.focus_mode = Control.FOCUS_NONE
-		b.custom_minimum_size = Vector2(80, 44)
-		b.add_theme_font_override("font", UIKit.font_black)
-		b.add_theme_font_size_override("font_size", 13)
-		BP.style_button(b, BP.Variant.CYAN_OUTLINE if cur == a[0] else BP.Variant.DEFAULT, BP.R_SMALL)
-		b.disabled = not ok
-		var id: String = a[0]
-		b.pressed.connect(func():
-			progress["accessory"] = id
-			_save_progress()
-			audio.play("pop")
-			if objs.has("player"):
-				_robot_accessory(objs["player"])
-			_open_achievements())
-		arow.add_child(b)
+	_coll_row(ac.get_meta("acc"), ACCESSORIES, "accessory", "none", _robot_accessory)
+	_coll_row(ac.get_meta("paint"), PAINTS, "paint", "amber", _robot_paint)
+	var have := 0
+	for a in ACCESSORIES + PAINTS:
+		if _coll_ok(a[2]):
+			have += 1
+	(ac.get_meta("coll") as Label).text = "ROBO // KOLEKSİYON  %d / %d" % [have, ACCESSORIES.size() + PAINTS.size()]
 	_show("achievements")
 
 func _robot_accessory(g: Node3D) -> void:
@@ -6041,6 +6757,83 @@ func _robot_accessory(g: Node3D) -> void:
 			var hm := _mat(BP.ACCENT_CYAN, {"emit": 3.0, "unshaded": true})
 			var h := _mesh(_torus(0.15, 0.19), hm, Vector3(0, 0.14, 0), root)
 			h.scale = Vector3(1, 0.25, 1)
+		"antenna":
+			_mesh(_cyl(0.012, 0.012, 0.22), _mat("#30333b", {"rough": 0.3}), Vector3(0, 0.1, 0), root)
+			_mesh(_sphere(0.04), _mat("#ff4060", {"emit": 3.0}), Vector3(0, 0.23, 0), root)
+		"bow":
+			var bm := _mat("#d8344a", {"rough": 0.6})
+			for sx in [-1.0, 1.0]:
+				var w := _mesh(_cyl(0.0, 0.06, 0.09), bm, Vector3(sx * 0.05, -0.3, 0.22), root)
+				w.rotation.z = -sx * PI / 2
+			_mesh(_sphere(0.028), bm, Vector3(0, -0.3, 0.23), root)
+		"glasses":
+			var fm := _mat("#14161b", {"rough": 0.3})
+			var lm := _mat("#7fe3ff", {"rough": 0.05, "alpha": true})
+			lm.albedo_color.a = 0.45
+			for sx in [-1.0, 1.0]:
+				var rim := _mesh(_torus(0.055, 0.07), fm, Vector3(sx * 0.1, -0.09, 0.3), root)
+				rim.rotation.x = PI / 2
+				var lens := _mesh(_cyl(0.056, 0.056, 0.01), lm, Vector3(sx * 0.1, -0.09, 0.3), root)
+				lens.rotation.x = PI / 2
+			_mesh(_box(Vector3(0.07, 0.015, 0.015)), fm, Vector3(0, -0.08, 0.3), root)
+		"tophat":
+			var tm := _mat("#14161b", {"rough": 0.45})
+			_mesh(_cyl(0.27, 0.27, 0.02), tm, Vector3(0, 0.0, 0), root)
+			_mesh(_cyl(0.16, 0.16, 0.24), tm, Vector3(0, 0.13, 0), root)
+			_mesh(_cyl(0.165, 0.165, 0.04), _mat("#d8344a"), Vector3(0, 0.04, 0), root)
+		"scarf":
+			var sm := _mat("#e8648a", {"rough": 0.85})
+			var ring := _mesh(_torus(0.2, 0.27), sm, Vector3(0, -0.36, 0), root)
+			ring.scale = Vector3(1, 1.6, 1)
+			var tail := _mesh(_box(Vector3(0.08, 0.2, 0.03)), sm, Vector3(0.12, -0.46, 0.24), root)
+			tail.rotation.z = 0.25
+		"wizard":
+			var wm := _mat("#5a3fbf", {"rough": 0.7})
+			_mesh(_cyl(0.26, 0.26, 0.02), wm, Vector3.ZERO, root)
+			var cone := _mesh(_cyl(0.0, 0.17, 0.36), wm, Vector3(0, 0.19, 0), root)
+			cone.rotation.z = 0.15
+			for k in 3:
+				_mesh(_sphere(0.022), _mat("#ffd54a", {"emit": 2.5}), Vector3(cos(k * 2.1) * 0.1, 0.1 + k * 0.07, sin(k * 2.1) * 0.1 + 0.05), root)
+		"propeller":
+			_mesh(_cyl(0.2, 0.2, 0.06), _mat("#3f8fe8", {"rough": 0.5}), Vector3(0, 0.02, 0), root)
+			_mesh(_cyl(0.015, 0.015, 0.1), _mat("#30333b"), Vector3(0, 0.09, 0), root)
+			var hub := Node3D.new()
+			hub.position = Vector3(0, 0.14, 0)
+			root.add_child(hub)
+			for k in 3:
+				var blade := _mesh(_box(Vector3(0.22, 0.008, 0.05)), _mat(["#ff4060", "#ffd54a", "#3fae6a"][k]), Vector3(cos(k * TAU / 3) * 0.11, 0, sin(k * TAU / 3) * 0.11), hub)
+				blade.rotation.y = -k * TAU / 3
+			var spin := func():
+				var tw := hub.create_tween().set_loops()
+				tw.tween_property(hub, "rotation:y", TAU, 0.5).as_relative()
+			if hub.is_inside_tree():
+				spin.call()
+			else:
+				hub.tree_entered.connect(spin, CONNECT_ONE_SHOT)
+		"visor":
+			var vm := _mat(BP.ACCENT_CYAN, {"emit": 2.2, "alpha": true, "unique": true})
+			vm.albedo_color.a = 0.6
+			var v := _mesh(_cyl(0.3, 0.3, 0.09), vm, Vector3(0, -0.09, 0.02), root)
+			v.scale = Vector3(1, 1, 1.02)
+			_mesh(_box(Vector3(0.62, 0.1, 0.02)), _mat("#14161b"), Vector3(0, -0.09, -0.29), root)
+		"ears":
+			var em := _mat("#2a2c33", {"rough": 0.6})
+			var im := _mat("#ff9ac0", {"rough": 0.6})
+			for sx in [-1.0, 1.0]:
+				var ear := _mesh(_cyl(0.0, 0.09, 0.14), em, Vector3(sx * 0.15, 0.04, 0), root)
+				ear.rotation.z = -sx * 0.35
+				var inner := _mesh(_cyl(0.0, 0.05, 0.09), im, Vector3(sx * 0.15, 0.03, 0.03), root)
+				inner.rotation.z = -sx * 0.35
+		"flower":
+			var pm := _mat("#ff9ac0", {"rough": 0.6})
+			var fl := Node3D.new()
+			fl.position = Vector3(0.14, 0.0, 0.08)
+			fl.rotation.z = -0.4
+			root.add_child(fl)
+			for k in 5:
+				var pt := _mesh(_sphere(0.045), pm, Vector3(cos(k * TAU / 5) * 0.05, 0, sin(k * TAU / 5) * 0.05), fl)
+				pt.scale = Vector3(1, 0.4, 1)
+			_mesh(_sphere(0.03), _mat("#ffd54a"), Vector3(0, 0.01, 0), fl)
 
 # ---------- hikâye ----------
 const STORY := [
@@ -6269,3 +7062,213 @@ func _build_cinematic_test(dvb: VBoxContainer) -> void:
 		ph.append(["F%d" % k, func(): _cine_test(kk * 10)])
 	_dev_row(dvb, ph)
 	_dev_row(dvb, [["100. SEVİYE BÜYÜK FİNALİ", _final_test, true]])
+
+
+# ---------- performans ölçümü ----------
+# godot --path godot-program -- --perftest   (ekranlı; başsızda kare süresi anlamsızdır ama çizim çağrıları sayılır)
+## Her senaryoda: ortalama / p95 / en kötü kare süresi (ms), 33 ms üstü takılma sayısı, kare başına çizim çağrısı,
+## nesne ve ilkel sayısı; ayrıca kurulum süreleri (seviye kurma, satır çizimi, seviye haritası). Sonuç: user://perf.json
+func _perf_measure(frames: int) -> Dictionary:
+	var times := []
+	var dc := 0
+	var objs_n := 0
+	var prims := 0
+	var last := Time.get_ticks_usec()
+	for f in frames:
+		await get_tree().process_frame
+		var now := Time.get_ticks_usec()
+		times.append((now - last) / 1000.0)
+		last = now
+		dc = maxi(dc, RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME))
+		objs_n = maxi(objs_n, RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_OBJECTS_IN_FRAME))
+		prims = maxi(prims, RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_PRIMITIVES_IN_FRAME))
+	times.remove_at(0)
+	var sorted := times.duplicate()
+	sorted.sort()
+	var sum := 0.0
+	var hitches := 0
+	for t in times:
+		sum += t
+		if t > 33.4:
+			hitches += 1
+	return {"avg": snappedf(sum / times.size(), 0.01), "p95": snappedf(sorted[int(sorted.size() * 0.95)], 0.01),
+		"worst": snappedf(sorted.back(), 0.01), "hitches": hitches, "draw_calls": dc, "objects": objs_n, "primitives": prims}
+
+func _perftest() -> void:
+	var report := {"renderer": RenderingServer.get_current_rendering_method(), "gfx": gfx, "scenes": {}}
+	var t0 := Time.get_ticks_usec()
+	_show_title()
+	report["build_title_ms"] = (Time.get_ticks_usec() - t0) / 1000.0
+	report["scenes"]["title"] = await _perf_measure(120)
+	t0 = Time.get_ticks_usec()
+	_open_levels()
+	report["open_levels_ms"] = (Time.get_ticks_usec() - t0) / 1000.0
+	report["scenes"]["levels"] = await _perf_measure(90)
+	for li in [0, 11, 40, 61, 98]:
+		progress["seen"][str(li)] = 1
+		progress["story"] = {"0": 1, "1": 1, "2": 1, "3": 1, "4": 1, "5": 1, "6": 1, "7": 1, "8": 1, "9": 1}
+		t0 = Time.get_ticks_usec()
+		_start_level(li)
+		report["build_level_%d_ms" % (li + 1)] = (Time.get_ticks_usec() - t0) / 1000.0
+		prog = Program.parse_program(levels[li]["solution"])
+		t0 = Time.get_ticks_usec()
+		_render_rows()
+		report["render_rows_%d_ms" % (li + 1)] = (Time.get_ticks_usec() - t0) / 1000.0
+		report["scenes"]["level_%d_idle" % (li + 1)] = await _perf_measure(120)
+		_run_toggle()
+		report["scenes"]["level_%d_run" % (li + 1)] = await _perf_measure(150)
+	t0 = Time.get_ticks_usec()
+	_open_assembly("showcase")
+	report["open_showcase_ms"] = (Time.get_ticks_usec() - t0) / 1000.0
+	report["scenes"]["showcase"] = await _perf_measure(90)
+	_close_assembly()
+	var f := FileAccess.open("user://perf.json", FileAccess.WRITE)
+	f.store_string(JSON.stringify(report, "  "))
+	f.close()
+	print("perftest: " + JSON.stringify(report))
+	get_tree().quit()
+
+## Başsız yapısal akıcılık testi (CI): gölge vekili, vitrin toplaması, kurulum süreleri, varlık ısıtması
+func _perfcheck() -> void:
+	var fails := []
+	var info := {}
+	# gerçek akıştaki gibi: varlıklar başlık ekranında ısıtılır, seviye kurulumu sonra ölçülür
+	perf.start_warmup()
+	var g0 := 0
+	while not perf.warm_done and g0 < 600:
+		await get_tree().process_frame
+		g0 += 1
+	for li in [0, 40, 98]:
+		progress["seen"][str(li)] = 1
+		var t0 := Time.get_ticks_usec()
+		_start_level(li)
+		var ms := (Time.get_ticks_usec() - t0) / 1000.0
+		info["build_%d" % (li + 1)] = snappedf(ms, 0.1)
+		if ms > 400.0:
+			fails.append("seviye %d kurulumu %.0f ms" % [li + 1, ms])
+		if not objs.has("shadow_proxy"):
+			fails.append("seviye %d: gölge vekili yok" % (li + 1))
+		var casters := 0
+		for p in cell_nodes:
+			for mi in PartBuilder._meshes_in(cell_nodes[p]):
+				if (mi as GeometryInstance3D).cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_OFF:
+					casters += 1
+		if casters > 0:
+			fails.append("seviye %d: %d hücre meshi hâlâ gölge düşürüyor" % [li + 1, casters])
+	var ids := []
+	for k in range(1, 101):
+		ids.append(k)
+	progress["unlocked_parts"] = ids
+	_open_assembly("showcase")
+	for f in 4:
+		await get_tree().process_frame
+	var br = assembly._batch_root
+	if br == null:
+		fails.append("vitrin toplaması yapılmadı")
+	else:
+		info["batch_groups"] = br.get_child_count()
+		if br.get_child_count() > 90:
+			fails.append("vitrin toplaması %d grup (en fazla 90)" % br.get_child_count())
+	_close_assembly()
+	perf.start_warmup()
+	var guard := 0
+	while not perf.warm_done and guard < 600:
+		await get_tree().process_frame
+		guard += 1
+	info["warm_frames"] = guard
+	info["warm_cached"] = perf.cache.size()
+	if not perf.warm_done or perf.cache.size() < 20:
+		fails.append("varlık ısıtması tamamlanmadı (%d kaynak, %d kare)" % [perf.cache.size(), guard])
+	print("perfcheck: %s %s" % ["TAMAM" if fails.is_empty() else "HATA " + str(fails), JSON.stringify(info)])
+	get_tree().quit(0 if fails.is_empty() else 1)
+
+
+# ---------- açılış filmi (motor içinde, başlık dioraması üzerinde) ----------
+var _film: Control = null
+var _film_tw: Tween = null
+
+const FILM := [
+	# [süre, kamera: hedef ofseti (diorama tabanına göre), zoom, açı, "konuşan", altyazı]
+	[5.0, Vector3(0, 1.0, 0), 0.6, 60.0, "", "Bir zamanlar, devrelerden yapılmış yüzen bir ada vardı."],
+	[5.0, Vector3(0.1, 4.0, 0), 1.7, 95.0, "", "Kulenin tepesindeki çekirdek sönünce, bilgisayar 100 parçaya dağıldı."],
+	[5.0, Vector3(2.7, 0.4, 0.05), 2.6, 130.0, "", "Robo, onu yeniden toplayabilecek tek tamir dronu."],
+	[5.0, Vector3(1.4, 1.2, 0.0), 1.4, 165.0, "NOVA", "Ben Nova. Robo'yu programlamayı sana ben öğreteceğim. Hazır mısın?"],
+	[3.0, Vector3(0, -1.2, 0), 1.0, 200.0, "", ""],
+]
+
+func _play_intro_film() -> void:
+	if instant or title_dio == null or _film != null:
+		progress["intro_film"] = 1
+		return
+	var root: Control = fx_layer.get_child(0)
+	_film = Control.new()
+	_film.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_film.mouse_filter = Control.MOUSE_FILTER_STOP
+	root.add_child(_film)
+	var vs := get_viewport().get_visible_rect().size
+	var bar_h := vs.y * 0.12
+	var top := ColorRect.new()
+	top.color = Color.BLACK
+	top.size = Vector2(vs.x, bar_h)
+	top.position = Vector2(0, -bar_h)
+	_film.add_child(top)
+	var bot := ColorRect.new()
+	bot.color = Color.BLACK
+	bot.size = Vector2(vs.x, bar_h)
+	bot.position = Vector2(0, vs.y)
+	_film.add_child(bot)
+	var who := BP.tag("", 13, BP.ACCENT_CYAN)
+	var cap := UIKit.label("", 22, BP.TEXT_PRIMARY, UIKit.font_bold)
+	cap.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	cap.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	who.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var cv := VBoxContainer.new()
+	cv.add_child(who)
+	cv.add_child(cap)
+	cv.size = Vector2(minf(vs.x - 40.0, 900.0), bar_h)
+	cv.position = Vector2((vs.x - cv.size.x) / 2.0, vs.y - bar_h + 8.0)
+	cv.alignment = BoxContainer.ALIGNMENT_CENTER
+	_film.add_child(cv)
+	var skip := _bp_button("GEÇ", BP.Variant.GHOST, _end_intro_film, "step", 44, 15)
+	skip.position = Vector2(vs.x - 130.0, 14.0)
+	_film.add_child(skip)
+	screens["title"].visible = false
+	cam_spin = false
+	var base := title_dio.position
+	_film_tw = create_tween()
+	_film_tw.set_parallel(true)
+	_film_tw.tween_property(top, "position:y", 0.0, 0.8).set_trans(Tween.TRANS_CUBIC)
+	_film_tw.tween_property(bot, "position:y", vs.y - bar_h, 0.8).set_trans(Tween.TRANS_CUBIC)
+	_film_tw.set_parallel(false)
+	for shot in FILM:
+		var dur: float = shot[0]
+		var tgt: Vector3 = base + (shot[1] as Vector3)
+		_film_tw.tween_callback(func():
+			who.text = String(shot[4])
+			cap.text = String(shot[5])
+			cap.visible_ratio = 0.0
+			var tw2 := cap.create_tween()
+			tw2.tween_property(cap, "visible_ratio", 1.0, minf(2.2, dur * 0.5)))
+		_film_tw.set_parallel(true)
+		_film_tw.tween_property(self, "cam_target", tgt, dur * 0.85).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		_film_tw.tween_property(self, "cam_zoom", float(shot[2]), dur * 0.85).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		_film_tw.tween_property(self, "cam_az", float(shot[3]), dur).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		_film_tw.set_parallel(false)
+		_film_tw.tween_interval(0.01)
+		_film_tw.tween_interval(dur * 0.15)
+	_film_tw.tween_callback(_end_intro_film)
+
+func _end_intro_film() -> void:
+	if _film == null:
+		return
+	if _film_tw != null:
+		_film_tw.kill()
+	progress["intro_film"] = 1
+	_save_progress()
+	var f := _film
+	_film = null
+	var tw := f.create_tween()
+	tw.tween_property(f, "modulate:a", 0.0, 0.5)
+	tw.tween_callback(f.queue_free)
+	_show_title()
+

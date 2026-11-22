@@ -112,6 +112,7 @@ func begin(world: Node3D, part_id: int, node: Node3D, part_size: Vector3) -> boo
 	ap.seek(0.0, true)
 	cam.current = true
 	cam.near = 0.02
+	VisualFX.dof(cam, 2.0 * rig.scale.x if kind == "level" else 4.0, VisualFX.quality, 0.07)
 	# parçayı soket çapasına bağla (dünya ölçeği korunur)
 	part_node = node
 	_part_parent = node.get_parent()

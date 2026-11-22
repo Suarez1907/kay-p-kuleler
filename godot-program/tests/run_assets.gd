@@ -25,8 +25,8 @@ func _init() -> void:
 		if not _has_mat(robot, "RobotLED"):
 			fails.append("robot: RobotLED yuvası yok")
 		var t := AssetLoader.triangle_count(robot)
-		if t > 10000:
-			fails.append("robot üçgen %d > 10000" % t)
+		if t > 40000:
+			fails.append("robot üçgen %d > 40000" % t)
 		var b := _box(robot)
 		if absf(b.position.y) > 0.01:
 			fails.append("robot tabanı y=0 değil")
@@ -42,7 +42,7 @@ func _init() -> void:
 			fails.append("%s tabanı y=0 değil" % nm)
 		if nm == "bridge" and absf(b2.end.y) > 0.01:
 			fails.append("köprü üst yüzü y=0 değil")
-		if AssetLoader.triangle_count(c) > 8000:
+		if AssetLoader.triangle_count(c) > 32000:
 			fails.append("%s üçgen bütçesi" % nm)
 		if nm in ["smd_transistor", "diode", "capacitor", "resistor", "relay"] and not _has_mat(c, "Pins"):
 			fails.append("%s: Pins yuvası yok" % nm)
@@ -63,7 +63,7 @@ func _init() -> void:
 			fails.append("parça %d montaj kutusundan taşıyor" % pd.part_id)
 		var tc := AssetLoader.triangle_count(m)
 		tot += tc
-		if tc > 14000:
+		if tc > 56000:
 			fails.append("parça %d üçgen %d" % [pd.part_id, tc])
 	if not _has_mat(AssetLoader.part_model(94, PCPartLibrary.part(94).assembly_scale), "MonitorScreen"):
 		fails.append("monitör ekranı: MonitorScreen yuvası yok")
@@ -76,7 +76,9 @@ func _init() -> void:
 	if ap == null:
 		fails.append("robot: AnimationPlayer yok")
 	else:
-		for clip in ["idle", "walk", "turn", "fall", "victory", "wave", "look"]:
+		for clip in ["idle", "walk", "turn", "fall", "victory", "wave", "look", "turn_left", "turn_right", "climb", "jump_prep",
+				"jump_air", "land", "bump", "stumble", "push", "wait_tap", "idle_yawn", "idle_wipe", "idle_whistle", "happy", "sad",
+				"think", "point", "surprised", "spin", "teleport", "sleep", "dance"]:
 			if not ap.has_animation(clip):
 				fails.append("robot animasyonu yok: " + clip)
 	# bulmaca nesneleri
@@ -85,7 +87,7 @@ func _init() -> void:
 		var pz := AssetLoader.load_model(AssetLoader.MODELS + "puzzle/%s.glb" % nm, Vector3.ONE)
 		if pz == null:
 			fails.append("bulmaca modeli yok: " + nm)
-		elif AssetLoader.triangle_count(pz) > 6000:
+		elif AssetLoader.triangle_count(pz) > 24000:
 			fails.append("bulmaca %s üçgen bütçesi" % nm)
 	for pair in [["goal_crystal", "CrystalCore"], ["plate", "PlateLED"], ["portal", "PortalGlow"], ["phantom", "PhantomFrame"]]:
 		var pm := AssetLoader.load_model(AssetLoader.MODELS + "puzzle/%s.glb" % pair[0], Vector3.ONE)
@@ -96,7 +98,7 @@ func _init() -> void:
 		var sn := AssetLoader.scene_model(sc)
 		if sn == null:
 			fails.append("sahne yok: " + sc)
-		elif AssetLoader.triangle_count(sn) > 40000:
+		elif AssetLoader.triangle_count(sn) > 160000:
 			fails.append("sahne %s üçgen bütçesi" % sc)
 	var dio := AssetLoader.scene_model("title_diorama")
 	if dio != null and dio.find_child("RobotSpot", true, false) == null:

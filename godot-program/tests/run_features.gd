@@ -50,6 +50,40 @@ func _init() -> void:
 	s0.load_level(_lvl())
 	if Program.current_on(s0.initial_state()):
 		fails.append("röle yokken akım var görünüyor")
+	# 3b) mantık kapıları ve zamanlayıcı: 0..2 blok, 3 köprü, 4..5 blok; röle 1'de
+	var base := {"boxes": [[0, 0, 0, 2, 0, 0], [4, 0, 0, 5, 0, 0]], "start": [0, 1, 0], "startDir": 0, "goal": [5, 1, 0],
+		"slots": {"main": 8, "p1": 0, "p2": 0}, "cmds": ["F", "W"], "comps": [{"p": [1, 0, 0], "t": "relay", "id": "G", "mode": "OR"}]}
+	var or_l := base.duplicate(true)
+	or_l["bridges"] = [{"cells": [[3, 0, 0]], "on": "C:G"}]
+	if _run(or_l, {"main": ["F*4", "F"]}) != "win":
+		fails.append("OR röle köprüsü açılmadı")
+	var not_l := base.duplicate(true)
+	not_l["bridges"] = [{"cells": [[3, 0, 0]], "on": "!C:G"}]
+	if _run(not_l, {"main": ["F*4", "F"]}) == "win":
+		fails.append("NOT köprü röleye basınca kapanmalı")
+	var xor_l := base.duplicate(true)
+	xor_l["comps"] = [{"p": [1, 0, 0], "t": "relay", "id": "X", "mode": "XOR"}, {"p": [2, 0, 0], "t": "relay", "id": "X", "mode": "XOR"}]
+	xor_l["bridges"] = [{"cells": [[3, 0, 0]], "on": "C:X"}]
+	# XOR anlıktır: Robo tek röledeyken akım var, iki röle de boşken yok (kilitlenmez)
+	var LX := PuzzleLogic.new()
+	LX.load_level(xor_l.duplicate(true))
+	var sx := LX.initial_state()
+	var on0 := Program.current_on(sx)
+	sx = Program.cmd_step(LX, sx, "F")["state"]
+	var on1 := Program.current_on(sx)
+	sx = Program.cmd_step(LX, sx, "F")["state"]
+	var on2 := Program.current_on(sx)
+	if on0 or not on1 or not on2:
+		fails.append("XOR sinyali yanlış (%s %s %s)" % [on0, on1, on2])
+	var t_l := base.duplicate(true)
+	t_l.erase("comps")
+	t_l["bridges"] = [{"cells": [[3, 0, 0]], "on": "T:2"}]
+	t_l["slots"] = {"main": 9, "p1": 0, "p2": 0}
+	# T:2 → turlar 0-1 açık, 2-3 kapalı, 4-5 açık: beklemeden geçilemez, bir mola ile geçilir
+	var tr1 := _run(t_l, {"main": ["F", "F", "F", "F", "F"]})
+	var tr2 := _run(t_l, {"main": ["F", "F", "W", "F", "F", "F"]})
+	if tr1 == "win" or tr2 != "win":
+		fails.append("zamanlayıcı köprü (beklemesiz %s, molalı %s)" % [tr1, tr2])
 	# 4) günlük bulmaca: 30 gün, hepsi çözülebilir; aynı tohum aynı seviye; sayaç kullanılabilir
 	var made := 0
 	var rep_used := 0
@@ -70,11 +104,29 @@ func _init() -> void:
 				break
 	if rep_used == 0:
 		fails.append("günlük bulmacalarda sayaç hiç kullanılmadı")
+	# 4b) Hata Avı: her kampanya seviyesinden hatalı program üretilir; hatalı başarısız, onarım mesafesi ≤ hata sayısı×2
+	var lv_all: Array = LevelProgressionManager.levels()
+	var bh := 0
+	for i in range(0, 100, 3):
+		for bugs in [1, 2]:
+			var bd := BugHunt.make(lv_all[i], 1000 + i, bugs)
+			if bd.is_empty():
+				continue
+			bh += 1
+			if _run(bd, bd["starter"]) == "win":
+				fails.append("hata avı %d: hatalı program kazanıyor" % i)
+			var e := BugHunt.edits(bd["starter"], lv_all[i]["hint_solution"])
+			if e < 1 or e > bugs * 2:
+				fails.append("hata avı %d: düzenleme mesafesi %d" % [i, e])
+	if bh < 50:
+		fails.append("hata avı az üretildi: %d" % bh)
+	if BugHunt.edits({"main": ["F", "L", "F"]}, {"main": ["F", "F"]}) != 1 or BugHunt.stars(3, 1) != 2:
+		fails.append("hata avı puanlama")
 	# 5) kule kodu gidiş-dönüşü (main.gd'deki biçimle aynı: KKL1 + base64 JSON)
 	var lv := _lvl({"name": "Deneme", "fuses": [[2, 0, 0]], "par": 3})
 	var code := "KKL1:" + Marshalls.utf8_to_base64(JSON.stringify(lv))
 	var back = JSON.parse_string(Marshalls.base64_to_utf8(code.substr(5)))
 	if not (back is Dictionary) or back["name"] != "Deneme" or (back["fuses"] as Array).size() != 1:
 		fails.append("kule kodu gidiş-dönüşü")
-	print("features: günlük %d/30 (sayaçlı %d) · %s" % [made, rep_used, "TAMAM" if fails.is_empty() else "HATA " + str(fails)])
+	print("features: günlük %d/30 (sayaçlı %d) · hata avı %d · %s" % [made, rep_used, bh, "TAMAM" if fails.is_empty() else "HATA " + str(fails)])
 	quit(0 if fails.is_empty() else 1)
