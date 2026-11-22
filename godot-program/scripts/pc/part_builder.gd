@@ -17,7 +17,10 @@ static func build(p: PCPartData) -> Node3D:
 	var glb := AssetLoader.part_model(p.part_id, p.assembly_scale, p.optional_glb_path)
 	if glb != null:
 		root.add_child(glb)
-		root.set_meta("bodies", _meshes_in(glb))
+		var ms := _meshes_in(glb)
+		for m in ms:
+			(m as MeshInstance3D).material_overlay = AssetLoader.glow_overlay()   # enerji dalgası için
+		root.set_meta("bodies", ms)
 		return root
 	var bodies := []
 	var key := "%s|%s|%s" % [p.procedural_shape, p.assembly_scale, p.color.to_html()]
@@ -50,7 +53,7 @@ static func build(p: PCPartData) -> Node3D:
 ## Parçanın tüm gövdelerine enerji parlaması
 static func set_glow(n: Node3D, v: float) -> void:
 	for b in n.get_meta("bodies", []):
-		if b is GeometryInstance3D and (b as GeometryInstance3D).material_override is ShaderMaterial:
+		if b is GeometryInstance3D and ((b as GeometryInstance3D).material_override is ShaderMaterial or (b as GeometryInstance3D).material_overlay is ShaderMaterial):
 			(b as GeometryInstance3D).set_instance_shader_parameter("glow", v)
 
 static func _meshes_in(n: Node) -> Array:

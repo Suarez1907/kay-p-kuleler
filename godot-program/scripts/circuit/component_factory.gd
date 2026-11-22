@@ -35,17 +35,39 @@ const GLB_NAMES := ["smd_transistor", "diode", "capacitor", "resistor", "relay"]
 ## röle için meta "led" = durum ışığı malzemesi, "contact" = hareketli kontak çubuğu.
 ## res://assets/models/components/<ad>.glb varsa o yüklenir (1×1 hücreye sığdırılır, tabanı hücre tabanına
 ## oturur); res://assets/textures/pbr/<ad>/ doku seti varsa prosedürel modele PBR malzeme bağlanır.
+## Harici modeller kullanılsın mı (Grafik: Düşük'te prosedürel modeller daha hafiftir)
+static var use_models := true
+const BAND_COLORS := {1: ["#6b3a1e", "#151515", "#c0392b", "#d4af37"], 2: ["#c0392b", "#c0392b", "#ff8a1f", "#d4af37"]}
+
 static func build(type: int, dir := 0, delay := 1) -> Node3D:
 	var n := Node3D.new()
 	n.set_meta("type", type)
-	var glb := AssetLoader.component_model(GLB_NAMES[type])
+	var glb: Node3D = AssetLoader.component_model(GLB_NAMES[type]) if use_models else null
 	if glb != null:
 		glb.position.y -= 0.5
 		if type == ComponentType.DIODE:
-			glb.rotation.y = [0.0, -PI / 2, PI, PI / 2][dir % 4]
+			# model akım yönü -Z; oyunda yön 0 = +X
+			glb.rotation.y = [0.0, -PI / 2, PI, PI / 2][dir % 4] - PI / 2
 		n.add_child(glb)
 		var ms := PartBuilder._meshes_in(glb)
 		n.set_meta("body", ms[0] if not ms.is_empty() else MeshInstance3D.new())
+		# bastıkça parlayan bacaklar ve kondansatör şarj halkası: örneğe özel malzeme kopyaları
+		var pins := AssetLoader.unique_surfaces(glb, "Pins")
+		for m in pins:
+			if m is StandardMaterial3D:
+				(m as StandardMaterial3D).emission_enabled = true
+				(m as StandardMaterial3D).emission = Color(1.0, 0.62, 0.22)
+				(m as StandardMaterial3D).emission_energy_multiplier = 0.0
+		n.set_meta("glow_mats", pins)
+		n.set_meta("charge_mats", AssetLoader.unique_surfaces(glb, "ChargeRing"))
+		if type == ComponentType.RESISTOR:
+			var cols: Array = BAND_COLORS[clampi(delay, 1, 2)]
+			for k in 4:
+				for m in AssetLoader.unique_surfaces(glb, "Band%d" % (k + 1)):
+					if m is StandardMaterial3D:
+						(m as StandardMaterial3D).albedo_color = Color(cols[k])
+		if type == ComponentType.RELAY:
+			_relay_extras(n, false)   # modelin kendi pirinç kontak kolu var; yalnızca durum LED'i
 		return n
 	var mi := MeshInstance3D.new()
 	mi.mesh = mesh_for(type, clampi(delay, 1, 2))
@@ -61,6 +83,12 @@ static func build(type: int, dir := 0, delay := 1) -> Node3D:
 		cv.material_override = _cover_material()
 		cv.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		n.add_child(cv)
+		_relay_extras(n)
+	return n
+
+## Röle durum LED'i ve hareketli kontak çubuğu (prosedürel ve harici modelde ortak)
+static func _relay_extras(n: Node3D, contact := true) -> void:
+	if true:
 		var led := StandardMaterial3D.new()
 		led.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		led.albedo_color = Color("#ff4d5e")
@@ -73,6 +101,8 @@ static func build(type: int, dir := 0, delay := 1) -> Node3D:
 		lm.position = Vector3(0.32, 0.52, 0.32)
 		n.add_child(lm)
 		n.set_meta("led", led)
+		if not contact:
+			return
 		# hareketli kontak çubuğu: röle basılınca bobine doğru çekilir
 		var ck := MeshKit.new()
 		ck.box(Vector3(0.17, 0, 0), Vector3(0.34, 0.035, 0.1), MeshKit.col(PIN, MeshKit.METAL))
@@ -83,7 +113,6 @@ static func build(type: int, dir := 0, delay := 1) -> Node3D:
 		cm.position = Vector3(0.0, 0.2, 0)
 		n.add_child(cm)
 		n.set_meta("contact", cm)
-	return n
 
 ## Röle kontak çubuğu: basılıyken bobine çekilir (aşağı eğilir)
 static func set_contact(n: Node3D, pressed: bool) -> void:

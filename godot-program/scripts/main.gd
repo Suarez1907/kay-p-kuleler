@@ -702,6 +702,16 @@ func build_level(i: int, as_preview := false) -> void:
 		var ms := []
 		for c in b["cells"]:
 			grow.call(c)
+			var bg: Node3D = AssetLoader.component_model("bridge", "top") if ComponentFactory.use_models and not b["door"] else null
+			if bg != null:
+				# harici köprü modeli: üst yüzü hücrenin üstüne hizalı; açılırken yükselir
+				var holder := Node3D.new()
+				holder.position = Vector3(c) + Vector3(0, 0.5, 0)
+				holder.add_child(bg)
+				level_root.add_child(holder)
+				holder.set_meta("glb", true)
+				ms.append(holder)
+				continue
 			var m := _mesh(rbox_mesh, _mat(pal["door"] if b["door"] else pal["bridge"], {"alpha": true, "unique": true, "rough": 0.5}), Vector3(c))
 			ms.append(m)
 		objs["bridges"].append(ms)
@@ -967,7 +977,19 @@ func _comp_flash(cell_p: Vector3i, param := "glow", strength := 1.0) -> void:
 	var cell = cell_nodes.get(cell_p)
 	if cell == null or not is_instance_valid(cell) or not cell.has_meta("comp"):
 		return
-	var body: MeshInstance3D = cell.get_meta("comp").get_meta("body")
+	var comp: Node3D = cell.get_meta("comp")
+	var body: MeshInstance3D = comp.get_meta("body")
+	var mats: Array = comp.get_meta("glow_mats" if param == "glow" else "charge_mats", [])
+	if comp.has_meta("glow_mats"):
+		# harici model: bacakların / şarj halkasının emisyonu
+		if mats.is_empty():
+			return
+		var tw2 := _new_tw("cflash:%s:%s" % [cell_p, param], comp)
+		tw2.tween_method(func(v: float):
+			for m in mats:
+				if m is StandardMaterial3D:
+					(m as StandardMaterial3D).emission_energy_multiplier = (3.0 if param == "glow" else 6.0) * v, strength, 0.0, 0.7 / _speed()).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		return
 	var tw := _new_tw("cflash:%s:%s" % [cell_p, param], body)
 	tw.tween_method(func(v: float): body.set_instance_shader_parameter(param, v), strength, 0.0, 0.7 / _speed()).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 
@@ -1100,6 +1122,7 @@ func _make_robot() -> Node3D:
 			if c is MeshInstance3D:
 				(c as MeshInstance3D).visible = false
 		pose.add_child(rglb)
+		g.set_meta("led_mats", AssetLoader.unique_surfaces(rglb, "RobotLED"))
 	# direnç bekleme göstergesi: başın üstünde dönen şarj halkası
 	var wr := _mesh(_torus(0.16, 0.2), _mat("#ffb84d", {"unshaded": true, "unique": true}), Vector3(0, 0.95, 0), g)
 	wr.scale = Vector3(1, 0.2, 1)
@@ -1242,6 +1265,10 @@ func _apply_visual(sA: Dictionary, sB: Dictionary, t: float, bump := false) -> v
 	for i in objs["bridges"].size():
 		var v := lerpf(1.0 if sA["bridges"][i] else 0.0, 1.0 if sB["bridges"][i] else 0.0, te)
 		for m in objs["bridges"][i]:
+			if m.has_meta("glb"):
+				m.visible = v > 0.02
+				m.scale = Vector3(1, maxf(0.05, v), 1)
+				continue
 			m.material_override.albedo_color.a = 0.16 + 0.84 * v
 			m.scale = Vector3.ONE * (0.86 + 0.14 * v)
 			m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if v > 0.5 else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -3436,6 +3463,11 @@ func _apply_led_color() -> void:
 	var bm: StandardMaterial3D = pl.get_meta("bulb")
 	bm.albedo_color = col
 	bm.emission = col
+	for m in pl.get_meta("led_mats", []):
+		if m is StandardMaterial3D:
+			(m as StandardMaterial3D).albedo_color = col
+			(m as StandardMaterial3D).emission_enabled = true
+			(m as StandardMaterial3D).emission = col
 	if pl.has_meta("eye_mat"):
 		var eye: StandardMaterial3D = pl.get_meta("eye_mat")
 		eye.albedo_color = led
@@ -3453,6 +3485,7 @@ func _apply_gfx() -> void:
 	vp.scaling_3d_scale = [0.75, 1.0, 1.5][gfx]
 	RenderingServer.directional_shadow_atlas_set_size([1024, 4096, 4096][gfx], true)
 	weather.set_quality(gfx)
+	ComponentFactory.use_models = gfx >= 1
 
 
 # ---------- HUD ----------
@@ -4424,11 +4457,13 @@ func _feeltest() -> void:
 		if not fs._power_pressed:
 			fails.append("final: güç tuşuna basılmadı")
 		fs.advance(17.0)
-		if fs._lines_shown < 15 or not fs.screen_quad.visible:
+		if fs._lines_shown < 15 or not (fs.screen_quad.visible or fs._glb_screen_on):
 			fails.append("final: BIOS satırları eksik (%d)" % fs._lines_shown)
 		fs.skip()
 		if not fs.done or not fs.desk_root.visible or not fs._btns.visible:
 			fails.append("final: masaüstü ya da butonlar görünmüyor")
+	if fs != null and fs._glb_screen_node == null and AssetLoader.exists("res://assets/models/pc_parts/part_094.glb"):
+		fails.append("final: monitör modelinin MonitorScreen yuvası bağlanmadı")
 	asm2.queue_free()
 	# ses/haptik motoru: bütün sesler önceden üretilmiş olmalı
 	var ah := Sfx.ah()
