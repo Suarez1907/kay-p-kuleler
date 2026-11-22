@@ -116,30 +116,18 @@ func _push(mat: ShaderMaterial, role: int) -> void:
 	mat.set_shader_parameter("stepped_glow", glow)
 
 
+## Arayüz paneli Blueprint v2 paletinde sabit kalır (tema yalnızca 3D sahneyi boyar).
 func _apply_panel() -> void:
 	var panel: PanelContainer = _game.panel
-	if panel == null or theme == null:
+	if panel == null:
 		return
 	var sb := panel.get_theme_stylebox("panel") as StyleBoxFlat
-	if sb == null:
-		return
-	var bg := Color(theme.ui_panel_bg.r, theme.ui_panel_bg.g, theme.ui_panel_bg.b, 0.88)
-	var border := theme.ui_border_color
-	var accent := Color(theme.ui_accent_color.r, theme.ui_accent_color.g, theme.ui_accent_color.b, 0.55)
+	if sb != null:
+		sb.bg_color = BP.SURFACE_PANEL
+		sb.border_color = BP.BORDER_STEEL
 	var sep: ColorRect = _game.panel_sep
-	if _game.instant:
-		sb.bg_color = bg
-		sb.border_color = border
-		if sep:
-			sep.color = accent
-		return
-	if _ui_tw:
-		_ui_tw.kill()
-	_ui_tw = _game.create_tween()
-	_ui_tw.tween_method(func(c: Color): sb.bg_color = c, sb.bg_color, bg, 0.35)
-	_ui_tw.parallel().tween_method(func(c: Color): sb.border_color = c, sb.border_color, border, 0.35)
 	if sep:
-		_ui_tw.parallel().tween_method(func(c: Color): sep.color = c, sep.color, accent, 0.35)
+		sep.color = Color(BP.BORDER_STEEL, 0.55)
 
 
 func _animate(n: Node, dt: float) -> void:

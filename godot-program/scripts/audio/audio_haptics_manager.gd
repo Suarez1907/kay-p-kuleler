@@ -47,10 +47,10 @@ func play(n: String, pitch := 1.0, vol_db := 0.0) -> void:
 
 # ---------- oynanış ----------
 ## Adım: pentatonik dizide yürür, yükseldikçe nota da yükselir
-func step(height: int) -> void:
+func step(height: int, pitch := 1.0) -> void:
 	var idx := posmod(height + _step_i, PENTA.size())
 	_step_i += 1
-	play("step%d" % idx, 1.0, -4.0)
+	play("step%d" % idx, pitch, -4.0)
 
 func cap_launch() -> void:
 	play("cap")

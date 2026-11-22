@@ -11,7 +11,8 @@ from PIL import Image, ImageDraw, ImageFont
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, ".."))
-FONT = os.path.join(ROOT, "godot-program", "fonts", "Nunito.ttf")
+FONT = os.path.join(ROOT, "godot-program", "fonts", "ChakraPetch-Bold.ttf")
+FONT_MED = os.path.join(ROOT, "godot-program", "fonts", "ChakraPetch-SemiBold.ttf")
 
 
 def grad(size, top, bottom):
@@ -43,17 +44,37 @@ def icon(subject):
     subprocess.run([sys.executable, os.path.join(HERE, "make_icons.py")], check=True)
 
 
+def blueprint_bg(w, h):
+    """Blueprint v2 zemini: lacivert, 24 px ızgara, her 5 karede cyan ana çizgi, kenar vinyeti."""
+    img = Image.new("RGBA", (w, h), (7, 18, 36, 255))
+    d = ImageDraw.Draw(img, "RGBA")
+    for x in range(0, w, 24):
+        major = (x // 24) % 5 == 0
+        d.line([(x, 0), (x, h)], fill=(0, 229, 255, 14) if major else (43, 76, 126, 20))
+    for y in range(0, h, 24):
+        major = (y // 24) % 5 == 0
+        d.line([(0, y), (w, y)], fill=(0, 229, 255, 14) if major else (43, 76, 126, 20))
+    vig = Image.new("L", (w, h), 0)
+    vd = ImageDraw.Draw(vig)
+    for k in range(40):
+        a = int(255 * (k / 40) ** 2 * 0.5)
+        vd.rectangle([k * 4, k * 3, w - k * 4, h - k * 3], outline=255 - a)
+    return img
+
+
 def store(subject):
-    img = grad((1024, 500), (255, 206, 168), (120, 104, 196))
+    img = blueprint_bg(1024, 500)
     img.alpha_composite(Image.open(subject).convert("RGBA").resize((1024, 500)))
     dr = ImageDraw.Draw(img)
-    title = font(92, 1000)
-    sub = font(30, 850)
-    for txt, y in (("KAYIP", 92), ("KULELER", 186)):
-        dr.text((60, y + 7), txt, font=title, fill=(84, 52, 160))
-        dr.text((60, y), txt, font=title, fill=(255, 255, 255), stroke_width=4, stroke_fill=(120, 80, 210))
-    dr.text((64, 310), "Robo'yu programla,", font=sub, fill=(255, 255, 255), stroke_width=2, stroke_fill=(84, 52, 160))
-    dr.text((64, 350), "bilgisayarı parça parça topla!", font=sub, fill=(255, 255, 255), stroke_width=2, stroke_fill=(84, 52, 160))
+    dr.text((62, 108), "SYS // KAYIP", font=font(22, 600), fill=(0, 229, 255))
+    dr.text((58, 132), "KULELER", font=font(104, 700), fill=(241, 245, 249))
+    sub = ImageFont.truetype(FONT_MED, 26)
+    dr.text((62, 262), "Robo'yu programla,", font=sub, fill=(127, 166, 201))
+    dr.text((62, 296), "bilgisayarı parça parça topla.", font=sub, fill=(127, 166, 201))
+    # pahlı cyan rozet
+    x0, y0, x1, y1, c = 62, 352, 372, 404, 10
+    dr.polygon([(x0 + c, y0), (x1 - c, y0), (x1, y0 + c), (x1, y1 - c), (x1 - c, y1), (x0 + c, y1), (x0, y1 - c), (x0, y0 + c)], fill=(0, 229, 255))
+    dr.text((x0 + 22, y0 + 10), "▶  100 SEVİYE · GÜNLÜK", font=ImageFont.truetype(FONT, 22), fill=(5, 19, 34))
     out = os.path.join(ROOT, "store", "feature_graphic.png")
     os.makedirs(os.path.dirname(out), exist_ok=True)
     img.convert("RGB").save(out, optimize=True)
