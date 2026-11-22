@@ -49,7 +49,7 @@ jobs:
           path: |
             ~/godot48
             ~/.local/share/godot/export_templates/${{ env.GODOT_VERSION }}.${{ env.GODOT_STATUS }}
-          key: godot-${{ env.GODOT_VERSION }}-${{ env.GODOT_STATUS }}-android-v1
+          key: godot-${{ env.GODOT_VERSION }}-${{ env.GODOT_STATUS }}-android-v2
 
       - name: Godot + Android şablonlarını indir
         if: steps.cache.outputs.cache-hit != 'true'
@@ -60,7 +60,7 @@ jobs:
           curl -fsSL -o g.zip $URL/${N}_linux.x86_64.zip
           unzip -q g.zip -d ~/godot48 && mv ~/godot48/${N}_linux.x86_64 ~/godot48/godot && rm g.zip
           curl -fsSL -o t.tpz $URL/${N}_export_templates.tpz
-          unzip -q -j t.tpz 'templates/version.txt' 'templates/android_debug.apk' 'templates/android_release.apk' \
+          unzip -q -j t.tpz 'templates/version.txt' 'templates/android_debug.apk' 'templates/android_release.apk' 'templates/android_source.zip' \
             -d ~/.local/share/godot/export_templates/$T/
           rm t.tpz
 
@@ -76,6 +76,8 @@ jobs:
           "$G" --headless -- --feeltest 2>&1 | grep -E "feeltest|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
           "$G" --headless --script res://tests/run_parts.gd 2>&1 | grep -E "parts:|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
           "$G" --headless --script res://tests/run_assets.gd 2>&1 | grep -E "assets:|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
+          "$G" --headless --script res://tests/run_features.gd 2>&1 | grep -E "features:|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
+          "$G" --headless --script res://tests/run_cinematics.gd 2>&1 | grep -E "cinematics:|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
           "$G" --headless --script res://tools/level_database_builder.gd -- --check 2>&1 | grep -E "levels_100|ÇÖZÜMSÜZ|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
           "$G" --headless -- --layouttest 2>&1 | grep -E "layouttest|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
 
@@ -101,6 +103,21 @@ jobs:
           tools/godot-android-export.sh "$PWD/dist/KayipKuleler-$VER-debug.apk" debug
           tools/godot-android-export.sh "$PWD/dist/KayipKuleler-$VER.apk" release
           echo "VER=$VER" >> "$GITHUB_ENV"
+
+      - name: Google Play App Bundle (.aab, Gradle) — başarısız olursa APK yayını etkilenmez
+        continue-on-error: true
+        shell: bash
+        run: |
+          export GODOT="$HOME/godot48/godot"
+          export RELEASE_KEYSTORE="$PWD/android/keystore/kayipkuleler.jks" RELEASE_KEY_ALIAS=kayipkuleler RELEASE_KEY_PASS=kayipkuleler
+          timeout 1500 tools/godot-android-aab.sh "$PWD/dist/KayipKuleler-$VER.aab"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: KayipKuleler-aab
+          path: dist/*.aab
+          if-no-files-found: ignore
 
       - uses: actions/upload-artifact@v4
         with:
@@ -130,5 +147,7 @@ jobs:
           target_commitish: ${{ github.sha }}
           name: ${{ format('Kayıp Kuleler {0}', inputs.release_tag != '' && inputs.release_tag || format('v{0}', env.VER)) }}
           prerelease: ${{ startsWith(inputs.release_tag || '', 'g4-') }}
-          files: dist/KayipKuleler-${{ env.VER }}.apk
+          files: |
+            dist/KayipKuleler-${{ env.VER }}.apk
+            dist/KayipKuleler-${{ env.VER }}.aab
           generate_release_notes: true

@@ -45,43 +45,79 @@ func play(n: String, pitch := 1.0, vol_db := 0.0) -> void:
 	p.volume_db = vol_db
 	p.play()
 
+# ---------- ASMR dosya motoru (varsa öncelikli; yoksa prosedürel sesler çalar) ----------
+func _asmr() -> Node:
+	var a := get_node_or_null("/root/ASMR")
+	return a if a != null and a.available and sound_on else null
+
+var _fan_prev := 0.0
+
 # ---------- oynanış ----------
 ## Adım: pentatonik dizide yürür, yükseldikçe nota da yükselir
-func step(height: int) -> void:
+func step(height: int, pitch := 1.0) -> void:
+	var a := _asmr()
+	if a != null and a.play_step(height):
+		return
 	var idx := posmod(height + _step_i, PENTA.size())
 	_step_i += 1
-	play("step%d" % idx, 1.0, -4.0)
+	play("step%d" % idx, pitch, -4.0)
 
 func cap_launch() -> void:
+	var a := _asmr()
+	if a != null and a.play_component("capacitor"):
+		return
 	play("cap")
 
 func error() -> void:
-	play("error")
+	var a := _asmr()
+	if a == null or not a.play_component("diode"):
+		play("error")
 	vibrate_pattern([30, 30])
 
 func relay() -> void:
+	var a := _asmr()
+	if a != null and a.play_component("relay"):
+		return
 	play("relay")
 
 func ui_thock() -> void:
-	play("thock", randf_range(0.95, 1.06))
+	var a := _asmr()
+	if a == null or not a.play_ui_thock():
+		play("thock", randf_range(0.95, 1.06))
 	vibrate(12)
 
 func snap() -> void:
-	play("snap")
+	var a := _asmr()
+	if a == null or not a.play_part_snap():
+		play("snap")
 	vibrate(45)
 
 func power_press() -> void:
-	play("power")
+	var a := _asmr()
+	if a == null or not a.play_power_switch():
+		play("power")
 	vibrate(60)
 
 func post_beep() -> void:
+	var a := _asmr()
+	if a != null and a.play_bios_beep():
+		return
 	play("post")
 
 func desktop_chord() -> void:
+	var a := _asmr()
+	if a != null and a.play_boot_chord():
+		return
 	play("chord")
 
 ## Fan sesi: 0 (sessiz) … 1 (tam devir). Devir arttıkça perde ve ses yükselir.
 func fan(level: float) -> void:
+	# ASMR: fan ilk kez dönmeye başlayınca 6 sn'lik kalkış sesi
+	if level > 0.02 and _fan_prev <= 0.02:
+		var a := _asmr()
+		if a != null:
+			a.play_fan_spinup()
+	_fan_prev = level
 	_fan_level = clampf(level, 0.0, 1.0)
 	if _fan_level <= 0.001 or not sound_on:
 		_fan.stop()

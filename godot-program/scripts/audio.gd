@@ -27,7 +27,8 @@ func _ready() -> void:
 	_build_sounds()
 	_music = AudioStreamPlayer.new()
 	_music.volume_db = -17.0
-	_music.stream = _build_music()
+	_title_music = _build_music()
+	_music.stream = _title_music
 	add_child(_music)
 
 
@@ -138,8 +139,148 @@ func _build_thunder(variant: int) -> AudioStreamWAV:
 		b[i] = (lp * 2.4 * roll) * env + crack
 	return _amb_wav(b, false)
 
+# ---------- faz müziği ----------
+## Her faza kendi akor dizisi, tempo ve arpej deseni: kök (Hz), akorlar (kökten yarım ton), BPM, arpej, pad tınısı.
+const PHASE_MUSIC := [
+	{"root": 261.63, "chords": [[0, 4, 7], [-3, 0, 4], [-7, -3, 0], [-5, -1, 2]], "bpm": 96, "arp": [0, 1, 2, 1], "wave": "sine"},
+	{"root": 293.66, "chords": [[0, 3, 7], [-2, 2, 5], [-4, 0, 3], [-5, -2, 2]], "bpm": 100, "arp": [0, 2, 1, 2], "wave": "tri"},
+	{"root": 246.94, "chords": [[0, 4, 7], [5, 9, 12], [-3, 0, 4], [7, 11, 14]], "bpm": 108, "arp": [0, 1, 2, 3], "wave": "tri"},
+	{"root": 220.0, "chords": [[0, 3, 7], [-4, 0, 3], [-7, -4, 0], [-2, 2, 5]], "bpm": 104, "arp": [2, 1, 0, 1], "wave": "sine"},
+	{"root": 329.63, "chords": [[0, 4, 7], [-5, -1, 2], [-3, 0, 4], [-7, -3, 0]], "bpm": 92, "arp": [0, 2, 1, 3], "wave": "sine"},
+	{"root": 196.0, "chords": [[0, 4, 7], [2, 5, 9], [4, 7, 11], [5, 9, 12]], "bpm": 112, "arp": [0, 1, 2, 1], "wave": "tri"},
+	{"root": 233.08, "chords": [[0, 3, 7], [3, 7, 10], [-2, 2, 5], [-4, 0, 3]], "bpm": 88, "arp": [0, 2, 0, 1], "wave": "sine"},
+	{"root": 277.18, "chords": [[0, 4, 7], [-1, 2, 7], [-3, 0, 4], [-5, -1, 2]], "bpm": 116, "arp": [0, 1, 2, 3], "wave": "tri"},
+	{"root": 207.65, "chords": [[0, 3, 7], [-2, 2, 5], [1, 5, 8], [-4, 0, 3]], "bpm": 100, "arp": [3, 2, 1, 0], "wave": "sine"},
+	{"root": 261.63, "chords": [[0, 4, 7, 11], [-3, 0, 4, 7], [5, 9, 12, 16], [7, 11, 14, 17]], "bpm": 120, "arp": [0, 1, 2, 3], "wave": "tri"},
+	{"root": 246.94, "chords": [[0, 4, 7], [2, 5, 9], [-3, 0, 4], [-1, 2, 7]], "bpm": 104, "arp": [0, 2, 1, 2], "wave": "sine"},
+]
+var _phase := -2
+var _phase_cache := {}
+var _phase_pending := {}
+var _phase_def: Dictionary = {}
+
+## -1: başlık müziği (eski döngü), 0..9: faz, 10: özel/günlük. Üretim arka plan iş parçacığında yapılır.
+func set_phase(p: int) -> void:
+	if p == _phase:
+		return
+	_phase = p
+	# ASMR dosya müziği varsa oyun içi müzik onundur; başlıkta (p < 0) eski döngü çalar
+	var asmr := get_node_or_null("/root/ASMR")
+	if asmr != null and asmr.available:
+		asmr.set_level_phase(p if p < 10 else 9)
+		if p >= 0:
+			_phase_def = {}
+			var tw0 := create_tween()
+			tw0.tween_property(_music, "volume_db", -60.0, 0.8)
+			tw0.tween_callback(_music.stop)
+			return
+		_music.stream = _title_music
+		_music.volume_db = -17.0
+		if music_on and not _music.playing:
+			_music.play()
+		return
+	if p < 0:
+		_swap(_title_music)
+		_phase_def = {}
+		return
+	_phase_def = PHASE_MUSIC[clampi(p, 0, PHASE_MUSIC.size() - 1)]
+	if _phase_cache.has(p):
+		_swap(_phase_cache[p])
+		return
+	if _phase_pending.has(p):
+		return
+	_phase_pending[p] = WorkerThreadPool.add_task(func():
+		var w := _build_phase_music(p)
+		call_deferred("_phase_ready", p, w))
+
+## Kapanışta arka plandaki müzik üretimi bitmeden düğüm silinmesin
+func _exit_tree() -> void:
+	for p in _phase_pending:
+		WorkerThreadPool.wait_for_task_completion(int(_phase_pending[p]))
+	_phase_pending.clear()
+
+func _phase_ready(p: int, w: AudioStreamWAV) -> void:
+	if _phase_pending.has(p):
+		WorkerThreadPool.wait_for_task_completion(int(_phase_pending[p]))
+	_phase_pending.erase(p)
+	_phase_cache[p] = w
+	if _phase == p:
+		_swap(w)
+
+var _title_music: AudioStreamWAV
+
+func _swap(w: AudioStreamWAV) -> void:
+	if w == null or _music.stream == w:
+		return
+	var was := _music.playing
+	var tw := create_tween()
+	tw.tween_property(_music, "volume_db", -40.0, 0.4)
+	tw.tween_callback(func():
+		_music.stream = w
+		if was or music_on:
+			if music_on:
+				_music.play()
+	)
+	tw.tween_property(_music, "volume_db", -17.0, 0.8)
+
+## Robo'nun adım sesi o anki akorun köküne göre transpoze edilir (müzikle uyumlu)
+func harmony_pitch() -> float:
+	if _phase_def.is_empty() or not _music.playing or not music_on:
+		return 1.0
+	var beat := 60.0 / float(_phase_def["bpm"])
+	var bar := int(_music.get_playback_position() / (beat * 4.0)) % 4
+	var semi: int = _phase_def["chords"][bar][0]
+	var r := pow(2.0, semi / 12.0) * float(_phase_def["root"]) / 261.63
+	while r > 1.3:
+		r *= 0.5
+	while r < 0.77:
+		r *= 2.0
+	return r
+
+func _build_phase_music(p: int) -> AudioStreamWAV:
+	var d: Dictionary = PHASE_MUSIC[clampi(p, 0, PHASE_MUSIC.size() - 1)]
+	var beat := 60.0 / float(d["bpm"])
+	var bars := 8
+	var b := PackedFloat32Array()
+	b.resize(int(beat * 4.0 * bars * RATE))
+	var root: float = d["root"]
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7 + p * 31
+	for bar in bars:
+		var ch: Array = d["chords"][bar % 4]
+		var t0 := bar * beat * 4.0
+		# pad: akor notaları uzun ve yumuşak
+		for semi in ch:
+			var f := root * pow(2.0, float(semi) / 12.0) * 0.5
+			_tone(b, f, beat * 4.4, "sine", 0.045, 0.0, t0, 0.6)
+		# bas: kök, 1. ve 3. vuruş
+		var bf := root * pow(2.0, float(ch[0]) / 12.0) * 0.25
+		_tone(b, bf, beat * 1.6, "sine", 0.07, 0.0, t0, 0.02)
+		_tone(b, bf, beat * 1.6, "sine", 0.05, 0.0, t0 + beat * 2.0, 0.02)
+		# arpej: sekizlik notalar, akor tonları üzerinde desen
+		var arp: Array = d["arp"]
+		for k in 8:
+			var idx: int = arp[k % arp.size()] % ch.size()
+			var f2 := root * pow(2.0, float(ch[idx]) / 12.0) * (2.0 if k % 4 == 3 else 1.0)
+			_tone(b, f2, beat * 0.45, d["wave"], 0.03 + rng.randf() * 0.008, 0.0, t0 + k * beat * 0.5, 0.004)
+		# hafif hi-hat (gürültü tıkı)
+		for k in 4:
+			_tone(b, 6000.0, 0.03, "noise", 0.012, 0.0, t0 + k * beat + beat * 0.5, 0.001)
+	var fade := int(0.03 * RATE)
+	for i in fade:
+		b[i] *= float(i) / fade
+		b[b.size() - 1 - i] *= float(i) / fade
+	return _wav(b, true)
+
 func set_music(on: bool) -> void:
 	music_on = on
+	var asmr := get_node_or_null("/root/ASMR")
+	if asmr != null:
+		asmr.set_music_enabled(on)
+		if asmr.available and _phase >= 0:
+			if not on:
+				_music.stop()
+			return
 	if on and not _music.playing:
 		_music.play()
 	elif not on:

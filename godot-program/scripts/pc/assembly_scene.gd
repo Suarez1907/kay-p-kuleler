@@ -12,6 +12,20 @@ signal next_level
 signal closed
 signal test_requested
 signal main_menu
+signal style_changed(style: Dictionary)
+
+## PC özelleştirme: kasa rengi, RGB ışık rengi, fan modu (main.gd ilerleme kaydında tutar)
+const CASE_COLORS := [["SİYAH", "#1c1e24"], ["BEYAZ", "#e6e8ec"], ["LACİVERT", "#1d3a6e"], ["KIRMIZI", "#8e1f2a"], ["YEŞİL", "#1f5c40"]]
+const RGB_COLORS := [["MOR", "#8a5cff"], ["CYAN", "#00E5FF"], ["AMBER", "#F59E0B"], ["YEŞİL", "#3cf08a"], ["KAPALI", "#000000"]]
+const FAN_MODES := [["SESSİZ", 0.45], ["NORMAL", 1.0], ["TURBO", 1.9]]
+var pc_style := {"case": 0, "rgb": 0, "fan": 1}
+var _style_panel: PanelContainer
+var _phase_cards: HBoxContainer
+var _sys_bar: BP.Bar
+var _sys_lbl: Label
+var _badge: Label
+var _btn_style: Button
+var _bottom: VBoxContainer
 
 const FINAL_SCRIPT := preload("res://scripts/pc/final_boot_sequence.gd")
 var final_seq: Node = null       # 100. parçadan sonra büyük final (FinalBootSequence)
@@ -28,6 +42,9 @@ var finished := false
 var _snapped := false
 var _shake := 0.0
 var from_showcase := false       # test montajı bitince vitrine dönülür
+var director: CinematicDirector = null   # Blender sinematiği (yoksa Tween akışı)
+var duration := DURATION
+var _whooshed := false
 
 var vp: SubViewport
 var world: Node3D
@@ -85,7 +102,10 @@ func setup(m: String, unlocked_ids: Array, pid := 0) -> void:
 		final_seq.cleanup()
 		final_seq.queue_free()
 		final_seq = null
-	fan_speed = 1.0
+	_end_director()
+	duration = DURATION
+	_whooshed = false
+	fan_speed = float(FAN_MODES[int(pc_style.get("fan", 1)) % FAN_MODES.size()][1])
 	mode = m
 	unlocked = unlocked_ids.duplicate()
 	part_id = pid
@@ -115,24 +135,41 @@ func setup(m: String, unlocked_ids: Array, pid := 0) -> void:
 		lbl_caption.text = "Parça %d/%d: %s — Takıldı" % [part_id, PCPartLibrary.COUNT, p.part_name]
 		lbl_sub.text = "Faz %d · %s   ·   Toplanan: %d/%d" % [p.phase_index + 1, p.phase_name, all_ids.size(), PCPartLibrary.COUNT]
 		lbl_title.text = "MONTAJ"
+		_badge.text = "%d/%d" % [all_ids.size(), PCPartLibrary.COUNT]
 		caption_box.modulate.a = 0.0
 		_apply_cam(_overview)
+		# Blender sinematiği: faza uygun arketip / faz finali; yüklenemezse eski Tween akışı
+		var d := CinematicDirector.new()
+		add_child(d)
+		new_node.visible = true
+		if d.begin(world, part_id, new_node, p.assembly_scale):
+			director = d
+			duration = d.duration
+			d.cue.connect(_on_cue)
+		else:
+			d.queue_free()
 		advance(0.0)
 	else:
 		var b := PCPartLibrary.bounds(unlocked) if not unlocked.is_empty() else AABB(Vector3(-1, 0, -1), Vector3(2, 1, 2))
 		var f := _frame(b, 1.05)
 		cam_target = f["target"]
 		dist = f["dist"]
-		lbl_title.text = "BİLGİSAYARIM  %d/%d" % [unlocked.size(), PCPartLibrary.COUNT]
-		lbl_caption.text = "Parçaları incelemek için sürükle, yakınlaştırmak için iki parmakla sıkıştır"
+		lbl_title.text = "BİLGİSAYARIM"
+		lbl_caption.text = "Sürükle: döndür · iki parmak: yakınlaştır"
 		lbl_sub.text = _phase_summary()
 		caption_box.modulate.a = 1.0
 		_update_cam()
 	btn_skip.visible = mode == "assembly"
 	btn_next.visible = false
 	btn_back.visible = mode == "showcase"
-	btn_test.visible = mode == "showcase" and unlocked.size() < PCPartLibrary.COUNT
+	btn_test.visible = mode == "showcase" and unlocked.size() < PCPartLibrary.COUNT and OS.is_debug_build()
 	lbl_hint.visible = mode == "assembly"
+	_bottom.visible = mode == "showcase"
+	_btn_style.visible = mode == "showcase"
+	_style_panel.visible = false
+	if mode == "showcase":
+		_badge.text = "%d/%d" % [unlocked.size(), PCPartLibrary.COUNT]
+		_render_bottom()
 	_layout()
 	_layout.call_deferred()
 
@@ -160,7 +197,34 @@ func _spawn(id: int) -> Node3D:
 	var n := PartBuilder.build(PCPartLibrary.part(id))
 	parts_root.add_child(n)
 	nodes[id] = n
+	_style_node(id, n)
 	return n
+
+## Kasa parçalarının (faz 9) koyu yüzeyleri kasa rengine, tüm RGB/Accent yüzeyleri seçili ışık rengine boyanır
+func _style_node(id: int, n: Node3D) -> void:
+	var cc := Color(CASE_COLORS[int(pc_style.get("case", 0)) % CASE_COLORS.size()][1])
+	var rc := Color(RGB_COLORS[int(pc_style.get("rgb", 0)) % RGB_COLORS.size()][1])
+	if (id - 1) / 10 == 8:
+		for mn in ["DarkMetal", "BlackPlastic"]:
+			for m in AssetLoader.unique_surfaces(n, mn):
+				if m is StandardMaterial3D:
+					(m as StandardMaterial3D).albedo_color = cc
+	for mn in ["RGB", "Accent"]:
+		for m in AssetLoader.unique_surfaces(n, mn):
+			if m is StandardMaterial3D:
+				var sm: StandardMaterial3D = m
+				sm.albedo_color = rc if rc.v > 0.01 else Color("#202128")
+				sm.emission_enabled = rc.v > 0.01
+				sm.emission = rc
+				sm.emission_energy_multiplier = 3.0
+
+func _restyle() -> void:
+	for id in nodes:
+		_style_node(int(id), nodes[id])
+	if final_seq == null:
+		fan_speed = float(FAN_MODES[int(pc_style.get("fan", 1)) % FAN_MODES.size()][1])
+	_update_style_panel()
+	style_changed.emit(pc_style.duplicate())
 
 func _frame(b: AABB, k: float) -> Dictionary:
 	var r := b.size.length() * 0.5
@@ -276,6 +340,7 @@ func _build_world() -> void:
 	world.add_child(sparks)
 
 func _build_ui() -> void:
+	theme = UIKit.make_theme()
 	var top := HBoxContainer.new()
 	top.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	top.offset_left = 18
@@ -283,33 +348,43 @@ func _build_ui() -> void:
 	top.offset_right = -18
 	top.add_theme_constant_override("separation", 12)
 	add_child(top)
-	btn_back = UIKit.round_button("back", func(): closed.emit(), 56)
+	btn_back = UIKit.round_button("back", func(): closed.emit(), 48)
 	top.add_child(btn_back)
-	lbl_title = UIKit.label("", 26, Color.WHITE, UIKit.font_black)
-	lbl_title.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.5))
-	lbl_title.add_theme_constant_override("outline_size", 6)
-	lbl_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	top.add_child(lbl_title)
-	btn_test = UIKit.button("Montajı Test Et (+1 Parça)", Color("#ffb84d"), func(): test_requested.emit(), 18, "sparkle", UIKit.INK, 54)
+	var tp := PanelContainer.new()
+	tp.add_theme_stylebox_override("panel", BP.chamfer(Color("#0B192EB8"), BP.R_STD, Color(BP.BORDER_STEEL, 0.8), BP.BORDER_W, 8))
+	var tph := HBoxContainer.new()
+	tph.add_theme_constant_override("separation", 12)
+	var tv := VBoxContainer.new()
+	tv.add_theme_constant_override("separation", -4)
+	tv.add_child(BP.tag("SYS // BİLGİSAYAR", 12, Color(BP.ACCENT_CYAN, 0.8)))
+	lbl_title = UIKit.label("", 24, BP.TEXT_PRIMARY, UIKit.font_black)
+	tv.add_child(lbl_title)
+	tph.add_child(tv)
+	_badge = UIKit.label("", 20, BP.ACCENT_AMBER, UIKit.font_black)
+	_badge.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	tph.add_child(_badge)
+	tp.add_child(tph)
+	top.add_child(tp)
+	var sp := Control.new()
+	sp.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sp.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	top.add_child(sp)
+	_btn_style = UIKit.button("ÖZELLEŞTİR", Color.WHITE, _toggle_style, 18, "gear", UIKit.INK, 48)
+	top.add_child(_btn_style)
+	btn_test = UIKit.button("MONTAJI TEST ET (+1)", BP.ACCENT_AMBER, func(): test_requested.emit(), 18, "sparkle", UIKit.INK, 48)
 	top.add_child(btn_test)
-	btn_skip = UIKit.button("Geç", Color(1, 1, 1, 0.9), _skip, 20, "step", UIKit.INK, 54)
+	btn_skip = UIKit.button("GEÇ", Color.WHITE, _skip, 20, "step", UIKit.INK, 48)
 	top.add_child(btn_skip)
-	# alt yazı kartı
+	# alt yazı kartı (montaj sırasında parça adı)
 	var cb := PanelContainer.new()
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.06, 0.07, 0.1, 0.72)
-	sb.border_color = Color(1.0, 0.72, 0.3, 0.55)
-	sb.border_width_top = 2
-	sb.set_corner_radius_all(18)
-	sb.set_content_margin_all(16)
-	cb.add_theme_stylebox_override("panel", sb)
+	cb.add_theme_stylebox_override("panel", BP.chamfer(BP.SURFACE_MODAL, BP.R_STD, BP.BORDER_STEEL, BP.BORDER_W, 14))
 	cb.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var cv := VBoxContainer.new()
-	cv.add_theme_constant_override("separation", 4)
-	lbl_caption = UIKit.label("", 24, Color.WHITE, UIKit.font_black)
+	cv.add_theme_constant_override("separation", 2)
+	lbl_caption = UIKit.label("", 20, BP.TEXT_PRIMARY, UIKit.font_black)
 	lbl_caption.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	lbl_caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	lbl_sub = UIKit.label("", 16, Color("#ffd9a8"), UIKit.font_bold)
+	lbl_sub = BP.tag("", 13, BP.ACCENT_AMBER)
 	lbl_sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	lbl_sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	cv.add_child(lbl_caption)
@@ -317,11 +392,98 @@ func _build_ui() -> void:
 	cb.add_child(cv)
 	add_child(cb)
 	caption_box = cb
-	btn_next = UIKit.button("Sonraki Seviye", UIKit.GREEN, func(): next_level.emit(), 26, "play", Color.WHITE, 70)
+	# vitrin altı: SİSTEM MONTAJI // %X + faz kartları
+	_bottom = VBoxContainer.new()
+	_bottom.add_theme_constant_override("separation", 8)
+	add_child(_bottom)
+	var sh := HBoxContainer.new()
+	_sys_lbl = BP.tag("", 13, BP.ACCENT_AMBER)
+	_sys_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sh.add_child(_sys_lbl)
+	_bottom.add_child(sh)
+	_sys_bar = BP.Bar.new(0.0, 4.0)
+	_bottom.add_child(_sys_bar)
+	var psc := ScrollContainer.new()
+	psc.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	psc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER
+	psc.custom_minimum_size = Vector2(0, 66)
+	_phase_cards = HBoxContainer.new()
+	_phase_cards.add_theme_constant_override("separation", 8)
+	psc.add_child(_phase_cards)
+	_bottom.add_child(psc)
+	# özelleştirme paneli
+	_style_panel = PanelContainer.new()
+	_style_panel.add_theme_stylebox_override("panel", BP.modal_box(16))
+	_style_panel.visible = false
+	add_child(_style_panel)
+	btn_next = UIKit.button("SONRAKİ SEVİYE", UIKit.GREEN, func(): next_level.emit(), 22, "play", Color.WHITE, 60)
 	add_child(btn_next)
-	lbl_hint = UIKit.label("Basılı tut: 2x hız", 15, Color(1, 1, 1, 0.65), UIKit.font_bold)
+	lbl_hint = BP.tag("BASILI TUT: 2× HIZ", 13)
 	add_child(lbl_hint)
 	resized.connect(_layout)
+
+func _render_bottom() -> void:
+	for c in _phase_cards.get_children():
+		c.queue_free()
+	var total := unlocked.size()
+	_sys_lbl.text = "SİSTEM MONTAJI // %%%d   ·   SIRADAKİ: %s" % [int(round(100.0 * total / PCPartLibrary.COUNT)), _next_name().to_upper()]
+	_sys_bar.set_value(float(total) / PCPartLibrary.COUNT)
+	var names := ["ANAKART", "PSU", "CPU", "RAM", "DEPOLAMA", "GPU", "SOĞUTMA", "I/O", "KASA", "ÇEKİRDEK"]
+	for ph in 10:
+		var n := 0
+		for id in unlocked:
+			if (int(id) - 1) / 10 == ph:
+				n += 1
+		var p := PanelContainer.new()
+		var full := n == 10
+		p.add_theme_stylebox_override("panel", BP.chamfer(BP.SURFACE_PANEL, BP.R_STD, BP.ACCENT_CYAN if full else (BP.BORDER_STEEL if n > 0 else Color(BP.TEXT_MUTED, 0.4)), BP.BORDER_W, 8))
+		p.custom_minimum_size = Vector2(118, 0)
+		var v := VBoxContainer.new()
+		v.add_theme_constant_override("separation", 2)
+		v.add_child(BP.tag("%02d // %s" % [ph + 1, names[ph]], 12, BP.ACCENT_CYAN if full else (BP.TEXT_PRIMARY if n > 0 else BP.TEXT_MUTED)))
+		v.add_child(UIKit.label("%d/10" % n, 16, BP.ACCENT_AMBER if n > 0 else BP.TEXT_MUTED, UIKit.font_black))
+		var bar := BP.Bar.new(n / 10.0, 3.0)
+		v.add_child(bar)
+		p.add_child(v)
+		_phase_cards.add_child(p)
+
+func _toggle_style() -> void:
+	_style_panel.visible = not _style_panel.visible
+	if _style_panel.visible:
+		_update_style_panel()
+	_layout()
+
+func _update_style_panel() -> void:
+	if _style_panel == null:
+		return
+	for c in _style_panel.get_children():
+		c.queue_free()
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 8)
+	v.add_child(BP.tag("PC // ÖZELLEŞTİRME", 12))
+	for grp in [["KASA RENGİ", "case", CASE_COLORS], ["RGB IŞIK", "rgb", RGB_COLORS], ["FAN", "fan", FAN_MODES]]:
+		v.add_child(BP.tag(grp[0], 11, BP.TEXT_MUTED))
+		var h := HFlowContainer.new()
+		h.add_theme_constant_override("h_separation", 6)
+		h.add_theme_constant_override("v_separation", 6)
+		var opts: Array = grp[2]
+		for k in opts.size():
+			var b := Button.new()
+			b.text = String(opts[k][0])
+			b.focus_mode = Control.FOCUS_NONE
+			b.custom_minimum_size = Vector2(0, 44)
+			b.add_theme_font_override("font", UIKit.font_black)
+			b.add_theme_font_size_override("font_size", 13)
+			var key: String = grp[1]
+			BP.style_button(b, BP.Variant.CYAN_OUTLINE if int(pc_style.get(key, 0)) == k else BP.Variant.DEFAULT, BP.R_SMALL)
+			var kk := k
+			b.pressed.connect(func():
+				pc_style[key] = kk
+				Sfx.call_ah("ui_thock")
+				_restyle())
+			h.add_child(b)
+		v.add_child(h)
+	_style_panel.add_child(v)
 
 func _layout() -> void:
 	if caption_box == null:
@@ -337,6 +499,19 @@ func _layout() -> void:
 	btn_next.position = Vector2(vs.x - btn_next.size.x - 22.0, vs.y - btn_next.size.y - 22.0)
 	lbl_hint.reset_size()
 	lbl_hint.position = Vector2(22.0, vs.y - lbl_hint.size.y - 22.0)
+	if _bottom != null:
+		var bw := minf(vs.x - 36.0, 1240.0)
+		_bottom.size = Vector2(bw, 0)
+		_bottom.reset_size()
+		_bottom.size.x = bw
+		_bottom.position = Vector2((vs.x - bw) / 2.0, vs.y - _bottom.get_combined_minimum_size().y - 14.0)
+		if mode == "showcase":
+			caption_box.position.y = _bottom.position.y - caption_box.size.y - 10.0
+	if _style_panel != null and _style_panel.visible:
+		_style_panel.reset_size()
+		_style_panel.custom_minimum_size.x = minf(420.0, vs.x - 36.0)
+		_style_panel.reset_size()
+		_style_panel.position = Vector2(vs.x - _style_panel.size.x - 18.0, 76.0)
 
 # ---------------------------------------------------------------------------
 # Zaman çizelgesi
@@ -344,7 +519,7 @@ func _process(dt: float) -> void:
 	if final_seq != null:
 		pass   # final kendi saatiyle ilerler
 	elif mode == "assembly" and not finished:
-		advance(dt * (2.0 if holding else 1.0))
+		advance(dt * (2.5 if holding else 1.0))
 	elif mode == "showcase":
 		_idle += dt
 		if _drag == null and _touches.is_empty() and _idle > 2.5:
@@ -357,7 +532,28 @@ func _skip() -> void:
 		final_seq.skip()
 		return
 	if mode == "assembly" and not finished:
-		advance(DURATION - t + 0.001)
+		advance(duration - t + 0.001)
+
+func _end_director() -> void:
+	if director != null:
+		director.end(cam)
+		director.queue_free()
+		director = null
+
+## Sinematik kare olayları: parça süzülmesi, tam oturma (kıvılcım + haptik), mekanik kilitler
+func _on_cue(kind: String, pos: Vector3) -> void:
+	match kind:
+		"whoosh":
+			Sfx.asmr().play_part_whoosh()
+		"snap":
+			_snapped = true
+			sparks.global_position = pos
+			sparks.restart()
+			sparks.emitting = true
+			Sfx.call_ah("snap")
+		"lock":
+			Sfx.asmr().play_part_snap()
+			Sfx.call_ah("vibrate", [25])
 
 static func _ease(x: float) -> float:
 	x = clampf(x, 0.0, 1.0)
@@ -365,9 +561,15 @@ static func _ease(x: float) -> float:
 
 ## Zamanı ilerletir (testler de doğrudan çağırır). Bütün durum t'den hesaplanır.
 func advance(dt: float) -> void:
-	t = minf(t + dt, DURATION)
+	t = minf(t + dt, duration)
 	if new_node == null:
 		return
+	if director != null:
+		_advance_cinematic()
+		return
+	if t >= 0.4 and not _whooshed:
+		_whooshed = true
+		Sfx.asmr().play_part_whoosh()
 	# 1) kamera
 	if t < 2.0:
 		_apply_cam(_blend(_overview, _close, _ease(t / 2.0)))
@@ -421,13 +623,13 @@ func advance(dt: float) -> void:
 		cam.position += Vector3(randf_range(-1, 1), randf_range(-1, 1), randf_range(-1, 1)) * 0.035 * _shake * _shake
 	# 4) yazı ve bitiş
 	caption_box.modulate.a = clampf((t - 5.5) / 0.6, 0.0, 1.0)
-	if t >= DURATION and not finished and part_id == PCPartLibrary.COUNT:
+	if t >= duration and not finished and part_id == PCPartLibrary.COUNT:
 		finished = true
 		for id in nodes:
 			PartBuilder.set_glow(nodes[id], 0.0)
 		start_final(false)
 		return
-	if t >= DURATION and not finished:
+	if t >= duration and not finished:
 		finished = true
 		btn_skip.visible = false
 		lbl_hint.visible = false
@@ -438,15 +640,50 @@ func advance(dt: float) -> void:
 		for id in nodes:
 			PartBuilder.set_glow(nodes[id], 0.0)
 
+## Blender sinematiği akışı: zaman rig'e aktarılır, oturmadan sonra komşu parçalarda enerji dalgası
+func _advance_cinematic() -> void:
+	director.seek(t)
+	var snap_t := float(CinematicDirector.SNAP.get(director.anim, CinematicDirector.PHASE_SNAP) if director.kind == "level" else CinematicDirector.PHASE_SNAP) / CinematicDirector.FPS
+	if t < snap_t:
+		PartBuilder.set_glow(new_node, 0.5 + 0.5 * sin(t * 10.0))
+	else:
+		var k := t - snap_t
+		PartBuilder.set_glow(new_node, maxf(0.0, 1.6 - k * 1.2))
+		var origin := PCPartLibrary.part(part_id).assembly_position
+		for id in nodes:
+			if id == part_id:
+				continue
+			var n: Node3D = nodes[id]
+			var dd := n.position.distance_to(origin)
+			var wave := 1.0 - absf(k * 4.0 - dd) / 0.9
+			PartBuilder.set_glow(n, clampf(wave, 0.0, 1.0) * 1.2 * clampf(1.0 - dd / 6.0, 0.0, 1.0))
+	caption_box.modulate.a = clampf((t - (duration - 2.5)) / 0.6, 0.0, 1.0)
+	if t >= duration and not finished:
+		for id in nodes:
+			PartBuilder.set_glow(nodes[id], 0.0)
+		if part_id == PCPartLibrary.COUNT:
+			finished = true
+			_end_director()
+			start_final(false)
+			return
+		finished = true
+		btn_skip.visible = false
+		lbl_hint.visible = false
+		btn_next.visible = true
+		UIKit.set_text(btn_next, "BİLGİSAYARIMA DÖN" if from_showcase else "SONRAKİ SEVİYE")
+		_layout()
+		UIKit.pop_in(btn_next, 0.0, 0.5)
+
 ## Büyük final: 100. parçanın montajı bittiğinde ya da test butonundan
 func start_final(skip_assembly: bool) -> void:
 	if final_seq != null:
 		return
 	if skip_assembly and not finished:
-		advance(DURATION - t + 0.001)
+		advance(duration - t + 0.001)
 		if final_seq != null:
 			return
 	finished = true
+	_end_director()
 	btn_next.visible = false
 	final_seq = FINAL_SCRIPT.new()
 	add_child(final_seq)

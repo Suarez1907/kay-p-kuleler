@@ -28,6 +28,7 @@ var rotators := []           # {pivot:Vector2i, blocks, rot, handle}
 var sliders := []            # {blocks, axis, min, max, pos, on, scale}
 var scales := []             # {a, b}
 var crumbles := []           # Vector3i
+var crumble_hp := []         # kaç geçişte çöker: çöken blok 1, sigorta 2
 var links := []              # {a, b, d, view}
 var cranks := []             # {p, rot, dir}
 var portals := []            # {a, b, on}
@@ -108,6 +109,13 @@ func load_level(d: Dictionary) -> void:
 		sliders[int(sc["a"])]["scale"] = true
 		sliders[int(sc["b"])]["scale"] = true
 	crumbles = v3list(d.get("crumbles", []))
+	crumble_hp = []
+	for c in crumbles:
+		crumble_hp.append(1)
+	# sigorta: iki kez üstünden geçilince yanar (çöker)
+	for f in v3list(d.get("fuses", [])):
+		crumbles.append(f)
+		crumble_hp.append(2)
 	for ln in d.get("links", []):
 		links.append({"a": v3(ln["a"]), "b": v3(ln["b"]), "d": int(ln["d"]), "view": int(ln["view"])})
 	for c in d.get("cranks", []):
@@ -220,7 +228,7 @@ func build_world(s: Dictionary, skip_rot := -1, skip_slide := -1) -> Dictionary:
 			for c in slider_cells(i, s["slides"][i]):
 				solid[c] = {"t": "sl", "i": i}
 	for i in crumbles.size():
-		if s["crumbles"][i] == 0:
+		if int(s["crumbles"][i]) < int(crumble_hp[i]):
 			solid[crumbles[i]] = {"t": "cr", "i": i}
 	for i in phantoms.size():
 		if int(s["view"]) in phantoms[i]["views"]:
@@ -613,7 +621,7 @@ func step(s0: Dictionary, a: Dictionary) -> Dictionary:
 		if moved:
 			var below = W["solid"].get(P + DOWN)
 			if below != null and below["t"] == "cr" and s["p"] != P:
-				s["crumbles"][below["i"]] = 1
+				s["crumbles"][below["i"]] = int(s["crumbles"][below["i"]]) + 1
 			s["moves"] += 1
 			frames.append(clone(s))
 			after_arrive(s, frames)

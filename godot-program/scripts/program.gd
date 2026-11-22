@@ -20,18 +20,35 @@ const COMMANDS := {
 	"C": {"name": "Klon", "desc": "Robo'nun bulunduğu yere yarı saydam bir klon bırakır; klon F1 satırını Robo ile aynı tur ritminde çalıştırır."},
 }
 
-## "F", "o:F", "x:1" -> {c, k}
+## Koşullar: o = önü açıksa, x = önü kapalıysa, r = herhangi bir röle devresi kapalıysa (akım varsa)
+const CONDS := ["", "o", "x", "r"]
+## Sayaçlı tekrar: bir blok en fazla bu kadar kez art arda çalışır ("F*3")
+const MAX_REPEAT := 4
+
+## "F", "o:F", "x:1", "F*3", "r:L*2" -> {c, k[, n]}
 static func parse_ins(v) -> Dictionary:
 	if v is Dictionary:
-		return {"c": String(v["c"]), "k": String(v.get("k", ""))}
+		var d := {"c": String(v["c"]), "k": String(v.get("k", ""))}
+		if int(v.get("n", 1)) > 1:
+			d["n"] = clampi(int(v["n"]), 2, MAX_REPEAT)
+		return d
 	var s := String(v)
+	var n := 1
+	var st := s.find("*")
+	if st >= 0:
+		n = clampi(int(s.substr(st + 1)), 1, MAX_REPEAT)
+		s = s.substr(0, st)
 	var i := s.find(":")
-	if i < 0:
-		return {"c": s, "k": ""}
-	return {"c": s.substr(i + 1), "k": s.substr(0, i)}
+	var out := {"c": s, "k": ""} if i < 0 else {"c": s.substr(i + 1), "k": s.substr(0, i)}
+	if n > 1:
+		out["n"] = n
+	return out
 
 static func ins_to_str(ins: Dictionary) -> String:
-	return ins["c"] if ins["k"] == "" else ins["k"] + ":" + ins["c"]
+	var t: String = ins["c"] if ins["k"] == "" else ins["k"] + ":" + ins["c"]
+	if int(ins.get("n", 1)) > 1:
+		t += "*%d" % int(ins["n"])
+	return t
 
 static func parse_program(src: Dictionary) -> Dictionary:
 	var p := {"main": [], "p1": [], "p2": []}
@@ -58,6 +75,22 @@ static func front_open(L: PuzzleLogic, s: Dictionary) -> bool:
 		return false
 	var W := L.build_world(s)
 	return L.walk_target(s, W, s["p"], s["f"]) != null
+
+## "Röle açıksa" koşulu: herhangi bir devre kapalı (akım geçiyor) mu
+static func current_on(s: Dictionary) -> bool:
+	var cs = s.get("circuits", {})
+	if cs is Dictionary:
+		for k in cs:
+			if cs[k]:
+				return true
+	elif cs is Array:
+		for v in cs:
+			if v:
+				return true
+	for v in s.get("relays", []):
+		if v:
+			return true
+	return false
 
 static func _jump_target(s: Dictionary, W: Dictionary):
 	var P: Vector3i = s["p"]
@@ -109,7 +142,7 @@ static func cmd_step(L: PuzzleLogic, s0: Dictionary, c: String) -> Dictionary:
 		moved_ent = {"k": "p", "i": 0}
 		var below = W["solid"].get(P + DOWN)
 		if below != null and below["t"] == "cr" and s["p"] != P:
-			s["crumbles"][below["i"]] = 1
+			s["crumbles"][below["i"]] = int(s["crumbles"][below["i"]]) + 1
 	elif c == "A":
 		var dv: Vector3i = PuzzleLogic.DIRS[s["f"]]
 		var Q: Vector3i = P + dv
@@ -184,11 +217,30 @@ class Runner:
 				stack.pop_back()
 				continue
 			var idx: int = top["pc"]
-			top["pc"] += 1
 			var ins: Dictionary = list[idx]
+			# sayaçlı tekrar: aynı blok n kez yürütülür, sonra sayaç ilerler
+			var reps := int(ins.get("n", 1))
+			if reps > 1:
+				var left := int(top.get("r", reps)) - 1
+				if left > 0:
+					top["r"] = left
+				else:
+					top.erase("r")
+					top["pc"] += 1
+			else:
+				top["pc"] += 1
 			if ins["k"] != "":
-				var open := Program.front_open(L, s)
-				if (ins["k"] == "o" and not open) or (ins["k"] == "x" and open):
+				var ok := true
+				if ins["k"] == "r":
+					ok = Program.current_on(s)
+				else:
+					var open := Program.front_open(L, s)
+					ok = (ins["k"] == "o" and open) or (ins["k"] == "x" and not open)
+				if not ok:
+					# koşul tutmazsa kalan tekrarlar da atlanır
+					if top.has("r"):
+						top.erase("r")
+						top["pc"] += 1
 					skipped.append({"proc": top["p"], "idx": idx})
 					continue
 			if ins["c"] == "1" or ins["c"] == "2":

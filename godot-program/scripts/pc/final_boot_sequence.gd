@@ -32,10 +32,29 @@ var _glb_screen_on := false
 
 const PHASE_SHORT := ["Anakart", "PSU", "CPU", "RAM", "NVMe", "GPU", "Soğutma", "I/O", "Kasa", "Çekirdek"]
 
+## Blender büyük finali (grand_finale_100.glb): kamera + güç tuşu + fan hızı + faz uyanışı veri kanalları.
+## Yoksa eski Godot kamera/zaman çizelgesi kullanılır. Olay zamanları (sn): güç, fanlar, ekran, BIOS satırları, logo, masaüstü.
+var cine := {}
+var T := {"power": 3.0, "fans": 5.0, "screen": 12.0, "lines": 12.4, "step": 0.55, "logo": 22.0, "desk": 24.0, "caption": 25.0, "btns": 26.5}
+const T_CINE := {"power": 130.0 / 30.0, "fans": 185.0 / 30.0, "screen": 14.0, "lines": 450.0 / 30.0, "step": 0.42, "logo": 21.6, "desk": 670.0 / 30.0, "caption": 24.0, "btns": 26.0}
+var _fan_started := false
+
 func begin(owner_scene: Control) -> void:
 	asm = owner_scene
 	asm.fan_speed = 0.0
 	Sfx.call_ah("fan", [0.0])
+	cine = CinematicDirector.load_rig("grand_finale_100.glb")
+	if not cine.is_empty() and cine["cam"] != null and (cine["ap"] as AnimationPlayer).has_animation("grand_finale_100"):
+		asm.world.add_child(cine["root"])
+		var cap: AnimationPlayer = cine["ap"]
+		cap.assigned_animation = "grand_finale_100"
+		cap.play("grand_finale_100")
+		cap.pause()
+		cap.seek(0.0, true)
+		(cine["cam"] as Camera3D).current = true
+		T = T_CINE.duplicate()
+	else:
+		cine = {}
 	_build_robot()
 	_build_screen()
 	_build_buttons()
@@ -49,7 +68,8 @@ func begin(owner_scene: Control) -> void:
 	advance(0.0)
 
 func _build_robot() -> void:
-	robot = AssetLoader.robot_model()
+	var rp := CinematicDirector.DIR + "robot_cinematic_anims.glb"
+	robot = AssetLoader.load_model(rp, Vector3(0.62, 0.8, 0.62), true) if not cine.is_empty() and ResourceLoader.exists(rp) else AssetLoader.robot_model()
 	if robot == null:
 		robot = Node3D.new()
 		var k := MeshKit.new()
@@ -217,7 +237,9 @@ func advance(dt: float) -> void:
 	var cam_end := _cam(Vector3(1.8, 1.9, 0.0), 9.0, 22.0, 12.0)
 	var start := {"target": asm.cam_target, "dist": asm.dist, "yaw": asm.yaw, "pitch": asm.pitch}
 	# --- kamera ---
-	if t < 2.0:
+	if not cine.is_empty():
+		(cine["ap"] as AnimationPlayer).seek(minf(t, 29.99), true)
+	elif t < 2.0:
 		asm._apply_cam(asm._blend(asm._overview if not asm._overview.is_empty() else cam_side, cam_btn, _e(t / 2.0)))
 	elif t < 5.0:
 		asm._apply_cam(cam_btn)
@@ -235,7 +257,22 @@ func advance(dt: float) -> void:
 	var top := pwp + Vector3(0, PCPartLibrary.part(POWER_ID).assembly_scale.y / 2.0, 0)
 	var from := top + Vector3(-0.9, 0.0, -0.2)
 	robot.visible = t >= 0.8
-	if t < 0.8:
+	if not cine.is_empty():
+		var ra: Node3D = cine["anchors"].get("RobotFinaleAnchor")
+		robot.scale = Vector3.ONE * _e((t - 0.8) / 0.6) if t < 1.4 else Vector3.ONE
+		if ra != null:
+			robot.position = ra.global_position
+			robot.rotation.y = PI / 2 if t < 23.0 else lerpf(PI / 2, 0.2, _e((t - 23.0) / 0.8))
+		if _robot_ap != null:
+			var fr := t * 30.0
+			var clip := "robot_inspect_snap"
+			if fr >= 100.0 and fr < 160.0:
+				clip = "robot_power_jump"
+			elif fr >= 700.0:
+				clip = "robot_finale_wave"
+			if _robot_ap.has_animation(clip) and _robot_ap.current_animation != clip:
+				_robot_ap.play(clip, 0.15)
+	elif t < 0.8:
 		robot.scale = Vector3.ONE * 0.01
 	elif t < 1.4:
 		robot.scale = Vector3.ONE * _e((t - 0.8) / 0.6)
@@ -253,7 +290,7 @@ func advance(dt: float) -> void:
 		if t >= 22.0:
 			robot.position = top + Vector3(0, absf(sin(t * 5.0)) * 0.25, 0)
 			robot.rotation.y = t * 2.0
-	if _robot_ap != null:
+	if _robot_ap != null and cine.is_empty():
 		var clip := "wave"
 		if t >= 22.0:
 			clip = "victory"
@@ -266,41 +303,65 @@ func advance(dt: float) -> void:
 		if _robot_ap.current_animation != clip:
 			_robot_ap.play(clip, 0.15)
 	if pw != null:
-		var depress := 0.03 if t >= 3.0 and t < 3.35 else 0.0
+		var depress := 0.03 if t >= T["power"] and t < T["power"] + 0.35 else 0.0
+		if not cine.is_empty() and cine["anchors"].has("PowerButtonAnchor"):
+			depress = -(cine["anchors"]["PowerButtonAnchor"] as Node3D).position.y
 		pw.position.y = _press_y - depress
-		PartBuilder.set_glow(pw, 1.0 if t >= 3.0 else 0.0)
-	if t >= 3.0 and not _power_pressed:
+		var led := 1.0 if t >= T["power"] else 0.0
+		if not cine.is_empty() and cine["anchors"].has("PowerLed"):
+			led = (cine["anchors"]["PowerLed"] as Node3D).scale.x
+		PartBuilder.set_glow(pw, led)
+	if t >= T["power"] and not _power_pressed:
 		_power_pressed = true
 		Sfx.call_ah("power_press")
 	# --- B: fanlar ve enerji dalgası ---
-	var fan := _e((t - 5.0) / 4.5)
+	var fan := _e((t - T["fans"]) / 4.5)
+	if not cine.is_empty() and cine["anchors"].has("FanSpeed"):
+		fan = clampf((cine["anchors"]["FanSpeed"] as Node3D).scale.x, 0.0, 1.0)
+	if t >= T["fans"] and not _fan_started:
+		_fan_started = true
+		var am := get_node_or_null("/root/ASMR")
+		if am != null and am.available:
+			am.play_fan_spinup()
 	asm.fan_speed = fan
 	Sfx.call_ah("fan", [fan * (1.0 - _e((t - 26.0) / 3.0) * 0.6)])
+	var kbw := 0.0
+	if not cine.is_empty() and cine["anchors"].has("KeyboardWave"):
+		kbw = (cine["anchors"]["KeyboardWave"] as Node3D).scale.x
 	for id in asm.nodes:
 		if id == POWER_ID:
 			continue
 		var phase := (int(id) - 1) / 10
-		var center := 5.5 + phase * 0.6
-		var g := clampf(1.0 - absf(t - center) / 0.45, 0.0, 1.0)
-		if t >= 20.4 and t < 21.2:
-			g = maxf(g, 1.0 - absf(t - 20.8) / 0.4)
+		var g := 0.0
+		if not cine.is_empty() and cine["anchors"].has("PhaseWake_%02d" % (phase + 1)):
+			g = clampf((cine["anchors"]["PhaseWake_%02d" % (phase + 1)] as Node3D).scale.x, 0.0, 1.3)
+			# klavye ışık dalgası: tuşlar (95..99) soldan sağa
+			if id >= 95 and id <= 99 and kbw > 0.01:
+				g = maxf(g, clampf(1.0 - absf(kbw * 5.0 - float(id - 95)) / 1.2, 0.0, 1.0))
+		else:
+			var center := 5.5 + phase * 0.6
+			g = clampf(1.0 - absf(t - center) / 0.45, 0.0, 1.0)
+			if t >= 20.4 and t < 21.2:
+				g = maxf(g, 1.0 - absf(t - 20.8) / 0.4)
 		PartBuilder.set_glow(asm.nodes[id], g * 1.3)
 	# --- C: BIOS / POST ---
 	if _glb_screen_node != null:
 		screen_quad.visible = false
-		if (t >= 12.0) != _glb_screen_on:
-			_glb_screen_on = t >= 12.0
+		if (t >= T["screen"]) != _glb_screen_on:
+			_glb_screen_on = t >= T["screen"]
 			if _glb_screen_on:
 				AssetLoader.bind_surfaces(_glb_screen_node, "MonitorScreen", _screen_mat)
 			else:
 				AssetLoader.unique_surfaces(_glb_screen_node, "MonitorScreen")
 	else:
-		screen_quad.visible = t >= 12.0
-	var lines := [[12.4, "BIOS v4.8 — ROBOTIC CORE SYSTEMS", Color("#7fd6ff"), 30], [12.9, "Copyright (C) Kayıp Kuleler Labs · Robo POST rev.100", Color("#8899aa"), 18],
-		[13.3, "CPU: ROBO-CORE 100 @ 4.80 GHz    MEMORY: 64 GB DDR5 ...... OK", Color("#c8d6e5"), 22], [13.9, "CHECKING HARDWARE MODULES...", Color("#ffd36e"), 24]]
+		screen_quad.visible = t >= T["screen"]
+	var l0: float = T["lines"]
+	var st: float = T["step"]
+	var lines := [[l0, "BIOS v4.8 — ROBOTIC CORE SYSTEMS", Color("#7fd6ff"), 30], [l0 + st, "Copyright (C) Kayıp Kuleler Labs · Robo POST rev.100", Color("#8899aa"), 18],
+		[l0 + st * 2.0, "CPU: ROBO-CORE 100 @ 4.80 GHz    MEMORY: 64 GB DDR5 ...... OK", Color("#c8d6e5"), 22], [l0 + st * 3.0, "CHECKING HARDWARE MODULES...", Color("#ffd36e"), 24]]
 	for i in 10:
-		lines.append([14.4 + i * 0.55, "  [%02d] %s %s [ OK ]" % [i + 1, PHASE_SHORT[i], ".".repeat(22 - PHASE_SHORT[i].length())], Color("#3cf08a"), 22])
-	lines.append([20.4, "TOTAL PARTS VERIFIED: 100 / 100 — ALL SYSTEMS NOMINAL.", Color("#ffffff"), 24])
+		lines.append([l0 + st * (4.0 + i), "  [%02d] %s %s [ OK ]" % [i + 1, PHASE_SHORT[i], ".".repeat(22 - PHASE_SHORT[i].length())], Color("#3cf08a"), 22])
+	lines.append([l0 + st * 14.5, "TOTAL PARTS VERIFIED: 100 / 100 — ALL SYSTEMS NOMINAL.", Color("#ffffff"), 24])
 	while _lines_shown < lines.size() and t >= lines[_lines_shown][0]:
 		var row: Array = lines[_lines_shown]
 		_line(row[1], row[2], row[3])
@@ -310,18 +371,18 @@ func advance(dt: float) -> void:
 		elif _lines_shown > 4:
 			Sfx.call_ah("ui_thock")
 	# --- D: masaüstü ---
-	bios_lines.visible = t < 22.0
-	os_logo.visible = t >= 22.0 and t < 24.0
+	bios_lines.visible = t < T["logo"]
+	os_logo.visible = t >= T["logo"] and t < T["desk"]
 	if os_logo.visible:
-		os_logo.modulate.a = _e((t - 22.0) / 0.5)
-	desk_root.visible = t >= 24.0
-	if t >= 24.0 and prev < 24.0:
+		os_logo.modulate.a = _e((t - T["logo"]) / 0.5)
+	desk_root.visible = t >= T["desk"]
+	if t >= T["desk"] and prev < T["desk"]:
 		Sfx.call_ah("desktop_chord")
-	asm.caption_box.modulate.a = _e((t - 25.0) / 0.8)
-	if t >= 25.0:
+	asm.caption_box.modulate.a = _e((t - T["caption"]) / 0.8)
+	if t >= T["caption"]:
 		asm.lbl_caption.text = "SİSTEM ÇEVRİMİÇİ — TEBRİKLER!"
 		asm.lbl_sub.text = "100/100 parça · 10/10 faz · Kayıp kuleler yeniden çalışıyor"
-	if t >= 26.5 and not _btns.visible:
+	if t >= T["btns"] and not _btns.visible:
 		_btns.visible = true
 		_layout()
 		UIKit.pop_in(_btns, 0.0, 0.6)
@@ -339,12 +400,17 @@ func _layout() -> void:
 
 func _process(dt: float) -> void:
 	if not done:
-		advance(dt * (2.0 if asm.holding else 1.0))
+		advance(dt * (2.5 if asm.holding else 1.0))
 	if mini_robot != null:
 		mini_robot.queue_redraw()
 
 func cleanup() -> void:
 	Sfx.call_ah("fan", [0.0])
+	if not cine.is_empty() and is_instance_valid(cine["root"]):
+		(cine["root"] as Node).queue_free()
+		if is_instance_valid(asm.cam):
+			asm.cam.current = true
+	cine = {}
 	if is_instance_valid(screen_quad):
 		screen_quad.queue_free()
 	if is_instance_valid(robot):

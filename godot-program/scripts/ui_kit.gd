@@ -1,14 +1,15 @@
-## Kayıp Kuleler — arayüz kiti: tema, yazı tipi, "basılabilir" kalın butonlar, vektör ikonlar,
-## animasyon yardımcıları. Tüm ikonlar kodla çizilir (yazı tipinde olmayan semboller için).
+## Kayıp Kuleler — arayüz kiti: tema, yazı tipi, butonlar, vektör ikonlar, animasyon yardımcıları.
+## Görsel dil Blueprint v2'dir (scripts/ui/blueprint.gd): eski renk parametreleri BP varyantlarına çevrilir
+## (GREEN → PrimaryButton, CORAL → DangerButton, amber tonları → AmberButton, diğerleri → wireframe Button).
 class_name UIKit
 extends RefCounted
 
-const INK := Color("#3a3152")
-const INK_SOFT := Color("#7a7193")
-const CORAL := Color("#ff7a6b")
-const GREEN := Color("#36c77b")
-const PURPLE := Color("#8a6cf0")
-const GOLD := Color("#ffc23d")
+const INK := BP.TEXT_PRIMARY            # ana metin (koyu cam paneller üzerinde)
+const INK_SOFT := BP.TEXT_LABEL         # ikincil metin
+const CORAL := BP.DANGER_CORAL
+const GREEN := BP.ACCENT_CYAN           # birincil aksiyon
+const PURPLE := Color("#3C66A3")        # eski mor → çelik mavi (wireframe)
+const GOLD := BP.ACCENT_AMBER
 const WHITE := Color("#ffffff")
 
 static var font: FontVariation
@@ -16,92 +17,49 @@ static var font_bold: FontVariation
 static var font_black: FontVariation
 
 
+## Blueprint v2 yazı tipi: Chakra Petch (OFL, teknik/CAD görünümü, Türkçe karakter destekli).
+## font = Medium, font_bold = SemiBold, font_black = Bold. Eksik glifler için Nunito yedek font olarak bağlanır.
 static func init_fonts() -> void:
-	var base: FontFile = load("res://fonts/Nunito.ttf")
-	base.antialiasing = TextServer.FONT_ANTIALIASING_GRAY
-	base.hinting = TextServer.HINTING_LIGHT
-	base.subpixel_positioning = TextServer.SUBPIXEL_POSITIONING_AUTO
-	var wght := TextServerManager.get_primary_interface().name_to_tag("wght")
-	font = FontVariation.new()
-	font.base_font = base
-	font.variation_opentype = {wght: 700}
-	font_bold = FontVariation.new()
-	font_bold.base_font = base
-	font_bold.variation_opentype = {wght: 850}
-	font_black = FontVariation.new()
-	font_black.base_font = base
-	font_black.variation_opentype = {wght: 1000}
+	var fallback: FontFile = load("res://fonts/Nunito.ttf")
+	var files := {"m": "res://fonts/ChakraPetch-Medium.ttf", "s": "res://fonts/ChakraPetch-SemiBold.ttf", "b": "res://fonts/ChakraPetch-Bold.ttf"}
+	var out := {}
+	for k in files:
+		var f: FontFile = load(files[k])
+		f.antialiasing = TextServer.FONT_ANTIALIASING_GRAY
+		f.hinting = TextServer.HINTING_LIGHT
+		f.subpixel_positioning = TextServer.SUBPIXEL_POSITIONING_AUTO
+		f.fallbacks = [fallback]
+		var v := FontVariation.new()
+		v.base_font = f
+		out[k] = v
+	font = out["m"]
+	font_bold = out["s"]
+	font_black = out["b"]
 
 
 static func make_theme() -> Theme:
-	var t := Theme.new()
-	t.default_font = font
-	t.default_font_size = 22
-	t.set_color("font_color", "Label", INK)
-	t.set_color("default_color", "RichTextLabel", INK)
-	t.set_font("bold_font", "RichTextLabel", font_black)
-	t.set_font("normal_font", "RichTextLabel", font)
-	# kaydırma çubukları: ince ve yuvarlak
-	var grab := StyleBoxFlat.new()
-	grab.bg_color = Color(INK, 0.22)
-	grab.set_corner_radius_all(6)
-	grab.content_margin_left = 3
-	grab.content_margin_right = 3
-	var empty := StyleBoxEmpty.new()
-	for sb in ["VScrollBar", "HScrollBar"]:
-		t.set_stylebox("scroll", sb, empty)
-		t.set_stylebox("grabber", sb, grab)
-		t.set_stylebox("grabber_highlight", sb, grab)
-		t.set_stylebox("grabber_pressed", sb, grab)
-	var te := StyleBoxFlat.new()
-	te.bg_color = Color("#f4f0fb")
-	te.set_corner_radius_all(16)
-	te.set_content_margin_all(14)
-	t.set_stylebox("normal", "TextEdit", te)
-	t.set_stylebox("focus", "TextEdit", te)
-	t.set_color("font_color", "TextEdit", INK)
-	t.set_font_size("font_size", "TextEdit", 15)
-	return t
+	return BP.theme(font, font_black)
 
 
-## Düz kutu stili
-static func box(color: Color, radius := 22, shadow := 0, shadow_color := Color(0, 0, 0, 0.12)) -> StyleBoxFlat:
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = color
-	sb.set_corner_radius_all(radius)
-	sb.corner_detail = 10
-	sb.anti_aliasing = true
-	if shadow > 0:
-		sb.shadow_size = shadow
-		sb.shadow_color = shadow_color
-		sb.shadow_offset = Vector2(0, shadow * 0.4)
+## Düz kutu stili (45° pahlı)
+static func box(color: Color, radius := 22, _shadow := 0, _shadow_color := Color(0, 0, 0, 0.12)) -> StyleBoxFlat:
+	var sb := BP.chamfer(color, mini(radius, BP.R_MODAL), Color(0, 0, 0, 0), 0.0, 0.0)
+	sb.content_margin_left = -1
+	sb.content_margin_right = -1
+	sb.content_margin_top = -1
+	sb.content_margin_bottom = -1
 	return sb
 
-## Buzlu cam panel: kırık beyaz yarı saydam zemin, ince açık üst kenarlık, hafif dış gölge
-static func frosted_panel(radius := 20, pad := 14) -> PanelContainer:
+## Buzlu koyu cam panel (SURFACE_PANEL + çelik kenar)
+static func frosted_panel(_radius := 20, pad := 14) -> PanelContainer:
 	var p := PanelContainer.new()
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.97, 0.98, 0.99, 0.88)
-	sb.set_corner_radius_all(radius)
-	sb.corner_detail = 10
-	sb.anti_aliasing = true
-	sb.border_width_top = 1
-	sb.border_color = Color(1, 1, 1, 0.6)
-	sb.shadow_size = 12
-	sb.shadow_color = Color(0.16, 0.2, 0.32, 0.14)
-	sb.shadow_offset = Vector2(0, -2)
-	sb.set_content_margin_all(pad)
-	p.add_theme_stylebox_override("panel", sb)
+	p.add_theme_stylebox_override("panel", BP.panel_box(pad))
 	return p
 
-## Cam kart (yarı saydam beyaz panel)
-static func card(alpha := 0.9, radius := 30, pad := 22) -> PanelContainer:
+## Modal kart (SURFACE_MODAL, %94 opak)
+static func card(_alpha := 0.9, _radius := 30, pad := 22) -> PanelContainer:
 	var p := PanelContainer.new()
-	var sb := box(Color(1, 1, 1, alpha), radius, 24, Color(0.2, 0.12, 0.35, 0.18))
-	sb.border_color = Color(1, 1, 1, 0.9)
-	sb.border_width_top = 2
-	sb.set_content_margin_all(pad)
-	p.add_theme_stylebox_override("panel", sb)
+	p.add_theme_stylebox_override("panel", BP.modal_box(pad))
 	return p
 
 static func label(text: String, size := 22, color := INK, f: Font = null) -> Label:
@@ -114,41 +72,9 @@ static func label(text: String, size := 22, color := INK, f: Font = null) -> Lab
 	return l
 
 
-## Kalın, "dudaklı" (alt kenarı koyu) buton stili: basınca dudak incelir, içerik aşağı iner.
-static func style_chunky(b: Button, color: Color, radius := 22, lip := 6, font_color := WHITE) -> void:
-	var dark := color.darkened(0.2)
-	for st in ["normal", "hover", "pressed", "disabled", "focus"]:
-		var sb := StyleBoxFlat.new()
-		sb.corner_detail = 10
-		sb.anti_aliasing = true
-		sb.set_corner_radius_all(radius)
-		var c := color
-		var l := lip
-		if st == "hover":
-			c = color.lightened(0.07)
-		elif st == "pressed":
-			c = color.darkened(0.04)
-			l = 1
-		elif st == "disabled":
-			c = color.lerp(Color("#d9d4e3"), 0.65)
-		sb.bg_color = c
-		sb.border_color = dark if st != "disabled" else c.darkened(0.12)
-		sb.border_width_bottom = l
-		sb.content_margin_left = 16
-		sb.content_margin_right = 16
-		sb.content_margin_top = 8 + mini(3, lip - l)
-		sb.content_margin_bottom = 8
-		sb.shadow_color = Color(0.15, 0.08, 0.3, 0.14 if st != "pressed" else 0.06)
-		sb.shadow_size = 8 if st != "pressed" else 3
-		sb.shadow_offset = Vector2(0, 5 if st != "pressed" else 2)
-		if st == "focus":
-			sb.draw_center = false
-			sb.border_width_bottom = 0
-			sb.shadow_size = 0
-		b.add_theme_stylebox_override(st, sb)
-	for fc in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color", "font_hover_pressed_color"]:
-		b.add_theme_color_override(fc, font_color)
-	b.add_theme_color_override("font_disabled_color", Color(font_color, 0.6))
+## Buton stili: renk Blueprint varyantına çevrilir; font rengi varyanttan gelir.
+static func style_chunky(b: Button, color: Color, radius := 22, _lip := 6, _font_color := WHITE) -> void:
+	BP.style_button(b, BP.variant_for(color), BP.R_SMALL if radius <= 16 else BP.R_STD)
 
 ## Basma animasyonu: basılınca küçülür, bırakınca yaylanarak geri gelir.
 static func juicy(b: Control) -> void:
@@ -165,13 +91,13 @@ static func juicy(b: Control) -> void:
 static func button(text: String, color: Color, cb: Callable, size := 24, icon := "", font_color := WHITE, min_h := 64) -> Button:
 	var b := Button.new()
 	b.focus_mode = Control.FOCUS_NONE
-	b.custom_minimum_size = Vector2(0, min_h)
+	b.custom_minimum_size = Vector2(0, maxf(BP.MIN_TOUCH, min_h * 0.86))
 	style_chunky(b, color, 22, 6, font_color)
+	font_color = BP.variant_font(BP.variant_for(color))
 	var hb := HBoxContainer.new()
 	hb.alignment = BoxContainer.ALIGNMENT_CENTER
 	hb.add_theme_constant_override("separation", int(size * 0.4))
 	hb.set_anchors_preset(Control.PRESET_FULL_RECT)
-	hb.offset_bottom = -5
 	hb.offset_left = 12
 	hb.offset_right = -12
 	hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -184,7 +110,7 @@ static func button(text: String, color: Color, cb: Callable, size := 24, icon :=
 		ic.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		hb.add_child(ic)
 		b.set_meta("icon", ic)
-	var lb := label(text, size, font_color, font_black)
+	var lb := label(text, int(size * 0.82), font_color, font_black)
 	lb.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	lb.visible = text != ""
 	hb.add_child(lb)
@@ -205,17 +131,19 @@ static func set_text(b: Button, text: String) -> void:
 static func round_button(icon: String, cb: Callable, size := 60, bg := WHITE, fg := INK) -> Button:
 	var b := Button.new()
 	b.focus_mode = Control.FOCUS_NONE
+	size = maxi(int(BP.MIN_TOUCH), size)
 	b.custom_minimum_size = Vector2(size, size)
-	style_chunky(b, bg, int(size / 2), 5, fg)
+	var v := BP.variant_for(bg)
+	BP.style_button(b, v, BP.R_STD)
 	var ic := Icon.new()
 	ic.kind = icon
-	ic.color = fg
+	ic.color = BP.variant_font(v) if v != BP.Variant.DEFAULT else (fg if fg.s > 0.35 else BP.TEXT_PRIMARY)
 	ic.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	ic.set_anchors_preset(Control.PRESET_FULL_RECT)
-	ic.offset_left = size * 0.24
-	ic.offset_right = -size * 0.24
-	ic.offset_top = size * 0.2
-	ic.offset_bottom = -size * 0.28
+	ic.offset_left = size * 0.26
+	ic.offset_right = -size * 0.26
+	ic.offset_top = size * 0.26
+	ic.offset_bottom = -size * 0.26
 	b.add_child(ic)
 	b.set_meta("icon", ic)
 	b.pressed.connect(cb)
@@ -230,17 +158,14 @@ static func set_icon(b: Button, kind: String) -> void:
 ## Nova avatarı: mor degrade daire içinde robot yüzü
 static func nova_avatar(size := 52.0) -> Control:
 	var p := PanelContainer.new()
-	var sb := box(Color("#7c5cff"), int(size / 2), 8, Color(0.3, 0.15, 0.8, 0.3))
-	sb.border_color = Color("#b8a6ff")
-	sb.set_border_width_all(2)
-	sb.set_content_margin_all(size * 0.16)
+	var sb := BP.chamfer(Color("#00E5FF1A"), BP.R_STD, BP.ACCENT_CYAN, BP.BORDER_W, size * 0.16)
 	p.add_theme_stylebox_override("panel", sb)
 	p.custom_minimum_size = Vector2(size, size)
 	p.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	p.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	var ic := Icon.new()
 	ic.kind = "nova"
-	ic.color = WHITE
+	ic.color = BP.ACCENT_CYAN
 	ic.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	p.add_child(ic)
 	return p
@@ -248,7 +173,8 @@ static func nova_avatar(size := 52.0) -> Control:
 ## Hap şeklinde bilgi kutusu
 static func pill(child: Control, color := Color(1, 1, 1, 0.85), pad := 14) -> PanelContainer:
 	var p := PanelContainer.new()
-	var sb := box(color, 40, 10, Color(0.2, 0.1, 0.35, 0.12))
+	var accent := color.s > 0.35 and color.a > 0.5
+	var sb := BP.chamfer(BP.SURFACE_PANEL if not accent else Color(BP.SURFACE_MODAL, 0.95), BP.R_SMALL, Color(color, 1.0) if accent else BP.BORDER_STEEL, BP.BORDER_W, 0)
 	sb.content_margin_left = pad + 4
 	sb.content_margin_right = pad + 4
 	sb.content_margin_top = pad * 0.55

@@ -285,6 +285,49 @@ Mobile (Vulkan) renderer, AgX ton eşleme, parıltı, sis, yumuşak gölgeler; V
   * `art/icon-4096.png` → `tools/make_icons.py` ile tüm başlatıcı simgeleri; `store/feature_graphic.png` (1024×500)
     ve `store/screenshots/`.
   Grafik ayarı "Düşük"te bu modellerin yerine prosedürel sürümler kullanılır. Rapor: `tools/blender_scene_report.json`.
+* **Arayüz: Blueprint v2 (Aviyonik / PCB CAD) tasarım sistemi (`scripts/ui/blueprint.gd`, `shaders/blueprint_grid.gdshader`):**
+  renk tokenları (`BG_NAVY_DEEP #071224`, `SURFACE_PANEL #0B192EE6`, `SURFACE_MODAL #091529F0`, `SCRIM_DARK #040A14CC`,
+  `BORDER_STEEL #2B4C7E`, `ACCENT_CYAN #00E5FF`, `ACCENT_AMBER #F59E0B`, `DANGER_CORAL #F45B69`, `TEXT_PRIMARY`,
+  `TEXT_MUTED`), 45° pahlı `StyleBoxFlat` (`corner_detail = 1`, yarıçap 6/10/14, kontur yok), merkezi Theme ve Type
+  Variations (`PrimaryButton`, `AmberButton`, `DangerButton`, `ChamferPanel`, `ModalPanel`), milimetrik ızgara + vinyet
+  arka plan (başlıkta 3D vitrin penceresiyle). Yazı tipi Chakra Petch (OFL, `fonts/`). `UIKit` eski renk parametrelerini
+  varyantlara çevirir (yeşil → Primary, mercan → Danger, amber → Amber, diğerleri wireframe). Ekranlar: HUD
+  (`FAZ 02 // PSU` + seviye adı, adım rozeti), tek satırlı kodlama paneli (menü · ipucu · sıfırla · geri al/adım ·
+  ▶ ÇALIŞTIR · hız; yön komutları cyan, F1/F2 amber), KULELER (yatay faz sekmeleri, telemetri şeridi + amber ilerleme,
+  3 sütunlu pahlı kartlar), Duraklatma (`SYS // PAUSED`), Ayarlar (`SYS // CONFIG`: ses/müzik kareleri, 3 parçalı
+  grafik seçici, oyun içinden taşınan tema seçici, gerçek titreşim anahtarı, erişilebilirlik; geliştirici paneli yalnızca
+  debug derlemede), Bilgisayarım (`SİSTEM MONTAJI // %X`, faz kartları, PC özelleştirme). Kaydırılabilir alanların hepsi
+  `DragScroller` ile parmakla kaydırılır (butonlar dokunuşu yutsa da; sürükleme sonrası bırakma butona gitmez).
+* **Yeni oynanış:** Günlük bulmaca (`scripts/levels/daily_generator.gd`: tarihten tohumlanır, kampanya kurucusuyla
+  üretilir, motor içinde doğrulanır; seri sayacı), Kule Atölyesi (3D editör: blok/çöken/sigorta/sil/başla/hedef, kat
+  seçimi, satır kapasiteleri; TEST ET ile çözülünce doğrulanır, `KKL1:` paylaşım koduyla kaydedilir/oynanır), sayaçlı
+  tekrar (`F*3`, seçili blok → ×2/×3/×4), "Röle açıksa" koşulu, sigorta bileşeni (iki geçişte yanar), meydan okumalar
+  (PAR ALTI · HIZLI · İPUCUSUZ), 15 başarım, yıldızla açılan Robo aksesuarları, faz başlarında Nova hikâye kartları,
+  çözümü tekrar izleme ve paylaşma (metin panoya, ekran görüntüsü `user://paylasim/`), faz başına prosedürel müzik
+  (adım sesleri akorla uyumlu), erişilebilirlik (renk körü paleti, büyük yazı, komutları sesli okuma), geri al yığını,
+  boş alana çift dokunuşla kamera sıfırlama. Test: `--script res://tests/run_features.gd`.
+* **ASMR ses hattı (`tools/generate_asmr_audio.py`, numpy + scipy, ffmpeg/libvorbis):** `python3 tools/generate_asmr_audio.py`
+  41 dosya üretir (44.1 kHz stereo, OGG q6, −1.5 dBFS, kırpılmasız; rapor `tools/asmr_audio_report.json`):
+  5 faz grubu × 3 senkron katman (`assets/audio/music/phase_X_Y_{think,code,run}.ogg`, C majör/A minör pentatonik,
+  90 BPM, 16 sn dikişsiz döngü), foley (`ui_key_thock_01..04`, `step_note_c5..c6`, SMD/diyot/kondansatör/direnç/röle) ve
+  montaj/final sesleri (`assets/audio/assembly/`). Ses yolları `default_bus_layout.tres`: Master (Limiter −0.5 dB),
+  ASMR_Music (Reverb 0.18 + menüde 750 Hz'e inen LowPass), Foley_UI (Compressor), Circuit_SFX (Reverb 0.25).
+  Motor `scripts/audio/asmr_music_engine.gd` (autoload `ASMR`): `AudioStreamSynchronized` ile think/code/run karışımı
+  (düşün 0 / −60 / −60 dB; kodlama code −6 dB, 4 sn sonra iner; Çalıştır run −2 dB), faz grubu değişiminde 1.5 sn
+  çapraz geçiş, çok varyasyonlu foley `AudioStreamRandomizer` (pitch 1.04, ±1.2 dB). Dosyalar yoksa eski prosedürel
+  sesler (AudioHaptics/GameAudio) çalar. Geliştirici panelinde "ASMR SES TESTİ".
+* **Blender sinematikleri (`tools/blender_animation_studio.py`):** `blender --background --python tools/blender_animation_studio.py`
+  → `assets/animations/`: `level_end_rigs.glb` (5 arketip × 240 kare: drop_snap, angle_insert, vertical_slide,
+  screw_lock, magnetic_orbit; CameraRig, PartSocketAnchor, RobotHelperAnchor, SparkAnchor), `phase_finale_01..09.glb`
+  (360 kare, faz kilit mekanizmaları + LockMarkers veri kanalı), `robot_cinematic_anims.glb` (robot_level_victory,
+  robot_inspect_snap, robot_power_jump, robot_finale_wave), `grand_finale_100.glb` (900 kare: kamera, PowerButtonAnchor,
+  FanSpeed, PowerLed, KeyboardWave, PhaseWake_01..10, RobotFinaleAnchor). 30 FPS, BEZIER (hazırlık → oturma → mikro sekme).
+  `scripts/pc/cinematic_director.gd` seviye 100 → büyük final, `% 10 == 0` → faz finali, diğerleri → faza uygun arketip;
+  parça PartSocketAnchor'a bağlanır, kare olayları (whoosh, oturma + kıvılcım + 45 ms titreşim, kilitler) ve finalde
+  kare 130 güç, 185 fanlar, 450 BIOS, 670 masaüstü. Basılı tut 2.5×, "Geç" çalışır; paket yoksa eski Tween akışı.
+  Geliştirici panelinde "BLENDER SİNEMATİK TESTİ". Test: `--script res://tests/run_cinematics.gd`.
+* **Google Play:** `docs/GOOGLE_PLAY.md`; `tools/godot-android-aab.sh` (Gradle AAB, hedef SDK 35) CI'da çalışır;
+  gizlilik sayfası `web/gizlilik.html`. APK yalnızca arm64-v8a içerir (~25 MB küçük).
 * **Harici model/doku (`scripts/assets/asset_loader.gd`):** `assets/models/robot.glb`,
   `assets/models/components/*.glb`, `assets/models/pc_parts/part_NNN.glb`, `assets/textures/pbr/<ad>/{albedo,normal,
   roughness,ao}.png` eklenirse otomatik yüklenir (AABB'ye göre ölçeklenir, tabana hizalanır); yoksa prosedürel model.
