@@ -92,6 +92,10 @@ func _ready() -> void:
 	vp.msaa_3d = Viewport.MSAA_4X
 	vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	svc.add_child(vp)
+	# montaj için son işlem (kendi katmanında, arayüzün altında)
+	var post := VisualFX.post_rect()
+	add_child(post)
+	VisualFX.apply_grade(post, 9, VisualFX.quality)
 	_build_world()
 	_build_ui()
 
@@ -606,6 +610,8 @@ func _skip() -> void:
 		advance(duration - t + 0.001)
 
 func _end_director() -> void:
+	for id in nodes:
+		(nodes[id] as Node3D).visible = true
 	if director != null:
 		director.end(cam)
 		director.queue_free()
@@ -714,6 +720,7 @@ func advance(dt: float) -> void:
 ## Blender sinematiği akışı: zaman rig'e aktarılır, oturmadan sonra komşu parçalarda enerji dalgası
 func _advance_cinematic() -> void:
 	director.seek(t)
+	_clear_view()
 	var snap_t := float(CinematicDirector.SNAP.get(director.anim, CinematicDirector.PHASE_SNAP) if director.kind == "level" else CinematicDirector.PHASE_SNAP) / CinematicDirector.FPS
 	if t < snap_t:
 		PartBuilder.set_glow(new_node, 0.5 + 0.5 * sin(t * 10.0))
@@ -744,6 +751,29 @@ func _advance_cinematic() -> void:
 		UIKit.set_text(btn_next, "BİLGİSAYARIMA DÖN" if from_showcase else "SONRAKİ SEVİYE")
 		_layout()
 		UIKit.pop_in(btn_next, 0.0, 0.5)
+
+## Görüş açıcı: sinematik kameradan hedef parçaya giden doğruyu kesen (ya da kamerayı içine alan) parçalar
+## o kare gizlenir — yakın çekim kamera başka parçaların içinde kalmaz.
+var _aabbs := {}
+func _part_aabb(id: int) -> AABB:
+	if not _aabbs.has(id):
+		var p := PCPartLibrary.part(id)
+		_aabbs[id] = AABB(p.assembly_position - p.assembly_scale / 2.0, p.assembly_scale)
+	return _aabbs[id]
+
+func _clear_view() -> void:
+	if director == null or director.cam == null or new_node == null:
+		return
+	var from := director.cam.global_position
+	var to := new_node.global_position
+	for id in nodes:
+		if id == part_id:
+			continue
+		var n: Node3D = nodes[id]
+		var b := _part_aabb(int(id)).grow(0.05)
+		var block := b.has_point(from) or b.intersects_segment(from, to.lerp(from, 0.08)) != null
+		if n.visible == block:
+			n.visible = not block
 
 ## Büyük final: 100. parçanın montajı bittiğinde ya da test butonundan
 func start_final(skip_assembly: bool) -> void:
@@ -785,6 +815,16 @@ func _update_cam() -> void:
 	var dir := Vector3(cos(pitch) * sin(yaw), sin(pitch), cos(pitch) * cos(yaw))
 	cam.position = cam_target + dir * dist
 	cam.look_at(cam_target, Vector3.UP)
+	# alan derinliği hedefe odaklı (yakın çekimde belirgin bokeh)
+	if VisualFX.quality >= 2:
+		if not (cam.attributes is CameraAttributesPractical):
+			VisualFX.dof(cam, dist, 2, 0.06)
+		var a: CameraAttributesPractical = cam.attributes
+		a.dof_blur_far_distance = dist * 1.25
+		a.dof_blur_far_transition = dist * 1.4
+		a.dof_blur_near_enabled = dist < 3.0
+		a.dof_blur_near_distance = dist * 0.45
+		a.dof_blur_amount = 0.06 if mode == "assembly" else 0.03
 
 func _animate_parts(dt: float) -> void:
 	for id in nodes:

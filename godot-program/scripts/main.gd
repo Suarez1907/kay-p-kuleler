@@ -100,6 +100,7 @@ var audio: GameAudio
 var gfx := 2                # 0 düşük, 1 orta, 2 yüksek
 var perf: PerfGovernor = null
 var perf_label: Label = null
+var post_fx: ColorRect = null
 var ui: CanvasLayer
 var ui_root: Control
 var fx_layer: CanvasLayer
@@ -585,6 +586,47 @@ func _mat(color, opts := {}) -> StandardMaterial3D:
 
 ## Performans: statik blokların (devre elemanı + merdiven) gölgesi tek bir birleşik "yalnızca gölge" meshinden
 ## gelir; hücrelerin çok yüzeyli modelleri gölge geçişinde ayrı ayrı çizilmez. Açılış (cascade) bitince görünür.
+## Görsel kalite: faz renk derecelendirmesi, yansıma probu, ortam zerreleri
+func _build_visual_fx(box: AABB) -> void:
+	var ph := LevelProgressionManager.phase_of(mini(level_idx, LEVEL_CUSTOM - 1)) if level_idx < LEVEL_CUSTOM else 9
+	if preview:
+		ph = 0
+	VisualFX.apply_grade(post_fx, ph, gfx)
+	VisualFX.probe(level_root, box, gfx)
+	if not preview and gfx >= 1:
+		_build_backdrop(ph, box)
+	if not instant:
+		var acc: Color = theme_app.theme.accent_color if theme_app != null and theme_app.theme != null else Color("#9fd8ff")
+		VisualFX.motes(level_root, box, acc.lerp(Color.WHITE, 0.4), gfx)
+
+## Uzak manzara: adanın altında uzanan dev donanım dünyası; renkler gökyüzüne karışır (atmosferik derinlik)
+func _build_backdrop(ph: int, box: AABB) -> void:
+	var path := "res://assets/models/backdrops/backdrop_%02d.glb" % (ph + 1)
+	if not ResourceLoader.exists(path):
+		return
+	var ps = load(path)
+	if not (ps is PackedScene):
+		return
+	var bd: Node3D = (ps as PackedScene).instantiate()
+	# ortografik izometrik kamera: manzara ölçeklenip adanın çok altına konur ("bulutların altındaki şehir")
+	bd.scale = Vector3.ONE * 0.6
+	bd.position = Vector3(box.get_center().x, float(L.min_y) - 6.0, box.get_center().z)
+	var haze: Color = weather.veil_color()
+	for mi in PartBuilder._meshes_in(bd):
+		var m: MeshInstance3D = mi
+		m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		for i in m.mesh.get_surface_count():
+			var src := m.mesh.surface_get_material(i)
+			if src is StandardMaterial3D:
+				var e: StandardMaterial3D = src.duplicate()
+				if not e.emission_enabled:
+					e.albedo_color = Color(e.albedo_color.lerp(haze, 0.5), e.albedo_color.a)
+					e.metallic *= 0.5
+				e.disable_receive_shadows = true
+				m.set_surface_override_material(i, e)
+	level_root.add_child(bd)
+	objs["backdrop"] = bd
+
 func _build_shadow_proxy() -> void:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
@@ -1080,6 +1122,7 @@ func build_level(i: int, as_preview := false) -> void:
 	objs["clone"] = holo
 	_build_relay_traces()
 	_build_shadow_proxy()
+	_build_visual_fx(bb["box"])
 	var aabb: AABB = bb["box"]
 	_build_goal_sparkles(Vector3(L.goal))
 	# kamera
@@ -1317,6 +1360,17 @@ func _make_robot() -> Node3D:
 	var ring := _mesh(_torus(0.34, 0.4), _mat("#ffffff", {"unshaded": true, "alpha": true, "unique": true}), Vector3(0, 0.02, 0), g)
 	ring.scale = Vector3(1, 0.05, 1)
 	ring.material_override.albedo_color.a = 0.55
+	# gözlerden gerçek ışık (yakın yüzeyleri cyan boyar)
+	if VisualFX.quality >= 2:
+		var eye_l := OmniLight3D.new()
+		eye_l.light_color = Color("#6ff6ff")
+		eye_l.light_energy = 0.7
+		eye_l.omni_range = 1.3
+		eye_l.omni_attenuation = 1.6
+		eye_l.shadow_enabled = false
+		eye_l.position = Vector3(0, 0.38, 0.32)
+		pose.add_child(eye_l)
+		g.set_meta("eye_light", eye_l)
 	# res://assets/models/robot.glb varsa prosedürel gövde gizlenir, model yerine konur (meta düğümler korunur)
 	var rglb := AssetLoader.robot_model()
 	if rglb != null:
@@ -2627,6 +2681,12 @@ func _setup_ui() -> void:
 	vt.gradient = vg
 	vig.texture = vt
 	ui_root.add_child(vig)
+	# son işlem: 3D'nin üstünde, arayüzün altında
+	var post_layer := CanvasLayer.new()
+	post_layer.layer = 0
+	add_child(post_layer)
+	post_fx = VisualFX.post_rect()
+	post_layer.add_child(post_fx)
 	_build_hud()
 	_build_screens()
 	fx_layer = CanvasLayer.new()
@@ -4107,6 +4167,10 @@ func _apply_gfx() -> void:
 	RenderingServer.directional_shadow_atlas_set_size([1024, 4096, 4096][gfx], true)
 	weather.set_quality(gfx)
 	ComponentFactory.use_models = gfx >= 1
+	AssetLoader.pbr_detail = gfx >= 2
+	VisualFX.quality = gfx
+	if post_fx != null:
+		post_fx.visible = gfx >= 1
 
 
 # ---------- HUD ----------
@@ -6440,6 +6504,12 @@ func _perftest() -> void:
 func _perfcheck() -> void:
 	var fails := []
 	var info := {}
+	# gerçek akıştaki gibi: varlıklar başlık ekranında ısıtılır, seviye kurulumu sonra ölçülür
+	perf.start_warmup()
+	var g0 := 0
+	while not perf.warm_done and g0 < 600:
+		await get_tree().process_frame
+		g0 += 1
 	for li in [0, 40, 98]:
 		progress["seen"][str(li)] = 1
 		var t0 := Time.get_ticks_usec()

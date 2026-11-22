@@ -13,7 +13,7 @@ extends Node
 signal quality_picked(level: int)
 
 const WARM_DIRS := ["res://assets/models/components/", "res://assets/models/puzzle/", "res://assets/models/themes/",
-	"res://assets/models/scenes/", "res://assets/animations/"]
+	"res://assets/models/scenes/", "res://assets/animations/", "res://assets/models/backdrops/"]
 const WARM_FILES := ["res://assets/models/robot.glb"]
 
 var cache: Array = []                # yüklenen kaynaklar burada tutulur (önbellekten düşmesin)
@@ -65,6 +65,9 @@ func start_warmup() -> void:
 			var f := fn.trim_suffix(".remap").trim_suffix(".import")
 			if f.ends_with(".glb") and not (d + f) in _queue and ResourceLoader.exists(d + f):
 				_queue.append(d + f)
+	# dokular (PBR setleri, PCB, arayüz ikonları) de önceden yüklenir
+	for d in ["res://assets/textures/pbr/", "res://assets/ui/"]:
+		_add_textures(d)
 	_warm_vp = SubViewport.new()
 	_warm_vp.size = Vector2i(96, 96)
 	_warm_vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
@@ -86,6 +89,17 @@ func start_warmup() -> void:
 	we.environment = env
 	_warm_vp.add_child(we)
 
+func _add_textures(d: String) -> void:
+	var da := DirAccess.open(d)
+	if da == null:
+		return
+	for sub in da.get_directories():
+		_add_textures(d + sub + "/")
+	for fn in da.get_files():
+		var f := fn.trim_suffix(".import").trim_suffix(".remap")
+		if f.ends_with(".png") and not (d + f) in _queue and ResourceLoader.exists(d + f):
+			_queue.append(d + f)
+
 func _process(dt: float) -> void:
 	if not warm_done and _warm_vp != null:
 		_warm_step()
@@ -103,7 +117,7 @@ func _warm_step() -> void:
 			_warm_vp.queue_free()
 			_warm_vp = null
 		return
-	for k in 2:
+	for k in 3:
 		if _queue.is_empty():
 			break
 		var f: String = _queue.pop_front()

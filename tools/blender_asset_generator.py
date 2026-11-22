@@ -35,10 +35,12 @@ def _arg(name, default):
 OUT = os.path.abspath(_arg("--out", os.path.join(HERE, "..", "godot-program", "assets", "models")))
 ONLY = set(_arg("--only", "robot,components,parts").split(","))
 
-BUDGET_ROBOT = 10000
-BUDGET_COMPONENT = 8000
-BUDGET_PART = 6000
-BUDGET_PART_BIG = 14000
+# Ayrıntı çarpanı (KK_DETAIL, varsayılan 2): silindir/torus/küre bölümleri ve pah segmentleri bununla çoğalır
+DETAIL = max(1, int(os.environ.get("KK_DETAIL", "2")))
+BUDGET_ROBOT = 10000 * DETAIL * 2
+BUDGET_COMPONENT = 8000 * DETAIL * 2
+BUDGET_PART = 6000 * DETAIL * 2
+BUDGET_PART_BIG = 14000 * DETAIL * 2
 BIG_SHAPES = {"keys", "fins_z", "fins_y", "shroud", "dimm", "psu", "pins", "heatsink", "frame_top", "pcb_board", "vram", "panel_v"}
 
 # ---------------------------------------------------------------------------
@@ -82,7 +84,7 @@ def _finish_obj(o, m, bevel):
     if bevel and bevel > 0:
         b = o.modifiers.new("Bevel", "BEVEL")
         b.width = bevel
-        b.segments = 2 if bevel < 0.02 else 3
+        b.segments = (2 if bevel < 0.02 else 3) + (DETAIL - 1)
         b.limit_method = "ANGLE"
         b.angle_limit = math.radians(35)
         b.use_clamp_overlap = True
@@ -103,24 +105,28 @@ def box(c, s, m, rot=None, bevel=None):
 
 _AX = {"x": (0, math.pi / 2, 0), "y": (0, 0, 0), "z": (math.pi / 2, 0, 0)}   # Godot eksenleri (Blender'da y↔z)
 def cyl(c, r, h, m, axis="y", verts=24, bevel=None):
+    verts = verts * DETAIL if verts >= 8 else verts
     bpy.ops.mesh.primitive_cylinder_add(vertices=verts, radius=r, depth=h, location=G(*c), rotation=_AX[axis])
     o = bpy.context.active_object
     bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
     return _finish_obj(o, m, bw(r * 2, h) if bevel is None else bevel)
 
 def cone(c, r1, r2, h, m, axis="y", verts=24):
+    verts = verts * DETAIL if verts >= 8 else verts
     bpy.ops.mesh.primitive_cone_add(vertices=verts, radius1=r1, radius2=r2, depth=h, location=G(*c), rotation=_AX[axis])
     o = bpy.context.active_object
     bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
     return _finish_obj(o, m, 0)
 
 def torus(c, R, r, m, axis="y", major=32, minor=10):
+    major, minor = major * DETAIL, max(minor, minor * DETAIL // 1)
     bpy.ops.mesh.primitive_torus_add(major_radius=R, minor_radius=r, major_segments=major, minor_segments=minor, location=G(*c), rotation=_AX[axis])
     o = bpy.context.active_object
     bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
     return _finish_obj(o, m, 0)
 
 def sphere(c, r, m, seg=16):
+    seg = seg * DETAIL
     bpy.ops.mesh.primitive_uv_sphere_add(segments=seg, ring_count=seg // 2, radius=r, location=G(*c))
     return _finish_obj(bpy.context.active_object, m, 0)
 
