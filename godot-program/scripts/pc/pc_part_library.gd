@@ -112,8 +112,9 @@ const ROWS := [
 	["Masaüstü hoparlör", "speaker", Vector3(5.7500, 0.4500, -1.0500), Vector3(0.5000, 0.9000, 0.5000), "#24262c"],
 	["Sistem çekirdeği", "core", Vector3(-0.7000, 4.8000, 0.0000), Vector3(0.6000, 0.6000, 0.6000), "#62f2ff"],
 ]
-## Dışarıdan model eklemek için: res://models/parts/part_014.glb gibi bir dosya koyun; varsa otomatik yüklenir.
-const GLB_PATTERN := "res://models/parts/part_%03d.glb"
+## Dışarıdan model eklemek için: res://assets/models/pc_parts/part_014.glb gibi bir dosya koyun; varsa otomatik yüklenir
+## (bkz. AssetLoader). Varsayılan yol optional_glb_path olarak da saklanır.
+const GLB_PATTERN := "res://assets/models/pc_parts/part_%03d.glb"
 
 static var _parts: Array = []
 

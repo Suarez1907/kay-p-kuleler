@@ -17,6 +17,7 @@ const COMMANDS := {
 	"W": {"name": "Mola", "desc": "Programı duraklatır; bu sırada dünyayı değiştirebilirsin."},
 	"1": {"name": "F1", "desc": "F1 fonksiyonunu çağırır."},
 	"2": {"name": "F2", "desc": "F2 fonksiyonunu çağırır."},
+	"C": {"name": "Klon", "desc": "Robo'nun bulunduğu yere yarı saydam bir klon bırakır; klon F1 satırını Robo ile aynı tur ritminde çalıştırır."},
 }
 
 ## "F", "o:F", "x:1" -> {c, k}
@@ -85,6 +86,14 @@ static func cmd_step(L: PuzzleLogic, s0: Dictionary, c: String) -> Dictionary:
 		return {"state": s, "frames": [s], "bump": false, "pause": false}
 	if c == "W":
 		return {"state": s0, "frames": [], "bump": false, "pause": true}
+	if c == "C":
+		# klon: bulunduğu yere bırakılır (varsa yenisiyle değişir); F1'i paralel çalıştırır
+		var gen := int(s.get("clone", {}).get("gen", 0)) + 1
+		s["clone"] = {"p": s["p"], "f": s["f"], "wait": 0, "gen": gen}
+		var cf := [PuzzleLogic.clone(s)]
+		L.settle(s, cf)
+		cf[cf.size() - 1] = s
+		return {"state": s, "frames": cf, "bump": false, "pause": false}
 	var W := L.build_world(s)
 	var P: Vector3i = s["p"]
 	var moved_ent = null
@@ -204,33 +213,116 @@ class Runner:
 
 ## Tüm programı mola noktalarında `ops` ile çalıştırır (doğrulayıcı ve testler için).
 static func run_program(L: PuzzleLogic, src: Dictionary, ops: Array) -> Dictionary:
+	return run_ticks(L, src, ops)
+
+
+# ---------------------------------------------------------------------------
+# Tur tabanlı yürütme: her turda önce klon (varsa) F1'den bir komut, sonra ana Robo kendi satırından bir komut
+# yürütür. Direnç bekleme sayacı (wait) bir tur yer. Oyun (main.gd) ve doğrulayıcılar aynı fonksiyonu kullanır.
+
+## Klonu "ana birim" yapan geçici durum (Robo'nun alanları klonunkiyle yer değiştirir; Robo hayalet olur)
+static func _as_clone(s: Dictionary) -> Dictionary:
+	var c: Dictionary = s["clone"]
+	var t := PuzzleLogic.clone(s)
+	t["p"] = c["p"]
+	t["f"] = c["f"]
+	t["wait"] = int(c.get("wait", 0))
+	t["dead"] = false
+	t["clone"] = {"p": s["p"], "f": s["f"], "wait": int(s.get("wait", 0)), "dead": s["dead"], "gen": c.get("gen", 0), "_main": true}
+	return t
+
+static func _from_clone(t: Dictionary) -> Dictionary:
+	var m: Dictionary = t["clone"]
+	var s := PuzzleLogic.clone(t)
+	s["p"] = m["p"]
+	s["f"] = m["f"]
+	s["wait"] = m["wait"]
+	s["dead"] = m["dead"]
+	if t["dead"]:
+		s["clone"] = {}
+	else:
+		s["clone"] = {"p": t["p"], "f": t["f"], "wait": int(t.get("wait", 0)), "gen": m.get("gen", 0)}
+	return s
+
+## ctx: {prog, main: Runner, clone: Runner|null, gen}. Dönüş: {state, frames, bump, pause, ended, reason, n, cn, wait}
+static func tick(L: PuzzleLogic, s: Dictionary, ctx: Dictionary) -> Dictionary:
+	var out := {"state": s, "frames": [], "bump": false, "pause": false, "ended": false, "reason": "", "n": null, "cn": null, "wait": false}
+	var moved_clone := false
+	var cl: Dictionary = s.get("clone", {})
+	if not cl.is_empty():
+		if ctx.get("clone") == null or int(ctx.get("gen", -1)) != int(cl.get("gen", 0)):
+			var p: Dictionary = ctx["prog"]
+			ctx["clone"] = Runner.new({"main": p["p1"], "p1": p["p1"], "p2": p["p2"]})
+			ctx["gen"] = int(cl.get("gen", 0))
+		if int(cl.get("wait", 0)) > 0:
+			s = PuzzleLogic.clone(s)
+			s["clone"]["wait"] = int(cl["wait"]) - 1
+			moved_clone = true
+		else:
+			var cv := _as_clone(s)
+			var n2 = ctx["clone"].next(L, cv)
+			out["cn"] = n2
+			if n2 != null and not (n2["ins"]["c"] in ["W", "C"]):
+				var r2 := cmd_step(L, cv, n2["ins"]["c"])
+				if not r2["bump"]:
+					s = _from_clone(r2["state"])
+					moved_clone = true
+	out["state"] = s
+	# ana Robo
+	if int(s.get("wait", 0)) > 0:
+		s = PuzzleLogic.clone(s)
+		s["wait"] = int(s["wait"]) - 1
+		out["state"] = s
+		out["frames"] = [s]
+		out["wait"] = true
+		return out
+	var n = ctx["main"].next(L, s)
+	out["n"] = n
+	if n == null:
+		out["ended"] = true
+		out["reason"] = ctx["main"].error if ctx["main"].error != "" else "end"
+		if moved_clone:
+			out["frames"] = [s]
+		return out
+	var r := cmd_step(L, s, n["ins"]["c"])
+	if r["pause"]:
+		out["pause"] = true
+		if moved_clone:
+			out["frames"] = [s]
+		return out
+	out["bump"] = r["bump"]
+	out["state"] = r["state"]
+	out["frames"] = r["frames"] if not r["bump"] else [s]
+	return out
+
+## Tüm programı tur tabanlı yürütür (doğrulayıcılar ve testler). ops: molalardaki dünya işlemleri.
+static func run_ticks(L: PuzzleLogic, src: Dictionary, ops: Array) -> Dictionary:
 	var s := L.initial_state()
-	var apply := func(st: Dictionary, list) -> Dictionary:
-		for op in (list if list != null else []):
-			var r := world_op(L, st, op)
-			if not r["ok"]:
-				return {}
-			st = r["state"]
-		return st
-	s = apply.call(s, ops[0] if ops.size() > 0 else [])
-	if s.is_empty():
-		return {"result": "op-fail"}
-	var run := Runner.new(parse_program(src))
+	for op in (ops[0] if ops.size() > 0 else []):
+		var r0 := world_op(L, s, op)
+		if not r0["ok"]:
+			return {"result": "op-fail"}
+		s = r0["state"]
+	var prog := parse_program(src)
+	var ctx := {"prog": prog, "main": Runner.new(prog), "clone": null, "gen": -1}
 	var pauses := 0
-	while true:
+	var ticks := 0
+	while ticks < 2000:
+		ticks += 1
 		if L.is_win(s):
-			return {"result": "win", "steps": run.steps}
-		var n = run.next(L, s)
-		if n == null:
-			return {"result": run.error if run.error != "" else "end", "steps": run.steps}
-		var r := cmd_step(L, s, n["ins"]["c"])
-		if r["pause"]:
+			return {"result": "win", "steps": ctx["main"].steps, "ticks": ticks}
+		var t := tick(L, s, ctx)
+		s = t["state"]
+		if t["pause"]:
 			pauses += 1
-			s = apply.call(s, ops[pauses] if ops.size() > pauses else [])
-			if s.is_empty():
-				return {"result": "op-fail"}
+			for op in (ops[pauses] if ops.size() > pauses else []):
+				var r1 := world_op(L, s, op)
+				if not r1["ok"]:
+					return {"result": "op-fail"}
+				s = r1["state"]
 			continue
-		s = r["state"]
+		if t["ended"]:
+			return {"result": "win" if L.is_win(s) else t["reason"], "steps": ctx["main"].steps, "ticks": ticks}
 		if s["dead"]:
-			return {"result": "dead", "steps": run.steps}
-	return {"result": "end"}
+			return {"result": "dead", "steps": ctx["main"].steps, "ticks": ticks}
+	return {"result": "limit"}

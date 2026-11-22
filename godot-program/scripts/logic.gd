@@ -34,6 +34,20 @@ var portals := []            # {a, b, on}
 var phantoms := []           # {cells, views:Array} — yalnızca o açılardan bakınca katı
 var comps := {}              # Vector3i (statik blok) -> {t:"diode"|"cap"|"res"|"relay", d, id, ri}; diğerleri SMD transistör
 var relay_count := 0
+var circuits := {}           # circuit_id -> {mode:"OR"|"AND", cells:[röle üstü hücreler]}
+
+const TYPE_KEYS := {"SMD_TRANSISTOR": "", "DIODE": "diode", "CAPACITOR": "cap", "RESISTOR": "res", "RELAY": "relay"}
+
+## Seviye verisindeki bir bileşeni iç biçime çevirir. Hem kısa ({t, d, id, mode, delay, boost}) hem de
+## açık ({component_type, direction, target_relay_id | circuit_id, logic_mode, delay_turns, boost_height}) alan adları desteklenir.
+static func normalize_comp(c: Dictionary) -> Dictionary:
+	var t := String(c.get("t", ""))
+	if c.has("component_type"):
+		t = TYPE_KEYS.get(String(c["component_type"]).to_upper(), String(c["component_type"]))
+	var id := String(c.get("id", c.get("circuit_id", c.get("target_relay_id", ""))))
+	var mode := String(c.get("mode", c.get("logic_mode", ""))).to_upper()
+	return {"t": t, "d": int(c.get("d", c.get("direction", 0))), "id": id, "mode": mode,
+		"delay": int(c.get("delay", c.get("delay_turns", 1))), "boost": int(c.get("boost", c.get("boost_height", 1))), "ri": -1}
 var solution = {}
 
 static func v3(a) -> Vector3i:
@@ -110,10 +124,14 @@ func load_level(d: Dictionary) -> void:
 			views.append(int(vw))
 		phantoms.append({"cells": v3list(ph["cells"]), "views": views})
 	for c in d.get("comps", []):
-		var e := {"t": String(c["t"]), "d": int(c.get("d", 0)), "id": String(c.get("id", "")), "ri": -1}
-		if e["t"] == "relay":
+		var e := normalize_comp(c)
+		if e["t"] == "relay" and e["mode"] == "":
 			e["ri"] = relay_count
 			relay_count += 1
+		if e["t"] == "relay" and e["mode"] != "":
+			if not circuits.has(e["id"]):
+				circuits[e["id"]] = {"mode": e["mode"], "cells": []}
+			circuits[e["id"]]["cells"].append(v3(c["p"]) + UP)
 		comps[v3(c["p"])] = e
 	solution = d.get("solution", {})
 
@@ -124,6 +142,7 @@ func initial_state() -> Dictionary:
 	var s := {
 		"p": start, "f": start_dir, "crates": crates0.duplicate(), "balls": [],
 		"levers": [], "rots": [], "slides": [], "bridges": [], "crumbles": [], "relays": [],
+		"wait": 0, "clone": {}, "circuits": {},
 		"view": view0, "dead": false, "moves": 0,
 	}
 	for b in balls0:
@@ -160,6 +179,7 @@ static func state_key(s: Dictionary) -> String:
 	parts.append(str(s["crumbles"]))
 	parts.append(str(s["view"]))
 	parts.append(str(s.get("relays", [])))
+	parts.append(str(s.get("wait", 0)) + str(s.get("clone", {})) + str(s.get("circuits", {})))
 	return "|".join(parts)
 
 # ---- dinamik bloklar ----
@@ -235,9 +255,37 @@ func _signals(s: Dictionary, W: Dictionary) -> Dictionary:
 	for i in levers.size():
 		sig[levers[i]["id"]] = s["levers"][i]
 	for c in comps.values():
-		if c["t"] == "relay":
+		if c["t"] == "relay" and c["mode"] == "":
 			sig[c["id"]] = bool(s["relays"][c["ri"]])
+	for cid in circuits:
+		sig["C:" + cid] = bool(s.get("circuits", {}).get(cid, false))
 	return sig
+
+## Röle devresi: üstünde Robo, klon ya da kutu duran röle basılıdır. OR: biri yeter; AND: hepsi aynı anda.
+## Koşul sağlandığı an devre kilitlenir (köprü kalıcı açılır).
+func relay_pressed(s: Dictionary, W: Dictionary, cell: Vector3i) -> bool:
+	if not s["dead"] and s["p"] == cell:
+		return true
+	var cl: Dictionary = s.get("clone", {})
+	if not cl.is_empty() and cl["p"] == cell:
+		return true
+	return W["ents"].has(cell)
+
+func _update_circuits(s: Dictionary, W: Dictionary) -> bool:
+	var changed := false
+	for cid in circuits:
+		if s["circuits"].get(cid, false):
+			continue
+		var c: Dictionary = circuits[cid]
+		var n := 0
+		for cell in c["cells"]:
+			if relay_pressed(s, W, cell):
+				n += 1
+		var on: bool = n > 0 if c["mode"] == "OR" else n == c["cells"].size()
+		if on:
+			s["circuits"][cid] = true
+			changed = true
+	return changed
 
 static func eval_sig(sig: Dictionary, expr) -> bool:
 	if expr == null:
@@ -355,6 +403,8 @@ func settle(s: Dictionary, frames) -> void:
 	for tick in range(200):
 		var changed := false
 		var W := build_world(s)
+		if not circuits.is_empty() and s.has("circuits") and _update_circuits(s, W):
+			changed = true
 		var sig := _signals(s, W)
 		for i in bridges.size():
 			var want := eval_sig(sig, bridges[i]["on"])
@@ -469,19 +519,27 @@ func after_arrive(s: Dictionary, frames) -> void:
 	var c := comp_at(s["p"])
 	match String(c.get("t", "")):
 		"relay":
-			s["relays"][c["ri"]] = not s["relays"][c["ri"]]
+			if c["mode"] == "":
+				s["relays"][c["ri"]] = not s["relays"][c["ri"]]
 		"res":
-			s["moves"] += 1
+			# direnç: Robo delay_turns tur bekler (tur tabanlı yürütücü bekleme sayacını düşer)
+			s["wait"] = int(s.get("wait", 0)) + maxi(1, int(c.get("delay", 1)))
 			if frames != null:
 				frames.append(clone(s))
 		"cap":
 			var W := build_world(s)
-			var T: Vector3i = s["p"] + DIRS[s["f"]] + UP
+			var T: Vector3i = s["p"] + DIRS[s["f"]] + UP * maxi(1, int(c.get("boost", 1)))
 			if _free(W, T) and _supported(W, T) and _free(W, s["p"] + UP) and diode_ok(s["p"], T, s["f"]):
 				s["p"] = T
 				s["moves"] += 1
 				if frames != null:
 					frames.append(clone(s))
+
+## Diyot yüzünden mi yürünemiyor? (yol açık ama diyot ters yönde)
+func diode_blocked(s: Dictionary) -> bool:
+	var W := build_world(s)
+	var T = _walk_target_raw(s, W, s["p"], s["f"])
+	return T != null and not diode_ok(s["p"], T, s["f"])
 
 func walk_target(s: Dictionary, W: Dictionary, P: Vector3i, d: int):
 	var T = _walk_target_raw(s, W, P, d)

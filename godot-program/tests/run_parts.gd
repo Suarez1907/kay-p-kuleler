@@ -19,7 +19,7 @@ func _init() -> void:
 			fails.append("kimlik dışı: %d" % pd.part_id)
 		if pd.assembly_scale.x <= 0 or pd.assembly_scale.y <= 0 or pd.assembly_scale.z <= 0:
 			fails.append("boyut: " + pd.part_name)
-		if pd.optional_glb_path != "res://models/parts/part_%03d.glb" % pd.part_id:
+		if pd.optional_glb_path != "res://assets/models/pc_parts/part_%03d.glb" % pd.part_id:
 			fails.append("glb yolu: " + pd.part_name)
 	for ph in 10:
 		if phases.get(ph, 0) != 10:

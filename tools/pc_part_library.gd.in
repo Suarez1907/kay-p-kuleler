@@ -13,8 +13,9 @@ const PHASES := [%PHASES%]
 const ROWS := [
 %ROWS%
 ]
-## Dışarıdan model eklemek için: res://models/parts/part_014.glb gibi bir dosya koyun; varsa otomatik yüklenir.
-const GLB_PATTERN := "res://models/parts/part_%03d.glb"
+## Dışarıdan model eklemek için: res://assets/models/pc_parts/part_014.glb gibi bir dosya koyun; varsa otomatik yüklenir
+## (bkz. AssetLoader). Varsayılan yol optional_glb_path olarak da saklanır.
+const GLB_PATTERN := "res://assets/models/pc_parts/part_%03d.glb"
 
 static var _parts: Array = []
 

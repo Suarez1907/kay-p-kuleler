@@ -14,7 +14,7 @@ static func build(p: PCPartData) -> Node3D:
 	root.position = p.assembly_position
 	root.rotation_degrees = p.assembly_rotation
 	root.set_meta("part_id", p.part_id)
-	var glb := _load_glb(p.optional_glb_path, p.assembly_scale)
+	var glb := AssetLoader.part_model(p.part_id, p.assembly_scale, p.optional_glb_path)
 	if glb != null:
 		root.add_child(glb)
 		root.set_meta("bodies", _meshes_in(glb))

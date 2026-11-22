@@ -233,6 +233,27 @@ Mobile (Vulkan) renderer, AgX ton eşleme, parıltı, sis, yumuşak gölgeler; V
   `--autotest` ayrıca eski WebView ilerlemesinin taşınmasını sahte bir LevelDB günlüğüyle sınar.
   `--feeltest` animasyonları gerçek zamanlı sınar: açılış, 1x ve en hızlı modda koşu (esneme, dönüş zıplaması),
   zafer, kristalin geri gelmesi, silme animasyonu ve Durdur'da tween temizliği.
+* **Devre kampanyası (`data/levels_100.json`, Godot ana sürüm):** 10 donanım fazı × 10 seviye; N. seviye N. parçayı
+  kazandırır. `tools/level_database_builder.gd` seviyeleri oyunun kendi tur tabanlı motoruyla üretir ve doğrular
+  (`--check`: `levels_100: 100/100 solvable`), her seviyeye `par_commands` ve `hint_solution` yazar. Mekanik eğrisi:
+  Faz 1–2 SMD + hareket/F1/F2, Faz 3–4 diyot (diyotlu labirentler), Faz 5–6 kondansatör (2 kat fırlatan dahil),
+  Faz 7 röle OR, Faz 8 röle AND + klon, Faz 9 direnç (1–2 tur), Faz 10 hepsi (klon + direnç senkronizasyonu).
+  Bileşen şeması: `comps: [{p, component_type, direction, circuit_id | target_relay_id, logic_mode: OR|AND,
+  delay_turns, boost_height}]`, köprü `on: "C:<circuit_id>"`, `enable_clone`. Yürütme tur tabanlıdır
+  (`Program.tick`): her turda önce klon F1'den, sonra Robo kendi satırından bir komut çalıştırır; direnç turları
+  sayaçla bekletir; AND devresi bütün röleleri aynı turda basılı görünce kilitlenir. İpucu ampulü kayıtlı çözümden
+  sıradaki tek adımı gösterir. Web sürümü eski 100 seviyelik kampanyada kalır (`tools/build.mjs`).
+* **Geliştirici menüsü (Ayarlar):** Seviyeye Atla (1–100), Finali Test Et (100/100); Bilgisayarım'da Montajı Test Et.
+* **Büyük final (`scripts/pc/final_boot_sequence.gd`):** 100. parça takılınca ~30 sn: Robo güç tuşuna zıplar, fanlar
+  0 devirden hızlanır, enerji dalgası fazları dolaşır, monitörde SubViewport ile canlı BIOS/POST ekranı, masaüstü ve
+  "SİSTEM ÇEVRİMİÇİ — TEBRİKLER"; sonunda Atölyede İncele / Ana Menü.
+* **Ses ve haptik (`scripts/audio/audio_haptics_manager.gd`, autoload `AudioHaptics`):** bütün sesler açılışta bir kez
+  16 bit PCM olarak üretilip önbelleğe alınır (pentatonik adımlar, kondansatör sweep, hata, röle, tuş "thock", montaj
+  snap + cızırtı, güç tuşu, fan döngüsü, POST beep, Cmaj7 açılış akoru); `res://assets/audio/<ad>.wav|.ogg` varsa o
+  kullanılır. Titreşim: 12 ms komut, 30+30 ms hata, 45 ms montaj, 60 ms güç; Ayarlar'da Ses ve Titreşim anahtarları.
+* **Harici model/doku (`scripts/assets/asset_loader.gd`):** `assets/models/robot.glb`,
+  `assets/models/components/*.glb`, `assets/models/pc_parts/part_NNN.glb`, `assets/textures/pbr/<ad>/{albedo,normal,
+  roughness,ao}.png` eklenirse otomatik yüklenir (AABB'ye göre ölçeklenir, tabana hizalanır); yoksa prosedürel model.
 * **Elektronik devre konsepti (`scripts/circuit/`):** zemin blokları devre elemanlarıdır; her tür tek bir prosedürel
   mesh ve ortak malzemeyle (`shaders/component.gdshader`, örnek başına `glow`/`charge`) çizilir, kulenin altında
   zümrüt yeşili bir PCB (`shaders/pcb.gdshader`: bakır yollar, altın vialar, serigrafi) bulunur.

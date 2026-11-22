@@ -11,7 +11,12 @@ extends Control
 signal next_level
 signal closed
 signal test_requested
+signal main_menu
 
+const FINAL_SCRIPT := preload("res://scripts/pc/final_boot_sequence.gd")
+var final_seq: Node = null       # 100. parçadan sonra büyük final (FinalBootSequence)
+var fan_speed := 1.0             # fan dönüş çarpanı (final: 0 devirden hızlanır)
+var real_parts: Array = []       # finalden "Atölyede İncele"ye dönerken gösterilecek gerçek parçalar
 const DURATION := 8.0
 
 var mode := "showcase"           # "assembly" | "showcase"
@@ -76,6 +81,11 @@ func _ready() -> void:
 # ---------------------------------------------------------------------------
 # Kurulum
 func setup(m: String, unlocked_ids: Array, pid := 0) -> void:
+	if final_seq != null:
+		final_seq.cleanup()
+		final_seq.queue_free()
+		final_seq = null
+	fan_speed = 1.0
 	mode = m
 	unlocked = unlocked_ids.duplicate()
 	part_id = pid
@@ -326,7 +336,9 @@ func _layout() -> void:
 # ---------------------------------------------------------------------------
 # Zaman çizelgesi
 func _process(dt: float) -> void:
-	if mode == "assembly" and not finished:
+	if final_seq != null:
+		pass   # final kendi saatiyle ilerler
+	elif mode == "assembly" and not finished:
 		advance(dt * (2.0 if holding else 1.0))
 	elif mode == "showcase":
 		_idle += dt
@@ -336,6 +348,9 @@ func _process(dt: float) -> void:
 	_animate_parts(dt)
 
 func _skip() -> void:
+	if final_seq != null:
+		final_seq.skip()
+		return
 	if mode == "assembly" and not finished:
 		advance(DURATION - t + 0.001)
 
@@ -384,6 +399,7 @@ func advance(dt: float) -> void:
 		sparks.position = target_pos + Vector3(0, p.assembly_scale.y * 0.5, 0)
 		sparks.restart()
 		sparks.emitting = true
+		Sfx.call_ah("snap")
 	if t >= 4.5:
 		var k := t - 4.5
 		_shake = maxf(0.0, 1.0 - k / 0.55)
@@ -400,6 +416,12 @@ func advance(dt: float) -> void:
 		cam.position += Vector3(randf_range(-1, 1), randf_range(-1, 1), randf_range(-1, 1)) * 0.035 * _shake * _shake
 	# 4) yazı ve bitiş
 	caption_box.modulate.a = clampf((t - 5.5) / 0.6, 0.0, 1.0)
+	if t >= DURATION and not finished and part_id == PCPartLibrary.COUNT:
+		finished = true
+		for id in nodes:
+			PartBuilder.set_glow(nodes[id], 0.0)
+		start_final(false)
+		return
 	if t >= DURATION and not finished:
 		finished = true
 		btn_skip.visible = false
@@ -410,6 +432,29 @@ func advance(dt: float) -> void:
 		UIKit.pop_in(btn_next, 0.0, 0.5)
 		for id in nodes:
 			PartBuilder.set_glow(nodes[id], 0.0)
+
+## Büyük final: 100. parçanın montajı bittiğinde ya da test butonundan
+func start_final(skip_assembly: bool) -> void:
+	if final_seq != null:
+		return
+	if skip_assembly and not finished:
+		advance(DURATION - t + 0.001)
+		if final_seq != null:
+			return
+	finished = true
+	btn_next.visible = false
+	final_seq = FINAL_SCRIPT.new()
+	add_child(final_seq)
+	final_seq.begin(self)
+
+## Final sonu butonları: "showcase" → Bilgisayarım, "menu" → ana menü
+func end_final(kind: String) -> void:
+	if kind == "menu":
+		if final_seq != null:
+			final_seq.cleanup()
+		main_menu.emit()
+		return
+	setup("showcase", real_parts if not real_parts.is_empty() else unlocked)
 
 func _blend(a: Dictionary, b: Dictionary, k: float) -> Dictionary:
 	return {"target": (a["target"] as Vector3).lerp(b["target"], k), "dist": lerpf(a["dist"], b["dist"], k),
@@ -433,7 +478,7 @@ func _animate_parts(dt: float) -> void:
 		if n.has_meta("spinner"):
 			var sp: Node3D = n.get_meta("spinner")
 			var ax: Vector3 = sp.get_meta("spin_axis")
-			sp.rotate(ax.normalized(), dt * (9.0 if id != 100 else 1.2))
+			sp.rotate(ax.normalized(), dt * (9.0 * fan_speed if id != 100 else 1.2))
 
 # ---------------------------------------------------------------------------
 # Giriş: basılı tut = 2x, vitrinde döndür / yakınlaştır
