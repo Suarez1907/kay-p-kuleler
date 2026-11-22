@@ -29,6 +29,7 @@ var sliders := []            # {blocks, axis, min, max, pos, on, scale}
 var scales := []             # {a, b}
 var crumbles := []           # Vector3i
 var crumble_hp := []         # kaç geçişte çöker: çöken blok 1, sigorta 2
+var has_timers := false      # "T:n" sinyalli köprü var mı (Program.tick tur sayacını yalnızca o zaman ilerletir)
 var links := []              # {a, b, d, view}
 var cranks := []             # {p, rot, dir}
 var portals := []            # {a, b, on}
@@ -108,6 +109,7 @@ func load_level(d: Dictionary) -> void:
 		scales.append({"a": int(sc["a"]), "b": int(sc["b"])})
 		sliders[int(sc["a"])]["scale"] = true
 		sliders[int(sc["b"])]["scale"] = true
+	has_timers = JSON.stringify(d.get("bridges", [])).find("T:") >= 0
 	crumbles = v3list(d.get("crumbles", []))
 	crumble_hp = []
 	for c in crumbles:
@@ -151,7 +153,7 @@ func initial_state() -> Dictionary:
 		"p": start, "f": start_dir, "crates": crates0.duplicate(), "balls": [],
 		"levers": [], "rots": [], "slides": [], "bridges": [], "crumbles": [], "relays": [],
 		"wait": 0, "clone": {}, "circuits": {},
-		"view": view0, "dead": false, "moves": 0,
+		"view": view0, "dead": false, "moves": 0, "tick": 0,
 	}
 	for b in balls0:
 		s["balls"].append({"p": b, "d": -1})
@@ -267,6 +269,10 @@ func _signals(s: Dictionary, W: Dictionary) -> Dictionary:
 			sig[c["id"]] = bool(s["relays"][c["ri"]])
 	for cid in circuits:
 		sig["C:" + cid] = bool(s.get("circuits", {}).get(cid, false))
+	# 555 zamanlayıcı: "T:n" sinyali n turda bir açılıp kapanır (tur sayacı Program.tick'te artar)
+	var tk := int(s.get("tick", 0))
+	for n in [2, 3, 4, 5, 6]:
+		sig["T:%d" % n] = (tk / n) % 2 == 0
 	return sig
 
 ## Röle devresi: üstünde Robo, klon ya da kutu duran röle basılıdır. OR: biri yeter; AND: hepsi aynı anda.
@@ -282,9 +288,20 @@ func relay_pressed(s: Dictionary, W: Dictionary, cell: Vector3i) -> bool:
 func _update_circuits(s: Dictionary, W: Dictionary) -> bool:
 	var changed := false
 	for cid in circuits:
+		var c: Dictionary = circuits[cid]
+		# XOR: kilitlenmez, anlık durum — rölelerden tam olarak biri basılıyken akım geçer
+		if c["mode"] == "XOR":
+			var nx := 0
+			for cell in c["cells"]:
+				if relay_pressed(s, W, cell):
+					nx += 1
+			var xon := nx == 1
+			if bool(s["circuits"].get(cid, false)) != xon:
+				s["circuits"][cid] = xon
+				changed = true
+			continue
 		if s["circuits"].get(cid, false):
 			continue
-		var c: Dictionary = circuits[cid]
 		var n := 0
 		for cell in c["cells"]:
 			if relay_pressed(s, W, cell):

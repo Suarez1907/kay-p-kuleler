@@ -306,6 +306,19 @@ Mobile (Vulkan) renderer, AgX ton eşleme, parıltı, sis, yumuşak gölgeler; V
   çözümü tekrar izleme ve paylaşma (metin panoya, ekran görüntüsü `user://paylasim/`), faz başına prosedürel müzik
   (adım sesleri akorla uyumlu), erişilebilirlik (renk körü paleti, büyük yazı, komutları sesli okuma), geri al yığını,
   boş alana çift dokunuşla kamera sıfırlama. Test: `--script res://tests/run_features.gd`.
+* **Mantık kapıları ve zamanlayıcı:** röle devreleri `OR` (kilitlenir), `XOR` (anlık; tam bir röle basılıyken açık) ve
+  köprüde `!C:x` (NOT) sinyali; `T:n` zamanlayıcı köprüsü n turda bir açılıp kapanır (555 osilatörü; durum `tick`
+  sayacı). Atölyede yeni araçlar: RÖLE, KÖPRÜ, KÖPRÜ ¬, ZAMANLI ve DEVRE: OR/XOR anahtarı (bir röle hattı birden çok
+  köprüyü sürer = sinyal kablosu).
+* **Hata Avı (`scripts/levels/bug_hunt.gd`):** bitirilmiş bir kampanya seviyesinin çözümüne 1-2 hata enjekte edilir
+  (komut değiştirme, eksik/fazla komut, yer değiştirme; hatalı programın gerçekten kaybettiği simülasyonla doğrulanır).
+  Oyuncu en az düzenlemeyle onarır; puan satır bazlı Levenshtein mesafesi (≤ hata → 3★). Atölye → HATA AVI.
+* **Robo koleksiyonu:** 14 aksesuar (anten, baret, papyon, kulaklık, gözlük, taç, silindir, hale, atkı, büyücü şapkası,
+  dönen pervane, vizör, kedi kulağı, çiçek) ve 12 gövde boyası (krom, altın, bakır, karbon, ışıyan neon, blueprint…);
+  yıldızla ya da başarımla açılır (Başarımlar → KOLEKSİYON). 18 başarım.
+* **Fotoğraf modu (Duraklatma → FOTOĞRAF MODU):** arayüz gizlenir; sürükleyerek serbest yörünge (yatay + dikey açı),
+  tekerlek/çimdik/± ile 0.4×–4× yakınlaşma, ROBO odağı, filtreler (normal, sepya, noir, neon, blueprint ızgaralı —
+  `post_grade.gdshader` `filter`), alan derinliği anahtarı; ÇEK → `user://photos/` (+ mümkünse Resimler/KayipKuleler).
 * **ASMR ses hattı (`tools/generate_asmr_audio.py`, numpy + scipy, ffmpeg/libvorbis):** `python3 tools/generate_asmr_audio.py`
   41 dosya üretir (44.1 kHz stereo, OGG q6, −1.5 dBFS, kırpılmasız; rapor `tools/asmr_audio_report.json`):
   5 faz grubu × 3 senkron katman (`assets/audio/music/phase_X_Y_{think,code,run}.ogg`, C majör/A minör pentatonik,

@@ -298,6 +298,11 @@ static func _from_clone(t: Dictionary) -> Dictionary:
 
 ## ctx: {prog, main: Runner, clone: Runner|null, gen}. Dönüş: {state, frames, bump, pause, ended, reason, n, cn, wait}
 static func tick(L: PuzzleLogic, s: Dictionary, ctx: Dictionary) -> Dictionary:
+	# zamanlayıcılı köprüler varsa tur sayacı ilerler ve dünya yeniden yerleşir
+	if L.has_timers:
+		s = PuzzleLogic.clone(s)
+		s["tick"] = int(s.get("tick", 0)) + 1
+		L.settle(s, null)
 	var out := {"state": s, "frames": [], "bump": false, "pause": false, "ended": false, "reason": "", "n": null, "cn": null, "wait": false}
 	var moved_clone := false
 	var cl: Dictionary = s.get("clone", {})

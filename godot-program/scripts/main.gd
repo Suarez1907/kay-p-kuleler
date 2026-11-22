@@ -1384,6 +1384,7 @@ func _make_robot() -> Node3D:
 				(c as MeshInstance3D).visible = false
 		pose.add_child(rglb)
 		g.set_meta("led_mats", AssetLoader.unique_surfaces(rglb, "RobotLED"))
+		g.set_meta("paint_mats", AssetLoader.unique_surfaces(rglb, "AmberCeramic"))
 		var ap := AssetLoader.anim_player(rglb)
 		if ap != null:
 			g.set_meta("anim", ap)
@@ -1403,6 +1404,7 @@ func _make_robot() -> Node3D:
 	g.set_meta("arrow", arrow)
 	g.set_meta("ring", ring)
 	_robot_accessory(g)
+	_robot_paint(g)
 	return g
 
 
@@ -2560,6 +2562,9 @@ func _on_win() -> void:
 		get_tree().create_timer(1.2).timeout.connect(func(): if win_shown: _show("win"))
 		return
 	if level_idx >= LEVEL_CUSTOM:
+		if custom_kind == "bug":
+			_bug_edits = BugHunt.edits(levels[level_idx]["starter"], Program.program_to_src(prog))
+			stars = BugHunt.stars(_bug_edits, int(levels[level_idx].get("bugs", 1)))
 		_custom_win(blocks, par)
 		_check_achievements({"rep": used_rep})
 		_prepare_win(stars, blocks, par)
@@ -2640,7 +2645,11 @@ func _process(dt: float) -> void:
 		cam_az += dt * 7.0
 	cam_az_cur += (cam_az - cam_az_cur) * minf(1.0, dt * 8.0)
 	var a := deg_to_rad(cam_az_cur)
-	cam.position = cam_target + Vector3(cos(EL) * cos(a), sin(EL), cos(EL) * sin(a)) * 60.0
+	var el := EL
+	if _current == "photo":
+		_photo_el_cur += (photo_el - _photo_el_cur) * minf(1.0, dt * 8.0)
+		el = _photo_el_cur
+	cam.position = cam_target + Vector3(cos(el) * cos(a), sin(el), cos(el) * sin(a)) * 60.0
 	cam.look_at(cam_target, Vector3.UP)
 	if _shake_amp > 0.001:
 		cam.position += Vector3(randf_range(-1, 1), randf_range(-1, 1), randf_range(-1, 1)) * _shake_amp
@@ -2697,6 +2706,9 @@ func _on_resize() -> void:
 		_layout()
 
 func _unhandled_input(ev: InputEvent) -> void:
+	if _current == "photo":
+		_photo_input(ev)
+		return
 	if _current == "editor" and L != null:
 		_editor_input(ev)
 		return
@@ -2793,6 +2805,9 @@ func _on_back() -> void:
 			_assembly_next()
 		else:
 			_close_assembly()
+		return
+	if _current == "photo":
+		_photo_exit()
 		return
 	if _current in ["intro", "backup", "settings"]:
 		if _current == "settings":
@@ -3462,9 +3477,55 @@ func _build_screens() -> void:
 	pvb.add_child(_bp_button("SEVİYELER", BP.Variant.DEFAULT, _open_levels, "grid", 50))
 	btn_pc_pause = _pc_button(50)
 	pvb.add_child(btn_pc_pause)
+	pvb.add_child(_bp_button("FOTOĞRAF MODU", BP.Variant.CYAN_OUTLINE, _photo_enter, "sparkle", 50))
 	pvb.add_child(_bp_button("AYARLAR", BP.Variant.DEFAULT, _open_settings, "gear", 50))
 	pvb.add_child(_bp_button("ANA MENÜ", BP.Variant.DANGER, _show_title, "home", 50))
 	_center_box(pz, pcard)
+
+	# --- fotoğraf modu: arayüzsüz sahne, serbest kamera, filtre, alan derinliği, kare kaydetme ---
+	var ph := Control.new()
+	ph.set_anchors_preset(Control.PRESET_FULL_RECT)
+	ph.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ph.visible = false
+	ui_root.add_child(ph)
+	screens["photo"] = ph
+	var pbar := PanelContainer.new()
+	pbar.add_theme_stylebox_override("panel", BP.chamfer(Color("#0B192EC8"), BP.R_STD, Color(BP.BORDER_STEEL, 0.8), BP.BORDER_W, 10))
+	pbar.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	pbar.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	pbar.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	pbar.offset_bottom = -18
+	ph.add_child(pbar)
+	var pcol := VBoxContainer.new()
+	pcol.add_theme_constant_override("separation", 6)
+	pbar.add_child(pcol)
+	var ptag := BP.tag("FOTOĞRAF MODU // sürükle: döndür · dikey: açı · tekerlek/çimdik: yakınlaş", 11, Color(BP.ACCENT_CYAN, 0.85))
+	ptag.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	pcol.add_child(ptag)
+	var prow := HFlowContainer.new()
+	prow.alignment = FlowContainer.ALIGNMENT_CENTER
+	prow.add_theme_constant_override("h_separation", 6)
+	prow.add_theme_constant_override("v_separation", 6)
+	pcol.add_child(prow)
+	var pmk := func(txt: String, cb: Callable, w: float, v := BP.Variant.DEFAULT) -> Button:
+		var b := Button.new()
+		b.text = txt
+		b.focus_mode = Control.FOCUS_NONE
+		b.custom_minimum_size = Vector2(w, 46)
+		b.add_theme_font_override("font", UIKit.font_black)
+		b.add_theme_font_size_override("font_size", 14)
+		BP.style_button(b, v, BP.R_SMALL)
+		b.pressed.connect(cb)
+		prow.add_child(b)
+		return b
+	ph.set_meta("filter", pmk.call("FİLTRE: NORMAL", _photo_filter, 170))
+	ph.set_meta("dof", pmk.call("DOF: KAPALI", _photo_dof, 120))
+	pmk.call("−", func(): cam_zoom = clampf(cam_zoom / 1.2, 0.4, 4.0), 46)
+	pmk.call("+", func(): cam_zoom = clampf(cam_zoom * 1.2, 0.4, 4.0), 46)
+	pmk.call("ROBO", _photo_focus_robot, 80)
+	pmk.call("● ÇEK", _photo_capture, 100, BP.Variant.PRIMARY)
+	pmk.call("ÇIK", _photo_exit, 70, BP.Variant.DANGER)
+	ph.set_meta("bar", pbar)
 
 	# --- ayarlar ---
 	var st_o := _overlay(0.4)
@@ -3950,6 +4011,10 @@ func _title_diorama() -> void:
 		rb.position = spot.position if spot != null else Vector3(2.7, 0, 0)
 		rb.rotation.y = 0.5
 		d.add_child(rb)
+		var pg := Node3D.new()
+		pg.set_meta("paint_mats", AssetLoader.unique_surfaces(rb, "AmberCeramic"))
+		_robot_paint(pg)
+		pg.free()
 		var ap := AssetLoader.anim_player(rb, [])
 		if ap != null:
 			ap.play("wave")
@@ -4451,6 +4516,8 @@ func _prepare_win(stars: int, blocks: int, par: int) -> void:
 		match custom_kind:
 			"daily":
 				txt = "Günlük bulmaca çözüldü · %d blok · par %d\nSeri: %d gün" % [blocks, par, int(progress.get("daily", {}).get("streak", 0))]
+			"bug":
+				txt = "Hata ayıklandı · %d düzenleme (%d hata vardı)\nToplam av: %d" % [_bug_edits, int(levels[level_idx].get("bugs", 1)), int(progress.get("stats", {}).get("bugs", 0))]
 			"editor":
 				txt = "Kulen doğrulandı! Par: %d blok.\nAtölyeye dön ve KAYDET ile paylaşım kodunu al." % blocks
 			_:
@@ -4487,7 +4554,7 @@ func _prepare_win(stars: int, blocks: int, par: int) -> void:
 	var lb: Label = btn_next.get_meta("label")
 	if level_idx >= LEVEL_CUSTOM:
 		btn_next.visible = true
-		lb.text = "ATÖLYEYE DÖN" if custom_kind == "editor" else "ANA MENÜ"
+		lb.text = {"editor": "ATÖLYEYE DÖN", "bug": "YENİ AV"}.get(custom_kind, "ANA MENÜ")
 	else:
 		lb.text = "SONRAKİ"
 		btn_next.visible = level_idx < LEVEL_CUSTOM - 1
@@ -5268,6 +5335,11 @@ func _shot(spec: String) -> void:
 	# cutout: üst kamera çentiği + alt hareket çubuğu (görünür alan pikseli)
 	if "cutout" in flags:
 		safe_override = Vector4(18, 108, 18, 64)
+	for fl in flags:
+		if fl.begins_with("acc="):
+			progress["accessory"] = fl.substr(4)
+		elif fl.begins_with("paint="):
+			progress["paint"] = fl.substr(6)
 	if i == -1:
 		_show_title()
 	elif i <= -5 and i >= -9:
@@ -5324,6 +5396,15 @@ func _shot(spec: String) -> void:
 			if fl.begins_with("v"):
 				for k in int(fl.substr(1)):
 					_rotate_view(1)
+		for fl in flags:
+			if fl.begins_with("photo="):
+				# photo=N[d]: fotoğraf modu, filtre N, d → alan derinliği, robota odak
+				_photo_enter()
+				_photo_filter_i = int(fl.substr(6, 1))
+				_photo_dof_on = fl.ends_with("d")
+				photo_el = 0.35
+				_photo_focus_robot()
+				_photo_apply()
 	var wait := 90
 	if parts.size() > 3:
 		for fl in parts[3].split(","):
@@ -5691,6 +5772,8 @@ func _win_next() -> void:
 		if custom_kind == "editor":
 			_editor_rebuild(true)
 			_show("editor")
+		elif custom_kind == "bug":
+			_start_bug_hunt()
 		else:
 			_show_title()
 		return
@@ -5731,6 +5814,7 @@ func _build_feature_screens() -> void:
 	wcard.add_child(wvb)
 	_modal_head(wvb, "KULE ATÖLYESİ", "EDITOR // PAYLAŞIM")
 	wvb.add_child(_bp_button("YENİ KULE TASARLA", BP.Variant.PRIMARY, func(): _open_editor({}), "grid", 52))
+	wvb.add_child(_bp_button("HATA AVI // BOZUK PROGRAMI ONAR", BP.Variant.AMBER, _start_bug_hunt, "play", 52))
 	wvb.add_child(BP.tag("PAYLAŞIM KODU (KKL1:…)", 12))
 	var code_edit := TextEdit.new()
 	code_edit.custom_minimum_size = Vector2(410, 70)
@@ -5776,11 +5860,29 @@ func _build_feature_screens() -> void:
 	asc.add_child(alist)
 	avb.add_child(asc)
 	DragScroller.attach(asc)
-	avb.add_child(BP.tag("ROBO // AKSESUAR (YILDIZLA AÇILIR)", 12))
+	var coll_l := BP.tag("ROBO // KOLEKSİYON", 12)
+	avb.add_child(coll_l)
+	var csc := ScrollContainer.new()
+	csc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	csc.custom_minimum_size = Vector2(0, 170)
+	var cvb := VBoxContainer.new()
+	cvb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cvb.add_theme_constant_override("separation", 6)
+	csc.add_child(cvb)
+	avb.add_child(csc)
+	DragScroller.attach(csc)
+	cvb.add_child(BP.tag("AKSESUAR", 11, BP.TEXT_LABEL))
 	var arow := HFlowContainer.new()
 	arow.add_theme_constant_override("h_separation", 6)
 	arow.add_theme_constant_override("v_separation", 6)
-	avb.add_child(arow)
+	cvb.add_child(arow)
+	cvb.add_child(BP.tag("GÖVDE BOYASI", 11, BP.TEXT_LABEL))
+	var prow := HFlowContainer.new()
+	prow.add_theme_constant_override("h_separation", 6)
+	prow.add_theme_constant_override("v_separation", 6)
+	cvb.add_child(prow)
+	ac.set_meta("paint", prow)
+	ac.set_meta("coll", coll_l)
 	avb.add_child(_bp_button("KAPAT", BP.Variant.DANGER, func(): _show(screens.get("_ach_back", "title")), "close", 46))
 	ac.set_meta("list", alist)
 	ac.set_meta("acc", arow)
@@ -5846,7 +5948,7 @@ func _build_feature_screens() -> void:
 	tools.add_theme_constant_override("v_separation", 6)
 	evb.add_child(tools)
 	var tool_btns := {}
-	for tdef in [["b", "BLOK"], ["cr", "ÇÖKEN"], ["fu", "SİGORTA"], ["x", "SİL"], ["s", "BAŞLA"], ["g", "HEDEF"]]:
+	for tdef in [["b", "BLOK"], ["cr", "ÇÖKEN"], ["fu", "SİGORTA"], ["re", "RÖLE"], ["br", "KÖPRÜ"], ["bn", "KÖPRÜ ¬"], ["bt", "ZAMANLI"], ["x", "SİL"], ["s", "BAŞLA"], ["g", "HEDEF"]]:
 		var tb := Button.new()
 		tb.text = tdef[1]
 		tb.focus_mode = Control.FOCUS_NONE
@@ -5875,6 +5977,8 @@ func _build_feature_screens() -> void:
 	mk.call("KAT ▲", func(): _editor_layer(1), 70)
 	mk.call("KAT ▼", func(): _editor_layer(-1), 70)
 	mk.call("YÖN ↻", _editor_rotate_start, 70)
+	var b_mode: Button = mk.call("DEVRE: OR", _editor_cmode, 104)
+	ed.set_meta("cmode", b_mode)
 	mk.call("ANA −", func(): _editor_slots("main", -1))
 	mk.call("ANA +", func(): _editor_slots("main", 1))
 	mk.call("F1 −", func(): _editor_slots("p1", -1))
@@ -5909,7 +6013,7 @@ func _play_custom(d: Dictionary, kind: String) -> void:
 	if not def.has("chapter"):
 		def["chapter"] = "Özel"
 	if not def.has("chapter_tag"):
-		def["chapter_tag"] = {"daily": "GÜNLÜK", "editor": "ATÖLYE // TEST", "code": "ÖZEL // KULE", "mine": "KULELERİM"}.get(kind, "ÖZEL") as String
+		def["chapter_tag"] = {"daily": "GÜNLÜK", "editor": "ATÖLYE // TEST", "bug": "HATA AVI", "code": "ÖZEL // KULE", "mine": "KULELERİM"}.get(kind, "ÖZEL") as String
 	if not def.has("par"):
 		def["par"] = 99
 	_set_custom_def(def)
@@ -5939,6 +6043,26 @@ func _open_daily() -> void:
 		st.add_child(p)
 	_show("daily")
 
+func _start_bug_hunt() -> void:
+	# yalnızca bitirilmiş kampanya seviyelerinden seçilir (çözümü ifşa etmez); hiç yoksa ilk 10 seviye
+	var pool := []
+	for k in progress["best"]:
+		if int(k) < LEVEL_CUSTOM and levels[int(k)].has("hint_solution"):
+			pool.append(int(k))
+	if pool.is_empty():
+		pool = range(0, 10)
+	var rng := RandomNumberGenerator.new()
+	rng.randomize()
+	for attempt in 8:
+		var i: int = pool[rng.randi() % pool.size()]
+		var d := BugHunt.make(levels[i], rng.randi(), 1 if i < 30 else 2)
+		if not d.is_empty():
+			d["par"] = 99
+			_play_custom(d, "bug")
+			_toast("HATA AVI // %d hata gizli" % int(d["bugs"]))
+			return
+	_toast("Hata avı üretilemedi")
+
 func _start_daily() -> void:
 	var seed := DailyGenerator.date_seed()
 	var d := DailyGenerator.make(seed)
@@ -5947,6 +6071,132 @@ func _start_daily() -> void:
 		return
 	daily_seed = seed
 	_play_custom(d, "daily")
+
+var _bug_edits := 0
+
+# ---------- fotoğraf modu ----------
+const PHOTO_FILTERS := ["NORMAL", "SEPYA", "NOIR", "NEON", "BLUEPRINT"]
+var photo_el := EL
+var _photo_el_cur := EL
+var _photo_filter_i := 0
+var _photo_dof_on := false
+var _photo_saved := {}
+
+func _photo_enter() -> void:
+	if L == null or preview:
+		return
+	audio.play("tap")
+	_photo_saved = {"az": cam_az, "zoom": cam_zoom, "target": cam_target}
+	photo_el = EL
+	_photo_el_cur = EL
+	_photo_filter_i = 0
+	_photo_dof_on = false
+	_show("photo")
+	_photo_apply()
+
+func _photo_exit() -> void:
+	if _current != "photo":
+		return
+	audio.play("tap")
+	_photo_filter_i = 0
+	_photo_dof_on = false
+	_photo_apply()
+	VisualFX.apply_grade(post_fx, LevelProgressionManager.phase_of(mini(level_idx, LEVEL_CUSTOM - 1)) if level_idx < LEVEL_CUSTOM else 9, gfx)
+	if not _photo_saved.is_empty():
+		cam_az = _photo_saved["az"]
+		cam_zoom = clampf(_photo_saved["zoom"], 0.5, 2.5)
+		cam_target = _photo_saved["target"]
+	_show("")
+
+func _photo_apply() -> void:
+	var ph: Control = screens["photo"]
+	(ph.get_meta("filter") as Button).text = "FİLTRE: " + PHOTO_FILTERS[_photo_filter_i]
+	(ph.get_meta("dof") as Button).text = "DOF: " + ("AÇIK" if _photo_dof_on else "KAPALI")
+	if post_fx != null:
+		(post_fx.material as ShaderMaterial).set_shader_parameter("filter", _photo_filter_i)
+		post_fx.visible = gfx >= 1 or _photo_filter_i > 0
+	if _photo_dof_on:
+		# ortografik kamera 60 birim uzakta: odak düzlemi sahnenin ortası, ön ve arka bulanır
+		var a := CameraAttributesPractical.new()
+		a.dof_blur_far_enabled = true
+		a.dof_blur_far_distance = 63.0
+		a.dof_blur_far_transition = 14.0
+		a.dof_blur_near_enabled = true
+		a.dof_blur_near_distance = 55.0
+		a.dof_blur_near_transition = 8.0
+		a.dof_blur_amount = 0.12
+		cam.attributes = a
+	else:
+		cam.attributes = null
+
+func _photo_filter() -> void:
+	_photo_filter_i = (_photo_filter_i + 1) % PHOTO_FILTERS.size()
+	audio.play("tap")
+	_photo_apply()
+
+func _photo_dof() -> void:
+	_photo_dof_on = not _photo_dof_on
+	audio.play("tap")
+	_photo_apply()
+
+func _photo_focus_robot() -> void:
+	if objs.has("player"):
+		cam_target = (objs["player"] as Node3D).global_position + Vector3(0, 0.4, 0)
+		cam_zoom = clampf(maxf(cam_zoom, 2.4), 0.4, 4.0)
+		audio.play("tap")
+
+func _photo_input(ev: InputEvent) -> void:
+	if ev is InputEventMouseButton:
+		if ev.button_index == MOUSE_BUTTON_WHEEL_UP:
+			cam_zoom = clampf(cam_zoom * 1.1, 0.4, 4.0)
+		elif ev.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			cam_zoom = clampf(cam_zoom / 1.1, 0.4, 4.0)
+		elif ev.button_index == MOUSE_BUTTON_LEFT:
+			ptr = {"pos": ev.position, "moved": false, "drag": 0.0} if ev.pressed else null
+	elif ev is InputEventMagnifyGesture:
+		cam_zoom = clampf(cam_zoom * ev.factor, 0.4, 4.0)
+	elif ev is InputEventMouseMotion and ptr != null:
+		cam_az += ev.relative.x * 0.35
+		photo_el = clampf(photo_el + ev.relative.y * 0.004, 0.12, 1.45)
+
+func _photo_capture() -> void:
+	var ph: Control = screens["photo"]
+	var bar: Control = ph.get_meta("bar")
+	bar.visible = false
+	await RenderingServer.frame_post_draw
+	await RenderingServer.frame_post_draw
+	var img := get_viewport().get_texture().get_image()
+	bar.visible = true
+	var stamp := Time.get_datetime_string_from_system().replace(":", "").replace("-", "").replace("T", "_")
+	var name := "kayip_kuleler_%s.png" % stamp
+	DirAccess.make_dir_recursive_absolute("user://photos")
+	var err := img.save_png("user://photos/" + name)
+	# mümkünse cihazın Resimler klasörüne de kopyala (izin yoksa sessizce atlanır)
+	var where := "uygulama klasörü"
+	var pics := OS.get_system_dir(OS.SYSTEM_DIR_PICTURES)
+	if pics != "":
+		var d := pics.path_join("KayipKuleler")
+		if DirAccess.make_dir_recursive_absolute(d) == OK and img.save_png(d.path_join(name)) == OK:
+			where = "Resimler/KayipKuleler"
+	if err != OK:
+		_toast("Fotoğraf kaydedilemedi")
+		return
+	# deklanşör flaşı
+	var fl := ColorRect.new()
+	fl.color = Color(1, 1, 1, 0.85)
+	fl.set_anchors_preset(Control.PRESET_FULL_RECT)
+	fl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ph.add_child(fl)
+	var tw := fl.create_tween()
+	tw.tween_property(fl, "color:a", 0.0, 0.35)
+	tw.tween_callback(fl.queue_free)
+	audio.play("pop")
+	var st: Dictionary = progress.get("stats", {})
+	st["photos"] = int(st.get("photos", 0)) + 1
+	progress["stats"] = st
+	_save_progress()
+	_check_achievements()
+	_toast("Fotoğraf kaydedildi · " + where)
 
 func _custom_win(blocks: int, par: int) -> void:
 	match custom_kind:
@@ -5963,6 +6213,10 @@ func _custom_win(blocks: int, par: int) -> void:
 				dd["best_blocks"] = mini(int(dd.get("best_blocks", blocks)), blocks)
 			dd["last"] = daily_seed
 			progress["daily"] = dd
+		"bug":
+			var st: Dictionary = progress.get("stats", {})
+			st["bugs"] = int(st.get("bugs", 0)) + 1
+			progress["stats"] = st
 		"editor":
 			editor["verified"] = true
 			editor["par"] = blocks
@@ -6054,9 +6308,19 @@ func _open_editor(d: Dictionary) -> void:
 		cells[Vector3i(int(c[0]), int(c[1]), int(c[2]))] = "cr"
 	for c in d.get("fuses", []):
 		cells[Vector3i(int(c[0]), int(c[1]), int(c[2]))] = "fu"
+	var cmode := "OR"
+	for c in d.get("comps", []):
+		if String(c.get("t", "")) == "relay":
+			cells[Vector3i(int(c["p"][0]), int(c["p"][1]), int(c["p"][2]))] = "re"
+			cmode = String(c.get("mode", "OR"))
+	for b in d.get("bridges", []):
+		var on := String(b.get("on", ""))
+		var k := "bt" if on.begins_with("T:") else ("bn" if on.begins_with("!") else "br")
+		for c in b.get("cells", []):
+			cells[Vector3i(int(c[0]), int(c[1]), int(c[2]))] = k
 	editor = {"name": d.get("name", "Kulem"), "cells": cells, "start": Vector3i(int(d["start"][0]), int(d["start"][1]), int(d["start"][2])),
 		"dir": int(d.get("startDir", 0)), "goal": Vector3i(int(d["goal"][0]), int(d["goal"][1]), int(d["goal"][2])),
-		"slots": (d.get("slots", {"main": 8, "p1": 4, "p2": 0}) as Dictionary).duplicate(), "tool": "b", "layer": 0,
+		"slots": (d.get("slots", {"main": 8, "p1": 4, "p2": 0}) as Dictionary).duplicate(), "tool": "b", "layer": 0, "cmode": cmode,
 		"verified": false, "par": 99, "solution": {}}
 	custom_kind = "editor"
 	_editor_rebuild(true)
@@ -6067,20 +6331,36 @@ func _editor_def() -> Dictionary:
 	var boxes := []
 	var crumbles := []
 	var fuses := []
+	var comps := []
+	var bridges := []
+	var groups := {}
 	for c in editor["cells"]:
 		var v: Vector3i = c
 		match String(editor["cells"][c]):
 			"b": boxes.append([v.x, v.y, v.z, v.x, v.y, v.z])
 			"cr": crumbles.append([v.x, v.y, v.z])
 			"fu": fuses.append([v.x, v.y, v.z])
+			"re":
+				boxes.append([v.x, v.y, v.z, v.x, v.y, v.z])
+				comps.append({"p": [v.x, v.y, v.z], "t": "relay", "id": "E", "mode": String(editor.get("cmode", "OR"))})
+			"br", "bn", "bt":
+				var k: String = editor["cells"][c]
+				var on: String = {"br": "C:E", "bn": "!C:E", "bt": "T:3"}[k]
+				if not groups.has(on):
+					groups[on] = []
+				groups[on].append([v.x, v.y, v.z])
+	for on in groups:
+		bridges.append({"cells": groups[on], "on": on})
 	var cmds := ["F", "L", "R", "J"]
+	if groups.has("T:3"):
+		cmds.append("W")
 	if int(editor["slots"].get("p1", 0)) > 0:
 		cmds.append("1")
 	var s: Vector3i = editor["start"]
 	var g: Vector3i = editor["goal"]
-	return {"name": editor["name"], "boxes": boxes, "crumbles": crumbles, "fuses": fuses, "start": [s.x, s.y, s.z],
+	return {"name": editor["name"], "boxes": boxes, "crumbles": crumbles, "fuses": fuses, "comps": comps, "bridges": bridges, "start": [s.x, s.y, s.z],
 		"startDir": int(editor["dir"]), "goal": [g.x, g.y, g.z], "slots": editor["slots"].duplicate(), "cmds": cmds,
-		"reps": true, "conds": true, "par": int(editor.get("par", 99)), "chapter": "Atölye", "chapter_tag": "ATÖLYE // " + String(editor["name"]).to_upper(),
+		"reps": true, "conds": true, "relay_cond": not comps.is_empty(), "par": int(editor.get("par", 99)), "chapter": "Atölye", "chapter_tag": "ATÖLYE // " + String(editor["name"]).to_upper(),
 		"palette": 3, "hint": "Kendi kulen: önce çözebildiğini göster, sonra paylaş."}
 
 func _editor_rebuild(reset_cam := false) -> void:
@@ -6128,6 +6408,7 @@ func _editor_update_info() -> void:
 		var b: Button = tb[k]
 		BP.style_button(b, BP.Variant.CYAN_OUTLINE if k == editor["tool"] else (BP.Variant.DANGER if k == "x" else BP.Variant.DEFAULT), BP.R_SMALL)
 	(ed.get_meta("save") as Button).disabled = not editor["verified"]
+	(ed.get_meta("cmode") as Button).text = "DEVRE: " + String(editor.get("cmode", "OR"))
 
 func _editor_tool(t: String) -> void:
 	editor["tool"] = t
@@ -6143,6 +6424,13 @@ func _editor_rotate_start() -> void:
 	editor["dir"] = (int(editor["dir"]) + 1) % 4
 	editor["verified"] = false
 	audio.play("pop")
+	_editor_rebuild()
+
+func _editor_cmode() -> void:
+	# tüm röleler tek bir sinyal hattına bağlıdır: OR (kilitlenir) ya da XOR (tam bir röle basılıyken)
+	editor["cmode"] = "XOR" if String(editor.get("cmode", "OR")) == "OR" else "OR"
+	editor["verified"] = false
+	audio.play("tap")
 	_editor_rebuild()
 
 func _editor_slots(row: String, d: int) -> void:
@@ -6165,7 +6453,7 @@ func _editor_click(pos: Vector2) -> void:
 	var cells: Dictionary = editor["cells"]
 	var tool: String = editor["tool"]
 	match tool:
-		"b", "cr", "fu":
+		"b", "cr", "fu", "re", "br", "bn", "bt":
 			if cells.size() >= 160 and not cells.has(cell):
 				_toast("En fazla 160 blok")
 				return
@@ -6266,6 +6554,9 @@ const ACH := [
 	["rep", "SAYAÇ", "Sayaçlı tekrarla bir bulmaca çöz"],
 	["architect", "MİMAR", "Kendi kuleni doğrula ve kaydet"],
 	["chal10", "MEYDAN OKUYAN", "10 meydan okuma tamamla"],
+	["bug1", "BÖCEK AVCISI", "Bir Hata Avı görevini tamamla"],
+	["bug10", "HATA AYIKLAYICI", "10 Hata Avı görevi tamamla"],
+	["photo", "FOTOĞRAFÇI", "Fotoğraf modunda bir kare kaydet"],
 ]
 
 func _phase_done(ph: int) -> bool:
@@ -6301,6 +6592,9 @@ func _check_achievements(ctx := {}) -> void:
 		"rep": bool(ctx.get("rep", false)),
 		"architect": not (progress.get("my_towers", []) as Array).is_empty(),
 		"chal10": int(st.get("chal", 0)) >= 10,
+		"bug1": int(st.get("bugs", 0)) >= 1,
+		"bug10": int(st.get("bugs", 0)) >= 10,
+		"photo": int(st.get("photos", 0)) >= 1,
 	}
 	var newly := []
 	for a in ACH:
@@ -6313,7 +6607,77 @@ func _check_achievements(ctx := {}) -> void:
 		if not instant:
 			get_tree().create_timer(0.6).timeout.connect(func(): _toast("BAŞARIM // " + ", ".join(newly)))
 
-const ACCESSORIES := [["none", "YOK", 0], ["cap", "BARET", 20], ["phones", "KULAKLIK", 60], ["crown", "TAÇ", 150], ["halo", "HALE", 250]]
+## Koleksiyon: [id, ad, koşul] — koşul int ise toplam yıldız, String ise başarım kimliği
+const ACCESSORIES := [["none", "YOK", 0], ["antenna", "ANTEN", 5], ["cap", "BARET", 20], ["bow", "PAPYON", 40], ["phones", "KULAKLIK", 60],
+	["glasses", "GÖZLÜK", 90], ["crown", "TAÇ", 150], ["tophat", "SİLİNDİR", 200], ["halo", "HALE", 250],
+	["scarf", "ATKI", "streak3"], ["wizard", "BÜYÜCÜ", "bug1"], ["propeller", "PERVANE", "chal10"], ["visor", "VİZÖR", "photo"],
+	["ears", "KEDİ KULAĞI", "rep"], ["flower", "ÇİÇEK", "daily1"]]
+## Gövde boyaları: [id, ad, koşul, renk, metal, pürüz, ışıma]
+const PAINTS := [["amber", "KEHRİBAR", 0, "#ff9a3c", 0.0, 0.45, 0.0], ["ice", "BUZ", 10, "#7fe3ff", 0.1, 0.35, 0.0],
+	["crimson", "KIZIL", 30, "#d8344a", 0.1, 0.4, 0.0], ["forest", "ORMAN", 50, "#3fae6a", 0.0, 0.5, 0.0],
+	["porcelain", "PORSELEN", 80, "#eef1f4", 0.0, 0.25, 0.0], ["chrome", "KROM", 120, "#e4e8ee", 0.75, 0.16, 0.0],
+	["pearl", "İNCİ", 280, "#f3e6f2", 0.35, 0.2, 0.0], ["gold", "ALTIN", "parts100", "#e6b93c", 1.0, 0.18, 0.0],
+	["copper", "BAKIR", "daily1", "#c87533", 1.0, 0.3, 0.0], ["carbon", "KARBON", "streak7", "#1f2229", 0.6, 0.3, 0.0],
+	["blueprint", "BLUEPRINT", "architect", "#1f5fbf", 0.2, 0.35, 0.4], ["neon", "NEON", "bug10", "#ff3fd8", 0.0, 0.3, 1.6]]
+
+func _coll_ok(req) -> bool:
+	if req is String:
+		return (progress.get("ach", {}) as Dictionary).has(req)
+	return _total_stars() >= int(req)
+
+func _coll_req_text(req) -> String:
+	if req is String:
+		for a in ACH:
+			if a[0] == req:
+				return "🔒 " + String(a[1])
+		return "🔒"
+	return "★%d" % int(req)
+
+func _coll_row(arow: HFlowContainer, items: Array, key: String, def_id: String, apply: Callable) -> void:
+	for c in arow.get_children():
+		c.queue_free()
+	var cur: String = progress.get(key, def_id)
+	for a in items:
+		var ok := _coll_ok(a[2])
+		var b := Button.new()
+		b.text = String(a[1]) if ok else "%s %s" % [a[1], _coll_req_text(a[2])]
+		b.focus_mode = Control.FOCUS_NONE
+		b.custom_minimum_size = Vector2(80, 44)
+		b.add_theme_font_override("font", UIKit.font_black)
+		b.add_theme_font_size_override("font_size", 13)
+		BP.style_button(b, BP.Variant.CYAN_OUTLINE if cur == a[0] else BP.Variant.DEFAULT, BP.R_SMALL)
+		if a.size() > 3:
+			b.add_theme_color_override("font_color", Color(String(a[3])).lerp(Color.WHITE, 0.35))
+		b.disabled = not ok
+		var id: String = a[0]
+		b.pressed.connect(func():
+			progress[key] = id
+			_save_progress()
+			audio.play("pop")
+			if objs.has("player"):
+				apply.call(objs["player"])
+			_open_achievements())
+		arow.add_child(b)
+
+func _robot_paint(g: Node3D) -> void:
+	if not g.has_meta("paint_mats"):
+		return
+	var id: String = progress.get("paint", "amber")
+	var p: Array = PAINTS[0]
+	for e in PAINTS:
+		if e[0] == id:
+			p = e
+	for m in g.get_meta("paint_mats"):
+		var sm := m as StandardMaterial3D
+		if sm == null:
+			continue
+		sm.albedo_color = Color(String(p[3]))
+		sm.metallic = float(p[4])
+		sm.roughness = float(p[5])
+		sm.emission_enabled = float(p[6]) > 0.0
+		if sm.emission_enabled:
+			sm.emission = Color(String(p[3]))
+			sm.emission_energy_multiplier = float(p[6])
 
 func _open_achievements() -> void:
 	audio.play("tap")
@@ -6345,30 +6709,13 @@ func _open_achievements() -> void:
 		al.add_child(p)
 	var vs := get_viewport().get_visible_rect().size
 	(ac.get_meta("scroll") as ScrollContainer).custom_minimum_size.y = clampf(vs.y - 380.0, 160.0, 420.0)
-	var arow: HFlowContainer = ac.get_meta("acc")
-	for c in arow.get_children():
-		c.queue_free()
-	var stars := _total_stars()
-	var cur: String = progress.get("accessory", "none")
-	for a in ACCESSORIES:
-		var ok: bool = stars >= int(a[2])
-		var b := Button.new()
-		b.text = String(a[1]) if ok else "%s ★%d" % [a[1], a[2]]
-		b.focus_mode = Control.FOCUS_NONE
-		b.custom_minimum_size = Vector2(80, 44)
-		b.add_theme_font_override("font", UIKit.font_black)
-		b.add_theme_font_size_override("font_size", 13)
-		BP.style_button(b, BP.Variant.CYAN_OUTLINE if cur == a[0] else BP.Variant.DEFAULT, BP.R_SMALL)
-		b.disabled = not ok
-		var id: String = a[0]
-		b.pressed.connect(func():
-			progress["accessory"] = id
-			_save_progress()
-			audio.play("pop")
-			if objs.has("player"):
-				_robot_accessory(objs["player"])
-			_open_achievements())
-		arow.add_child(b)
+	_coll_row(ac.get_meta("acc"), ACCESSORIES, "accessory", "none", _robot_accessory)
+	_coll_row(ac.get_meta("paint"), PAINTS, "paint", "amber", _robot_paint)
+	var have := 0
+	for a in ACCESSORIES + PAINTS:
+		if _coll_ok(a[2]):
+			have += 1
+	(ac.get_meta("coll") as Label).text = "ROBO // KOLEKSİYON  %d / %d" % [have, ACCESSORIES.size() + PAINTS.size()]
 	_show("achievements")
 
 func _robot_accessory(g: Node3D) -> void:
@@ -6410,6 +6757,83 @@ func _robot_accessory(g: Node3D) -> void:
 			var hm := _mat(BP.ACCENT_CYAN, {"emit": 3.0, "unshaded": true})
 			var h := _mesh(_torus(0.15, 0.19), hm, Vector3(0, 0.14, 0), root)
 			h.scale = Vector3(1, 0.25, 1)
+		"antenna":
+			_mesh(_cyl(0.012, 0.012, 0.22), _mat("#30333b", {"rough": 0.3}), Vector3(0, 0.1, 0), root)
+			_mesh(_sphere(0.04), _mat("#ff4060", {"emit": 3.0}), Vector3(0, 0.23, 0), root)
+		"bow":
+			var bm := _mat("#d8344a", {"rough": 0.6})
+			for sx in [-1.0, 1.0]:
+				var w := _mesh(_cyl(0.0, 0.06, 0.09), bm, Vector3(sx * 0.05, -0.3, 0.22), root)
+				w.rotation.z = -sx * PI / 2
+			_mesh(_sphere(0.028), bm, Vector3(0, -0.3, 0.23), root)
+		"glasses":
+			var fm := _mat("#14161b", {"rough": 0.3})
+			var lm := _mat("#7fe3ff", {"rough": 0.05, "alpha": true})
+			lm.albedo_color.a = 0.45
+			for sx in [-1.0, 1.0]:
+				var rim := _mesh(_torus(0.055, 0.07), fm, Vector3(sx * 0.1, -0.09, 0.3), root)
+				rim.rotation.x = PI / 2
+				var lens := _mesh(_cyl(0.056, 0.056, 0.01), lm, Vector3(sx * 0.1, -0.09, 0.3), root)
+				lens.rotation.x = PI / 2
+			_mesh(_box(Vector3(0.07, 0.015, 0.015)), fm, Vector3(0, -0.08, 0.3), root)
+		"tophat":
+			var tm := _mat("#14161b", {"rough": 0.45})
+			_mesh(_cyl(0.27, 0.27, 0.02), tm, Vector3(0, 0.0, 0), root)
+			_mesh(_cyl(0.16, 0.16, 0.24), tm, Vector3(0, 0.13, 0), root)
+			_mesh(_cyl(0.165, 0.165, 0.04), _mat("#d8344a"), Vector3(0, 0.04, 0), root)
+		"scarf":
+			var sm := _mat("#e8648a", {"rough": 0.85})
+			var ring := _mesh(_torus(0.2, 0.27), sm, Vector3(0, -0.36, 0), root)
+			ring.scale = Vector3(1, 1.6, 1)
+			var tail := _mesh(_box(Vector3(0.08, 0.2, 0.03)), sm, Vector3(0.12, -0.46, 0.24), root)
+			tail.rotation.z = 0.25
+		"wizard":
+			var wm := _mat("#5a3fbf", {"rough": 0.7})
+			_mesh(_cyl(0.26, 0.26, 0.02), wm, Vector3.ZERO, root)
+			var cone := _mesh(_cyl(0.0, 0.17, 0.36), wm, Vector3(0, 0.19, 0), root)
+			cone.rotation.z = 0.15
+			for k in 3:
+				_mesh(_sphere(0.022), _mat("#ffd54a", {"emit": 2.5}), Vector3(cos(k * 2.1) * 0.1, 0.1 + k * 0.07, sin(k * 2.1) * 0.1 + 0.05), root)
+		"propeller":
+			_mesh(_cyl(0.2, 0.2, 0.06), _mat("#3f8fe8", {"rough": 0.5}), Vector3(0, 0.02, 0), root)
+			_mesh(_cyl(0.015, 0.015, 0.1), _mat("#30333b"), Vector3(0, 0.09, 0), root)
+			var hub := Node3D.new()
+			hub.position = Vector3(0, 0.14, 0)
+			root.add_child(hub)
+			for k in 3:
+				var blade := _mesh(_box(Vector3(0.22, 0.008, 0.05)), _mat(["#ff4060", "#ffd54a", "#3fae6a"][k]), Vector3(cos(k * TAU / 3) * 0.11, 0, sin(k * TAU / 3) * 0.11), hub)
+				blade.rotation.y = -k * TAU / 3
+			var spin := func():
+				var tw := hub.create_tween().set_loops()
+				tw.tween_property(hub, "rotation:y", TAU, 0.5).as_relative()
+			if hub.is_inside_tree():
+				spin.call()
+			else:
+				hub.tree_entered.connect(spin, CONNECT_ONE_SHOT)
+		"visor":
+			var vm := _mat(BP.ACCENT_CYAN, {"emit": 2.2, "alpha": true, "unique": true})
+			vm.albedo_color.a = 0.6
+			var v := _mesh(_cyl(0.3, 0.3, 0.09), vm, Vector3(0, -0.09, 0.02), root)
+			v.scale = Vector3(1, 1, 1.02)
+			_mesh(_box(Vector3(0.62, 0.1, 0.02)), _mat("#14161b"), Vector3(0, -0.09, -0.29), root)
+		"ears":
+			var em := _mat("#2a2c33", {"rough": 0.6})
+			var im := _mat("#ff9ac0", {"rough": 0.6})
+			for sx in [-1.0, 1.0]:
+				var ear := _mesh(_cyl(0.0, 0.09, 0.14), em, Vector3(sx * 0.15, 0.04, 0), root)
+				ear.rotation.z = -sx * 0.35
+				var inner := _mesh(_cyl(0.0, 0.05, 0.09), im, Vector3(sx * 0.15, 0.03, 0.03), root)
+				inner.rotation.z = -sx * 0.35
+		"flower":
+			var pm := _mat("#ff9ac0", {"rough": 0.6})
+			var fl := Node3D.new()
+			fl.position = Vector3(0.14, 0.0, 0.08)
+			fl.rotation.z = -0.4
+			root.add_child(fl)
+			for k in 5:
+				var pt := _mesh(_sphere(0.045), pm, Vector3(cos(k * TAU / 5) * 0.05, 0, sin(k * TAU / 5) * 0.05), fl)
+				pt.scale = Vector3(1, 0.4, 1)
+			_mesh(_sphere(0.03), _mat("#ffd54a"), Vector3(0, 0.01, 0), fl)
 
 # ---------- hikâye ----------
 const STORY := [
