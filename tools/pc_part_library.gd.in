@@ -1,0 +1,52 @@
+## 100 parçalık bilgisayar donanım kütüphanesi. OTOMATİK ÜRETİLDİ: tools/pc_parts.py (düzen ve çakışma
+## denetimi oradadır; elle düzenlemeyin). Parça N, N. seviye ilk kez tamamlanınca kazanılır.
+## Montaj düzeni: masa (y=0) üstünde açık kasa; taban tepsisi → montaj direkleri → yatay anakart →
+## üstünde işlemci, RAM, M.2 SSD'ler ve dik duran ekran kartı → çevresinde PSU, fanlar, kasa çerçevesi →
+## sağda monitör, klavye, fare, hoparlör; en üstte sistem çekirdeği.
+class_name PCPartLibrary
+extends RefCounted
+
+const COUNT := 100
+const PER_PHASE := 10
+const PHASES := [%PHASES%]
+## ad, prosedürel şekil, montaj merkezi, sınır kutusu boyutu, renk
+const ROWS := [
+%ROWS%
+]
+## Dışarıdan model eklemek için: res://assets/models/pc_parts/part_014.glb gibi bir dosya koyun; varsa otomatik yüklenir
+## (bkz. AssetLoader). Varsayılan yol optional_glb_path olarak da saklanır.
+const GLB_PATTERN := "res://assets/models/pc_parts/part_%03d.glb"
+
+static var _parts: Array = []
+
+static func all() -> Array:
+	if _parts.is_empty():
+		for i in ROWS.size():
+			var r: Array = ROWS[i]
+			var p := PCPartData.new()
+			p.part_id = i + 1
+			p.part_name = r[0]
+			p.procedural_shape = r[1]
+			p.assembly_position = r[2]
+			p.assembly_scale = r[3]
+			p.color = Color(r[4])
+			p.phase_index = i / PER_PHASE
+			p.phase_name = PHASES[p.phase_index]
+			p.optional_glb_path = GLB_PATTERN % (i + 1)
+			_parts.append(p)
+	return _parts
+
+static func part(id: int) -> PCPartData:
+	return all()[clampi(id, 1, COUNT) - 1]
+
+## Tüm bilgisayarın sınır kutusu (kamera çerçevesi için)
+static func bounds(ids: Array = []) -> AABB:
+	var box := AABB()
+	var first := true
+	for p in all():
+		if not ids.is_empty() and not (p.part_id in ids):
+			continue
+		var b := AABB(p.assembly_position - p.assembly_scale / 2.0, p.assembly_scale)
+		box = b if first else box.merge(b)
+		first = false
+	return box

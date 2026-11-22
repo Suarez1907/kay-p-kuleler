@@ -233,6 +233,55 @@ Mobile (Vulkan) renderer, AgX ton eşleme, parıltı, sis, yumuşak gölgeler; V
   `--autotest` ayrıca eski WebView ilerlemesinin taşınmasını sahte bir LevelDB günlüğüyle sınar.
   `--feeltest` animasyonları gerçek zamanlı sınar: açılış, 1x ve en hızlı modda koşu (esneme, dönüş zıplaması),
   zafer, kristalin geri gelmesi, silme animasyonu ve Durdur'da tween temizliği.
+* **Devre kampanyası (`data/levels_100.json`, Godot ana sürüm):** 10 donanım fazı × 10 seviye; N. seviye N. parçayı
+  kazandırır. `tools/level_database_builder.gd` seviyeleri oyunun kendi tur tabanlı motoruyla üretir ve doğrular
+  (`--check`: `levels_100: 100/100 solvable`), her seviyeye `par_commands` ve `hint_solution` yazar. Mekanik eğrisi:
+  Faz 1–2 SMD + hareket/F1/F2, Faz 3–4 diyot (diyotlu labirentler), Faz 5–6 kondansatör (2 kat fırlatan dahil),
+  Faz 7 röle OR, Faz 8 röle AND + klon, Faz 9 direnç (1–2 tur), Faz 10 hepsi (klon + direnç senkronizasyonu).
+  Bileşen şeması: `comps: [{p, component_type, direction, circuit_id | target_relay_id, logic_mode: OR|AND,
+  delay_turns, boost_height}]`, köprü `on: "C:<circuit_id>"`, `enable_clone`. Yürütme tur tabanlıdır
+  (`Program.tick`): her turda önce klon F1'den, sonra Robo kendi satırından bir komut çalıştırır; direnç turları
+  sayaçla bekletir; AND devresi bütün röleleri aynı turda basılı görünce kilitlenir. İpucu ampulü kayıtlı çözümden
+  sıradaki tek adımı gösterir. Web sürümü eski 100 seviyelik kampanyada kalır (`tools/build.mjs`).
+* **Geliştirici menüsü (Ayarlar):** Seviyeye Atla (1–100), Finali Test Et (100/100); Bilgisayarım'da Montajı Test Et.
+* **Büyük final (`scripts/pc/final_boot_sequence.gd`):** 100. parça takılınca ~30 sn: Robo güç tuşuna zıplar, fanlar
+  0 devirden hızlanır, enerji dalgası fazları dolaşır, monitörde SubViewport ile canlı BIOS/POST ekranı, masaüstü ve
+  "SİSTEM ÇEVRİMİÇİ — TEBRİKLER"; sonunda Atölyede İncele / Ana Menü.
+* **Ses ve haptik (`scripts/audio/audio_haptics_manager.gd`, autoload `AudioHaptics`):** bütün sesler açılışta bir kez
+  16 bit PCM olarak üretilip önbelleğe alınır (pentatonik adımlar, kondansatör sweep, hata, röle, tuş "thock", montaj
+  snap + cızırtı, güç tuşu, fan döngüsü, POST beep, Cmaj7 açılış akoru); `res://assets/audio/<ad>.wav|.ogg` varsa o
+  kullanılır. Titreşim: 12 ms komut, 30+30 ms hata, 45 ms montaj, 60 ms güç; Ayarlar'da Ses ve Titreşim anahtarları.
+* **Harici model/doku (`scripts/assets/asset_loader.gd`):** `assets/models/robot.glb`,
+  `assets/models/components/*.glb`, `assets/models/pc_parts/part_NNN.glb`, `assets/textures/pbr/<ad>/{albedo,normal,
+  roughness,ao}.png` eklenirse otomatik yüklenir (AABB'ye göre ölçeklenir, tabana hizalanır); yoksa prosedürel model.
+* **Elektronik devre konsepti (`scripts/circuit/`):** zemin blokları devre elemanlarıdır; her tür tek bir prosedürel
+  mesh ve ortak malzemeyle (`shaders/component.gdshader`, örnek başına `glow`/`charge`) çizilir, kulenin altında
+  zümrüt yeşili bir PCB (`shaders/pcb.gdshader`: bakır yollar, altın vialar, serigrafi) bulunur.
+
+  | Tür (`ComponentType`) | Görünüm | Mekanik (web `engine.js` ve Godot `logic.gd` birebir) |
+  |---|---|---|
+  | `SMD_TRANSISTOR` | mat siyah epoksi, dört yanda martı kanadı pinler | standart zemin; Robo bastığında pinlerden amber enerji geçer, PCB'de halka yayılır |
+  | `DIODE` (`comps: {t:'diode', d}`) | koyu gövde, gümüş katot şeridi, turuncu ok | üstüne yalnızca ok yönünde girilir ve çıkılır; ters yön → sekme |
+  | `CAPACITOR` (`t:'cap'`) | mavi alüminyum silindir, `+` ve şarj halkası | basınca Robo'yu bir kare ileri + bir kat yukarı fırlatır |
+  | `RESISTOR` (`t:'res'`) | seramik gövde, 4 renk bandı | Robo bir adım bekler (zamanlama altyapısı) |
+  | `RELAY` (`t:'relay', id`) | saydam kapak, bakır bobin, durum LED'i | her basışta bağlı köprüyü açar/kapatır |
+
+  `tools/build.mjs` mevcut seviyelere çözümü bozmadan diyot ve direnç yerleştirir (referans çözüm adım adım yeniden
+  oynatılır; yalnızca tek yönde düz geçilen kareler diyot olur, sonra çözüm yeniden doğrulanır). Kondansatör ve röle
+  üretilmiş seviyelerde (62, 65, 68, 93, 97, 99) gerçek bulmaca olarak kullanılır. İlk karşılaşmada tanıtım kartı açılır.
+* **Bilgisayar toplama (`scripts/pc/`):** 100 seviye = 100 parça, 10 faz (anakart → PSU → CPU → RAM → NVMe → GPU →
+  soğutma → I/O → kasa → monitör/klavye/sistem çekirdeği). Parça listesi ve montaj koordinatları `tools/pc_parts.py`
+  içindedir; betik sınır kutusu çakışmalarını denetler ve `scripts/pc/pc_part_library.gd`'yi üretir. Her parça
+  (`PCPartData`): `part_id`, `part_name`, `phase_name`, `assembly_position/rotation/scale`, `procedural_shape`, `color`,
+  `optional_glb_path`. `res://models/parts/part_014.glb` gibi bir dosya eklenirse otomatik yüklenip parçanın kutusuna
+  sığdırılır; yoksa `PartBuilder` prosedürel modeli kullanır. Kazanılan parçalar kayıtta `unlocked_parts`'tır (eski
+  kayıtlarda tamamlanmış seviyelerin parçaları ilk açılışta verilir).
+* **Montaj sahnesi (`scenes/AssemblyScene.tscn`):** bir seviye ilk kez tamamlanınca açılır. 0–2 sn kamera yuvaya
+  yaklaşır, 2–4,5 sn parça hizalanarak iner, 4,5 sn oturma anı (GPUParticles3D kıvılcım, mikro sarsıntı, komşu
+  parçalara yayılan enerji), 5,5–8 sn kamera geri çekilir ve "Parça 14/100: … — Takıldı" yazar. Basılı tutmak 2x hız,
+  "Geç" sona atlar, sonunda "Sonraki Seviye". Başlıktaki ve duraklatma menüsündeki **Bilgisayarım (X/100)** vitrinde
+  bilgisayar parmakla döndürülür ve yakınlaştırılır; **Montajı Test Et (+1 Parça)** sıradaki parçayı açıp montajını oynatır.
+  Testler: `--script res://tests/run_parts.gd` (kütüphane, çakışma, modeller) ve `--feeltest` (zaman çizelgesi, 2x, Geç, vitrin).
 * **Gökyüzü ve hava durumu (`shaders/sky.gdshader`, `scripts/weather.gd`):** arka plan doku dosyası kullanmayan
   prosedürel bir shader'dır; her piksel ekran çözünürlüğünde hesaplanır (Yüksek grafikte tam çözünürlük, 4K'da da keskin;
   Orta %70, Düşük %50). Perspektifli kümülüs bulutları (alan bükmeli fbm, güneşe göre kendi gölgesi, gümüş kenar), sirrus,

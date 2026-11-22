@@ -456,6 +456,12 @@ class Icon extends Control:
 			"W":
 				draw_rect(Rect2(P.call(0.27, 0.22), Vector2(m * 0.15, m * 0.56)), col)
 				draw_rect(Rect2(P.call(0.58, 0.22), Vector2(m * 0.15, m * 0.56)), col)
+			"C":
+				# klon: dolu robot başı + arkasında kesik çizgili hologram
+				draw_rect(Rect2(P.call(0.36, 0.18), Vector2(m * 0.5, m * 0.46)), Color(col, 0.55), false, w * 0.8)
+				draw_rect(Rect2(P.call(0.14, 0.36), Vector2(m * 0.5, m * 0.46)), col)
+				draw_circle(P.call(0.29, 0.56), m * 0.05, Color("#38c6d8"))
+				draw_circle(P.call(0.49, 0.56), m * 0.05, Color("#38c6d8"))
 			"1", "2":
 				var f := UIKit.font_black
 				var fs := int(m * 0.5)

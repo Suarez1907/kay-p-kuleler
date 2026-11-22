@@ -11,7 +11,7 @@
 import fs from 'fs';
 import path from 'path';
 import { loadLevel, solve, initialState, step, isWin, actionText } from '../web/js/engine.js';
-import { runProgram, parseProgram, blockCount, COMMANDS } from '../web/js/program.js';
+import { runProgram, parseProgram, blockCount, COMMANDS, Runner, cmdStep, worldOp } from '../web/js/program.js';
 import { LEVELS as CLASSIC } from './levels.src.mjs';
 import { LEVELS as PROGRAM } from './program-levels.src.mjs';
 
@@ -31,9 +31,98 @@ const name = (s) => {
 const opText = (op) => op.t === 'rot' ? `döner platform #${op.i + 1} ${op.s > 0 ? '+90°' : '−90°'}` :
   op.t === 'slide' ? `kaydırıcı #${op.i + 1} ${op.s > 0 ? 'ileri/yukarı' : 'geri/aşağı'}` : `kamera ${op.s > 0 ? 'sağa' : 'sola'}`;
 const progOut = [];
+
+// ---------- devre elemanları: çözümü bozmadan diyot ve direnç yerleştir ----------
+// Referans çözüm adım adım yeniden oynatılır; Robo'nun tek bir yönde düz geçtiği karelerin altı diyot,
+// bazı ziyaret edilen karelerin altı direnç olur. Sonra çözüm (ve varsa hatalı hazır program) yeniden sınanır.
+const COMP_INTRO = {
+  diode: { title: 'Diyot', text: 'Üstünde parlak ok olan bloklar <b>diyottur</b>: akım tek yönde akar! Robo bir diyota yalnızca ok yönünde girebilir ve yalnızca ok yönünde çıkabilir. Ters yönden girmeye çalışırsa geri seker.' },
+  res: { title: 'Direnç', text: 'Renkli bantlı seramik bloklar <b>dirençtir</b>. Robo üstüne bastığında akım yavaşlar ve Robo bir adım bekler. Zamanlamalı devrelerde işine yarayacak.' },
+  cap: { title: 'Kondansatör', text: 'Alüminyum silindir bir <b>kondansatördür</b>. Robo üstüne bastığı anda kondansatör boşalır ve Robo\'yu baktığı yönde bir kare ileri, bir kat yukarı fırlatır — Zıpla gerekmez!' },
+  relay: { title: 'Röle', text: 'Şeffaf kapaklı, içinde bakır bobin olan blok bir <b>röledir</b>. Robo üstüne her bastığında röle konum değiştirir ve bağlı olduğu köprüyü açar ya da kapatır.' },
+};
+const hash = (str) => { let h = 2166136261; for (const ch of str) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; };
+function traceMoves(def) {
+  const L = loadLevel(JSON.parse(JSON.stringify(def)));
+  let s = initialState(L);
+  const sol = def.solution, ops = sol.ops || [];
+  for (const op of ops[0] || []) s = worldOp(L, s, op).state;
+  const run = new Runner(parseProgram(sol));
+  const ev = [];
+  let pauses = 0;
+  for (let g = 0; g < 400; g++) {
+    if (s.p.join() === def.goal.join()) break;
+    const n = run.next(L, s);
+    if (!n) break;
+    const r = cmdStep(L, s, n.ins.c);
+    if (r.pause) { pauses++; for (const op of ops[pauses] || []) s = worldOp(L, s, op).state; ev.push({ t: 'world' }); continue; }
+    if (r.bump) continue;
+    const a = s.p, b = r.state.p;
+    const plain = r.frames.length <= 1 && Math.abs(a[0] - b[0]) + Math.abs(a[2] - b[2]) === 1 && Math.abs(a[1] - b[1]) <= 1;
+    ev.push({ t: plain ? 'step' : 'jump', a: a.slice(), b: b.slice(), d: s.f, c: n.ins.c, rots: r.state.rots.join() !== s.rots.join() });
+    s = r.state;
+  }
+  return ev;
+}
+function assignComponents(def, idx) {
+  if (idx < 2) return;
+  const L = loadLevel(JSON.parse(JSON.stringify(def)));
+  const ev = traceMoves(def);
+  const info = new Map();
+  const note = (p, k, v) => { const key = p.join(); if (!info.has(key)) info.set(key, { p, in: [], out: [], other: [] }); info.get(key)[k].push(v); };
+  for (const e of ev) {
+    if (e.t === 'step' && !e.rots) { note(e.a, 'out', e.d); note(e.b, 'in', e.d); }
+    else if (e.a) { note(e.a, 'other', 1); note(e.b, 'other', 1); }
+  }
+  const blocked = new Set([def.start.join(), def.goal.join(), ...(def.crates || []).map(c => c.join()), ...(def.plates || []).map(p => p.p.join())]);
+  const used = new Set((def.comps || []).map(c => c.p.join()));
+  const diodes = [], res = [];
+  for (const [key, it] of info) {
+    if (blocked.has(key) || it.other.length) continue;
+    const below = [it.p[0], it.p[1] - 1, it.p[2]];
+    const bk = below.join();
+    const st = L.statics.get(bk);
+    if (!st || st.t !== 'b' || used.has(bk)) continue;
+    const dirs = new Set([...it.in, ...it.out]);
+    if (it.in.length === 1 && it.out.length === 1 && dirs.size === 1) diodes.push({ p: below, d: it.in[0], h: hash(def.name + key) });
+    if (it.in.length >= 1) res.push({ p: below, h: hash(key + def.name) });
+  }
+  diodes.sort((a, b) => a.h - b.h);
+  res.sort((a, b) => a.h - b.h);
+  const add = [];
+  diodes.slice(0, 1 + (idx % 2)).forEach(d => add.push({ p: d.p, t: 'diode', d: d.d }));
+  if (idx >= 4) res.filter(r => !add.some(a => a.p.join() === r.p.join())).slice(0, idx % 3 === 0 ? 2 : 1).forEach(r => add.push({ p: r.p, t: 'res' }));
+  if (!add.length) return;
+  const trial = JSON.parse(JSON.stringify(def));
+  trial.comps = [...(def.comps || []), ...add];
+  const ok = (() => {
+    try {
+      const r = runProgram(loadLevel(JSON.parse(JSON.stringify(trial))), trial.solution, trial.solution.ops || []);
+      if (r.result !== 'win') return false;
+      if (trial.starter) { const r3 = runProgram(loadLevel(JSON.parse(JSON.stringify(trial))), trial.starter, []); if (r3.result === 'win') return false; }
+      if ((trial.solution.ops || []).some(o => o && o.length)) {
+        let r2; try { r2 = runProgram(loadLevel(JSON.parse(JSON.stringify(trial))), trial.solution, []); } catch (e) { r2 = { result: 'err' }; }
+        if (r2.result === 'win') return false;
+      }
+      return true;
+    } catch (e) { return false; }
+  })();
+  if (ok) def.comps = trial.comps;
+}
+const introSeen = new Set();
+function compIntro(def) {
+  for (const c of def.comps || []) {
+    if (introSeen.has(c.t)) continue;
+    if (def.intro) continue;
+    def.intro = COMP_INTRO[c.t];
+    introSeen.add(c.t);
+  }
+}
 let chapter = null;
 PROGRAM.forEach((src, i) => {
   const def = JSON.parse(JSON.stringify(src));
+  assignComponents(def, i);
+  compIntro(def);
   const L = loadLevel(def);
   const sol = def.solution;
   const p = parseProgram(sol);

@@ -399,10 +399,10 @@ Gösterim: `İleri`, `Sola`, `Sağa`, `Zıpla`, `Kullan`, `Mola`, `F1`, `F2`; `[
 * Ana: F1 → İleri → İleri → F1 → İleri → Sağa → İleri → İleri → İleri
 * F1: İleri → Sağa → Kullan → Sola → İleri → İleri
 
-#### 62. Kaldıraç — par 6
+#### 62. Kaldıraç — par 10
 
-* Ana: F1 → F1 → İleri
-* F1: İleri → Kullan → İleri
+* Ana: F1 → F1 → Sağa → İleri → Sola → İleri
+* F1: İleri → Kullan → İleri → İleri
 
 #### 63. Kutu Yolu — par 19
 
@@ -417,9 +417,8 @@ Gösterim: `İleri`, `Sola`, `Sağa`, `Zıpla`, `Kullan`, `Mola`, `F1`, `F2`; `[
 
 #### 65. Dişli Köprü — par 18
 
-* Ana: İleri → F2 → Zıpla → F1 → Sola → İleri → İleri → Sağa → F2
-* F1: Sola → Kullan → Sağa → İleri → İleri
-* F2: İleri → F1 → İleri → İleri
+* Ana: İleri → İleri → Sola → Kullan → Sağa → F1 → İleri → Zıpla → F1 → Sağa → Kullan → Sola → F1 → F1 → İleri
+* F1: İleri → İleri → İleri
 
 #### 66. Kinetik — par 9
 
@@ -432,11 +431,10 @@ Gösterim: `İleri`, `Sola`, `Sağa`, `Zıpla`, `Kullan`, `Mola`, `F1`, `F2`; `[
 * F1: İleri → İleri → Sola → Kullan → Sağa → İleri
 * F2: F1 → İleri → İleri
 
-#### 68. Mekanizma — par 19
+#### 68. Mekanizma — par 16
 
-* Ana: F2 → Zıpla → Sola → Kullan → Sağa → F1 → F1 → İleri → F2 → Zıpla
+* Ana: F1 → Zıpla → Sola → Kullan → Sağa → F1 → F1 → F1 → İleri → İleri → Zıpla → İleri
 * F1: İleri → İleri → İleri → İleri
-* F2: İleri → Sağa → Kullan → Sola → F1
 
 #### 69. İnşa — par 15
 
@@ -571,12 +569,11 @@ Gösterim: `İleri`, `Sola`, `Sağa`, `Zıpla`, `Kullan`, `Mola`, `F1`, `F2`; `[
 * F1: İleri → İleri
 * 1. molada: kaydırıcı #1 ileri/yukarı
 
-#### 93. Kavşak — par 15
+#### 93. Kavşak — par 19
 
-* Ana: F2 → Sağa → F1 → Sola → Kullan → Sağa → F2 → Sola → F1 → Mola → F2
-* F1: İleri → İleri
-* F2: F1 → F1
-* 1. molada: kamera sağa, kamera sağa
+* Ana: F1 → İleri → Sağa → İleri → İleri → Sola → Kullan → Sağa → F1 → İleri → Sola → F1 → Sola → İleri → Mola → F1
+* F1: İleri → İleri → İleri
+* 1. molada: kamera sola
 
 #### 94. Fırtına Kulesi — par 21
 
@@ -600,13 +597,13 @@ Gösterim: `İleri`, `Sola`, `Sağa`, `Zıpla`, `Kullan`, `Mola`, `F1`, `F2`; `[
 * 1. molada: kamera sağa, kamera sağa
 * 2. molada: kamera sağa, kamera sağa
 
-#### 97. Sınav — par 22
+#### 97. Sınav — par 21
 
-* Ana: F1 → F2 → Mola → F1 → Sola → Kullan → Sağa → F2 → Zıpla → F1 → Mola → F2 → İleri → Sağa → İleri
-* F1: İleri → İleri → İleri → İleri → İleri
-* F2: İleri → İleri
+* Ana: F1 → İleri → Zıpla → İleri → İleri → Mola → F1 → İleri → F2 → F1 → F1 → F2 → Mola → F1 → F1
+* F1: İleri → İleri → İleri
+* F2: İleri → Sola → F1
 * 1. molada: döner platform #1 +90°
-* 2. molada: kaydırıcı #1 ileri/yukarı, kaydırıcı #1 ileri/yukarı, kaydırıcı #1 ileri/yukarı
+* 2. molada: kaydırıcı #1 ileri/yukarı, kaydırıcı #1 ileri/yukarı
 
 #### 98. Ustalık — par 22
 
@@ -616,11 +613,11 @@ Gösterim: `İleri`, `Sola`, `Sağa`, `Zıpla`, `Kullan`, `Mola`, `F1`, `F2`; `[
 * 1. molada: kamera sola
 * 2. molada: kamera sağa, kamera sağa
 
-#### 99. Zirve — par 22
+#### 99. Zirve — par 19
 
-* Ana: F2 → F2 → Mola → F1 → Mola → F1 → Sağa → Kullan → Sola → F1 → F1 → Kullan → F2 → Sola → F2
-* F1: İleri → İleri → İleri → İleri → İleri
-* F2: İleri → İleri
+* Ana: F1 → Mola → F2 → Mola → F1 → F2 → Sağa → F2 → İleri → İleri → Sola → İleri → İleri
+* F1: İleri → İleri → İleri → İleri
+* F2: F1 → İleri
 * 1. molada: kaydırıcı #1 ileri/yukarı
 * 2. molada: döner platform #1 +90°
 

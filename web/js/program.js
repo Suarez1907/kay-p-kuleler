@@ -55,14 +55,15 @@ function jumpTarget(L, s, W) {
   const isSolid = W.solid.has(kq) || W.ents.has(kq);
   const free = (p) => !W.solid.has(KP(p)) && !W.ents.has(KP(p));
   const sup = (p) => { const k = KP([p[0], p[1] - 1, p[2]]); return W.solid.has(k) || W.ents.has(k); };
+  const ok = (T) => E.diodeOk(L, P, T, s.f) ? T : null;
   if (isSolid) {
     const up = add(Q, [0, 1, 0]);
-    if (free(up) && free(add(P, [0, 1, 0]))) return up;
+    if (free(up) && free(add(P, [0, 1, 0]))) return ok(up);
     return null;
   }
-  if (sup(Q)) return Q;
+  if (sup(Q)) return ok(Q);
   const dn = add(Q, [0, -1, 0]);
-  if (free(dn) && sup(dn)) return dn;
+  if (free(dn) && sup(dn)) return ok(dn);
   return null;
 }
 
@@ -114,6 +115,7 @@ export function cmdStep(L, s0, c) {
   s.moves++;
   frames.push(E.cloneState(s));
   if (movedEnt && E.tryTeleport(L, s, movedEnt, oldPos)) frames.push(E.cloneState(s));
+  if (movedEnt && movedEnt.k === 'p') E.afterArrive(L, s, frames);
   E.settle(L, s, frames);
   frames[frames.length - 1] = s;
   return { state: s, frames, bump: false, kind: c };

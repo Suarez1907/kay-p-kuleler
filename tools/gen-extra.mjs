@@ -35,7 +35,7 @@ class Builder {
     this.ops = [[]];
     this.view = 0; this.view0 = 0; this.viewTouched = false;
     this.levers = []; this.bridges = []; this.crates = []; this.cranks = []; this.rotators = [];
-    this.sliders = []; this.portals = []; this.links = []; this.phantoms = [];
+    this.sliders = []; this.portals = []; this.links = []; this.phantoms = []; this.comps = [];
     this.feat = new Set();
     this.solid(add(this.p, DOWN));
     this.keep(this.p);
@@ -218,6 +218,31 @@ class Builder {
     this.F(1); this.feat.add('phantom');
     return this;
   }
+  cap() {   // kondansatör: üstüne basan Robo bir kare ileri + bir kat yukarı fırlar
+    const q = add(this.p, this.fwd);
+    const cb = add(q, DOWN);
+    this.solid(cb); this.keep(q);
+    const step = add(q, this.fwd);
+    this.solid(step); this.solid(add(step, DOWN));
+    const r = add(step, UP); this.keep(r);
+    this.comps.push({ p: cb, t: 'cap' });
+    this.cmds.push('F'); this.p = r; this.feat.add('cap');
+    return this;
+  }
+  relayGap(len) {   // röle: üstüne basınca köprü belirir
+    const q = add(this.p, this.fwd);
+    const rb = add(q, DOWN);
+    this.solid(rb); this.keep(q);
+    const id = 'R' + (this.comps.filter(c => c.t === 'relay').length + 1);
+    this.comps.push({ p: rb, t: 'relay', id });
+    this.cmds.push('F'); this.p = q;
+    const cells = [];
+    for (let i = 1; i <= len; i++) { const c = add(add(this.p, mul(this.fwd, i)), DOWN); this.hole(c); cells.push(c); }
+    this.bridges.push({ cells, on: id });
+    for (let i = 0; i < len; i++) { const n = add(this.p, this.fwd); this.keep(n); this.p = n; this.cmds.push('F'); }
+    this.F(1); this.feat.add('relay');
+    return this;
+  }
   // ---- seviye tanımı ----
   toDef() {
     const skip = new Set([...(this._bridgeCells || []), ...(this._rotCells || []), ...(this._sliderCol || [])]);
@@ -240,6 +265,8 @@ class Builder {
     if (this.portals.length) def.portals = this.portals;
     if (this.links.length) def.links = this.links;
     if (this.phantoms.length) def.phantoms = this.phantoms;
+    if (this.comps.length) def.comps = this.comps;
+    if (this.bridges.length && !def.bridges) def.bridges = this.bridges;
     if (this.links.length || this.phantoms.length) def.view = this.view0;
     return def;
   }
@@ -360,6 +387,8 @@ function segMech(b, R, s) {
   else if (s === 'lift') b.lift(R.int(1, 3));
   else if (s === 'portal') b.portal([R.int(-2, 2) || 3, R.int(-2, 2), R.pick([-5, -4, 4, 5])]);
   else if (s === 'link') b.illusion((b.view + R.int(1, 3)) % 4, R.pick([1, 2, -1]));
+  else if (s === 'cap') b.cap();
+  else if (s === 'relay') b.relayGap(R.int(1, 2));
   else if (s === 'phantom') b.phantomGap(R.int(1, 3), (b.view + R.int(1, 3)) % 4);
 }
 
@@ -542,8 +571,8 @@ export function generate() {
   {
     const ch = 'Kuleyi Kodlamak';
     const plans = [
-      ['lever', 'lever'], ['crate', 'crate'], ['crank', 'crank'], ['lever', 'crate', 'lever'], ['crank', 'lever', 'crank'],
-      ['crate', 'crate', 'crate'], ['lever', 'crank', 'crate', 'lever'], ['crank', 'crank', 'crank'], ['crate', 'lever', 'crate', 'lever'], ['crank', 'crate', 'lever', 'crank', 'crate'],
+      ['lever', 'lever'], ['crate', 'cap', 'crate'], ['crank', 'crank'], ['lever', 'crate', 'lever'], ['crank', 'relay', 'crank'],
+      ['crate', 'crate', 'crate'], ['lever', 'crank', 'crate', 'lever'], ['cap', 'crank', 'relay', 'cap'], ['crate', 'lever', 'crate', 'lever'], ['crank', 'crate', 'lever', 'crank', 'crate'],
     ];
     plans.forEach((mech, i) => {
       const def = make(3000 + i, (b, R) => {
@@ -592,8 +621,8 @@ export function generate() {
   {
     const ch = 'Büyük Final';
     const plans = [
-      ['lever', 'ride'], ['crate', 'portal', 'lift'], ['crank', 'link'], ['phantom', 'lever', 'ride'], ['lift', 'portal', 'crate'],
-      ['link', 'crank', 'phantom'], ['ride', 'lever', 'portal', 'lift'], ['crate', 'phantom', 'crank', 'link'], ['lift', 'ride', 'lever', 'portal', 'crate'], ['crank', 'link', 'ride', 'phantom', 'lever', 'lift'],
+      ['lever', 'ride'], ['crate', 'portal', 'lift'], ['crank', 'cap', 'link'], ['phantom', 'lever', 'ride'], ['lift', 'portal', 'crate'],
+      ['link', 'crank', 'phantom'], ['ride', 'relay', 'portal', 'lift'], ['crate', 'phantom', 'crank', 'link'], ['lift', 'ride', 'relay', 'portal', 'cap'], ['crank', 'link', 'ride', 'phantom', 'lever', 'lift'],
     ];
     plans.forEach((mech, i) => {
       const def = make(6000 + i, (b, R) => {

@@ -64,7 +64,7 @@ jobs:
             -d ~/.local/share/godot/export_templates/$T/
           rm t.tpz
 
-      - name: Yorumlayıcı, sahne ve animasyon testleri (100 seviye)
+      - name: Yorumlayıcı, sahne, animasyon ve 100 seviyelik devre kampanyası testleri
         shell: bash
         run: |
           G="$HOME/godot48/godot"; chmod +x "$G"; "$G" --headless --version
@@ -74,6 +74,8 @@ jobs:
           "$G" --headless --script res://tests/run_themes.gd 2>&1 | grep -E "themes|HATA|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
           "$G" --headless -- --autotest 2>&1 | grep -E "autotest|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
           "$G" --headless -- --feeltest 2>&1 | grep -E "feeltest|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
+          "$G" --headless --script res://tests/run_parts.gd 2>&1 | grep -E "parts:|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
+          "$G" --headless --script res://tools/level_database_builder.gd -- --check 2>&1 | grep -E "levels_100|ÇÖZÜMSÜZ|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
           "$G" --headless -- --layouttest 2>&1 | grep -E "layouttest|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
 
       - name: Android APK dışa aktar

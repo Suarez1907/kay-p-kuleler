@@ -20,6 +20,11 @@ export function loadLevel(def) {
   for (const b of def.blocks || []) put(b[0], b[1], b[2], { t: 'b' });
   for (const s of def.stairs || []) put(s.p[0], s.p[1], s.p[2], { t: 's', d: s.d });
   for (const r of def.remove || []) L.statics.delete(KP(r));
+  // Devre elemanları: statik blokların türü (varsayılan SMD transistör). diode{d}, cap, res, relay{id}
+  L.comps = new Map();
+  let ri = 0;
+  for (const c of def.comps || []) L.comps.set(KP(c.p), { ...c, ri: c.t === 'relay' ? ri++ : -1 });
+  L.relayCount = ri;
   (def.scales || []).forEach(sc => { def.sliders[sc.a].scale = true; def.sliders[sc.b].scale = true; });
   L.minY = minY === 1e9 ? 0 : minY;
   L.killY = L.minY - 3;
@@ -37,6 +42,7 @@ export function initialState(L) {
     slides: (d.sliders || []).map(s => s.pos || 0),
     bridges: (d.bridges || []).map(b => false),
     crumbles: (d.crumbles || []).map(() => 0),
+    relays: Array.from({ length: L.relayCount || 0 }, () => false),
     view: d.view || 0, dead: false, moves: 0,
   };
   settle(L, s, null);
@@ -49,7 +55,7 @@ export function cloneState(s) {
     crates: s.crates.map(c => c && c.slice()),
     balls: s.balls.map(b => b && { p: b.p.slice(), d: b.d }),
     levers: s.levers.slice(), rots: s.rots.slice(), slides: s.slides.slice(),
-    bridges: s.bridges.slice(), crumbles: s.crumbles.slice(),
+    bridges: s.bridges.slice(), crumbles: s.crumbles.slice(), relays: (s.relays || []).slice(),
     view: s.view, dead: s.dead, moves: s.moves,
   };
 }
@@ -58,7 +64,7 @@ export function stateKey(s) {
   return KP(s.p) + '|' + s.crates.map(c => c ? KP(c) : 'x').join(';') + '|' +
     s.balls.map(b => b ? KP(b.p) : 'x').join(';') + '|' + s.levers.map(Number).join('') + '|' +
     s.rots.join('') + '|' + s.slides.join(',') + '|' + s.bridges.map(Number).join('') + '|' +
-    s.crumbles.join('') + '|' + s.view;
+    s.crumbles.join('') + '|' + s.view + '|' + (s.relays || []).map(Number).join('');
 }
 
 // ---- dinamik blok konumları ----
@@ -110,6 +116,7 @@ function signals(L, s, W) {
   const sig = {};
   (L.def.plates || []).forEach(pl => { sig[pl.id] = (sig[pl.id] || false) || W.ents.has(KP(pl.p)); });
   (L.def.levers || []).forEach((lv, i) => { sig[lv.id] = s.levers[i]; });
+  for (const c of L.comps.values()) if (c.t === 'relay') sig[c.id] = !!s.relays[c.ri];
   return sig;
 }
 function evalSig(sig, expr) {
@@ -278,8 +285,40 @@ export function settle(L, s, frames) {
   }
 }
 
+// Robo'nun durduğu hücrenin altındaki devre elemanı
+export function compAt(L, p) { return L.comps.get(K(p[0], p[1] - 1, p[2])); }
+// Diyot: üstüne yalnızca ok yönünde girilir ve yalnızca ok yönünde çıkılır
+export function diodeOk(L, P, T, d) {
+  if (!T) return false;
+  const a = compAt(L, P);
+  if (a && a.t === 'diode' && a.d !== d) return false;
+  const b = compAt(L, T);
+  if (b && b.t === 'diode' && b.d !== d) return false;
+  return true;
+}
+// Robo bir hücreye vardıktan sonra altındaki eleman: röle tetiklenir, direnç bir adım bekletir,
+// kondansatör Robo'yu baktığı yönde bir kare ileri + bir kat yukarı fırlatır.
+export function afterArrive(L, s, frames) {
+  if (s.dead) return;
+  const c = compAt(L, s.p);
+  if (!c) return;
+  if (c.t === 'relay') { s.relays[c.ri] = !s.relays[c.ri]; }
+  else if (c.t === 'res') { s.moves++; if (frames) frames.push(cloneState(s)); }
+  else if (c.t === 'cap') {
+    const W = buildWorld(L, s);
+    const T = add(add(s.p, DIRS[s.f]), UP);
+    if (free(W, T) && supported(W, T) && free(W, add(s.p, UP)) && diodeOk(L, s.p, T, s.f)) {
+      s.p = T; s.moves++; if (frames) frames.push(cloneState(s));
+    }
+  }
+}
+
 // Saf yürüme hedefi (itme/kol yok). Yol bulma ve hareket için.
 export function walkTarget(L, s, W, P, d) {
+  const T = walkTargetRaw(L, s, W, P, d);
+  return T && diodeOk(L, P, T, d) ? T : null;
+}
+function walkTargetRaw(L, s, W, P, d) {
   const dv = DIRS[d];
   const Q = add(P, dv);
   for (const ln of L.def.links || []) {
@@ -337,6 +376,11 @@ export function step(L, s0, a) {
       // çöken zemin: oyuncu üstünden ayrılınca düşer
       const below = W.solid.get(K(P[0], P[1] - 1, P[2]));
       if (below && below.t === 'cr' && !eq(s.p, P)) s.crumbles[below.i] = 1;
+      s.moves++;
+      frames.push(cloneState(s));
+      afterArrive(L, s, frames);
+      settle(L, s, frames);
+      return { ok: true, state: s, frames };
     }
   } else if (a.t === 'rot') {
     if (!tryRotate(L, s, a.i, a.s)) return { ok: false };
