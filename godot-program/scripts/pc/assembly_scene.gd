@@ -206,7 +206,10 @@ func _build_world() -> void:
 	spot.position = Vector3(0.5, 8.5, 2.5)
 	world.add_child(spot)
 	spot.look_at(Vector3(0.6, 0.8, 0), Vector3.UP)
-	# masa yüzeyi ve arka plan perdesi
+	# Blender atölye sahnesi (masa, raflar, havya istasyonu, alet çantası, softbox ışıklar); yoksa düz masa + perde
+	var shop: Node3D = AssetLoader.scene_model("workshop") if ComponentFactory.use_models else null
+	if shop != null:
+		world.add_child(shop)
 	var desk := MeshInstance3D.new()
 	var dm := BoxMesh.new()
 	dm.size = Vector3(16, 0.2, 10)
@@ -228,6 +231,8 @@ func _build_world() -> void:
 	wall.material_override = wmat
 	wall.position = Vector3(1.4, 6, -6)
 	world.add_child(wall)
+	desk.visible = shop == null
+	wall.visible = shop == null
 	parts_root = Node3D.new()
 	world.add_child(parts_root)
 	cam = Camera3D.new()

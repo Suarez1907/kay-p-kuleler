@@ -71,5 +71,53 @@ func _init() -> void:
 	var n := ComponentFactory.build(ComponentFactory.ComponentType.RESISTOR, 0, 2)
 	if not n.has_meta("glow_mats") or (n.get_meta("glow_mats") as Array).is_empty():
 		fails.append("fabrika: direnç modeli/bacak parlaması bağlanmadı")
+	# iskeletli robot: 7 animasyon
+	var ap := AssetLoader.anim_player(AssetLoader.robot_model())
+	if ap == null:
+		fails.append("robot: AnimationPlayer yok")
+	else:
+		for clip in ["idle", "walk", "turn", "fall", "victory", "wave", "look"]:
+			if not ap.has_animation(clip):
+				fails.append("robot animasyonu yok: " + clip)
+	# bulmaca nesneleri
+	for nm in ["stairs", "goal_crystal", "crate", "lever_base", "lever_arm", "crank_base", "crank_wheel", "handle",
+			"slider", "portal", "plate", "crumble", "phantom"]:
+		var pz := AssetLoader.load_model(AssetLoader.MODELS + "puzzle/%s.glb" % nm, Vector3.ONE)
+		if pz == null:
+			fails.append("bulmaca modeli yok: " + nm)
+		elif AssetLoader.triangle_count(pz) > 6000:
+			fails.append("bulmaca %s üçgen bütçesi" % nm)
+	for pair in [["goal_crystal", "CrystalCore"], ["plate", "PlateLED"], ["portal", "PortalGlow"], ["phantom", "PhantomFrame"]]:
+		var pm := AssetLoader.load_model(AssetLoader.MODELS + "puzzle/%s.glb" % pair[0], Vector3.ONE)
+		if pm != null and not _has_mat(pm, pair[1]):
+			fails.append("%s: %s yuvası yok" % pair)
+	# sahneler ve tema dekorları
+	for sc in ["workshop", "title_diorama"]:
+		var sn := AssetLoader.scene_model(sc)
+		if sn == null:
+			fails.append("sahne yok: " + sc)
+		elif AssetLoader.triangle_count(sn) > 40000:
+			fails.append("sahne %s üçgen bütçesi" % sc)
+	var dio := AssetLoader.scene_model("title_diorama")
+	if dio != null and dio.find_child("RobotSpot", true, false) == null:
+		fails.append("diorama: RobotSpot yok")
+	for k in range(1, ThemeLibrary.COUNT + 1):
+		var tm := AssetLoader.theme_model(k)
+		if tm == null:
+			fails.append("tema dekoru yok: %d" % k)
+		else:
+			var tb := _box(tm)
+			if tb.size.x > 1.41 or tb.size.y > 2.61 or tb.size.z > 2.41:
+				fails.append("tema %d dekoru alanından taşıyor" % k)
+	# 2D: faz ikonları, komut ikonları, PCB doku seti
+	for k in range(1, 11):
+		if not ResourceLoader.exists("res://assets/ui/phase_%02d.png" % k):
+			fails.append("faz ikonu yok: %d" % k)
+	for c in UIKit.CMD_KINDS:
+		if UIKit.cmd_texture(c) == null:
+			fails.append("komut ikonu yok: " + c)
+	for f in ["albedo", "normal", "mask"]:
+		if not ResourceLoader.exists(AssetLoader.PBR + "pcb_detail/%s.png" % f):
+			fails.append("PCB dokusu yok: " + f)
 	print("assets: parça üçgeni toplam %d · %s" % [tot, "TAMAM" if fails.is_empty() else "HATA " + str(fails)])
 	quit(0 if fails.is_empty() else 1)

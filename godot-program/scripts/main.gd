@@ -89,6 +89,8 @@ var cam_az := 45.0
 var cam_az_cur := 45.0
 var cam_zoom := 1.0
 var cam_target := Vector3.ZERO
+## Başlık ekranı dioraması (Blender: devre adasındaki kayıp kule); seviye yüklenince kaldırılır
+var title_dio: Node3D = null
 var cam_size := 12.0
 var cam_spin := false
 var ptr = null
@@ -543,6 +545,26 @@ func _mat(color, opts := {}) -> StandardMaterial3D:
 		mat_cache[key] = m
 	return m
 
+## Blender bulmaca modeli (assets/models/puzzle/<ad>.glb). Grafik "Düşük" ya da dosya yoksa null → prosedürel.
+func _pz(name: String, target: Vector3, align = true) -> Node3D:
+	if not ComponentFactory.use_models:
+		return null
+	return AssetLoader.load_model(AssetLoader.MODELS + "puzzle/%s.glb" % name, target, align)
+
+## Modeldeki adı verilen malzemenin yüzeylerine örneğe özel, verilen renkte ışıyan kopya bağlar
+func _pz_tint(root: Node, mat_name: String, col: Color, energy := 2.5, alpha := 1.0) -> Array:
+	var ms := AssetLoader.unique_surfaces(root, mat_name)
+	for m in ms:
+		if m is StandardMaterial3D:
+			var sm: StandardMaterial3D = m
+			sm.albedo_color = Color(col, alpha)
+			sm.emission_enabled = true
+			sm.emission = col
+			sm.emission_energy_multiplier = energy
+			if alpha < 1.0:
+				sm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	return ms
+
 func _mesh(mesh: Mesh, material: Material, pos := Vector3.ZERO, parent: Node3D = null) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
 	mi.mesh = mesh
@@ -644,6 +666,9 @@ func build_level(i: int, as_preview := false) -> void:
 	_kill_all_tweens()
 	if level_root:
 		level_root.queue_free()
+	if title_dio != null:
+		title_dio.queue_free()
+		title_dio = null
 	level_root = Node3D.new()
 	world.add_child(level_root)
 	L = PuzzleLogic.new()
@@ -692,7 +717,12 @@ func build_level(i: int, as_preview := false) -> void:
 			sg.rotation.y = [0.0, -PI / 2, PI, PI / 2][int(v["d"])]
 			level_root.add_child(sg)
 			cell_nodes[p] = sg
-			# merdiven: bloklardan bir ton farklı (palet vurgusuna doğru) — okunabilirlik
+			# merdiven: Blender PCB basamakları (varsa), yoksa bloklardan bir ton farklı prosedürel basamaklar
+			var stg := _pz("stairs", Vector3.ONE)
+			if stg != null:
+				stg.position = Vector3(0, -0.5, 0)
+				sg.add_child(stg)
+				continue
 			for k in 3:
 				var h := (k + 1) / 3.0
 				_mesh(_box(Vector3(1.0 / 3.0, h, 1.0)), theme_app.stair_mat, Vector3(-1.0 / 3.0 + k / 3.0, -0.5 + h / 2.0, 0), sg)
@@ -735,12 +765,16 @@ func build_level(i: int, as_preview := false) -> void:
 			var hg := Node3D.new()
 			hg.position = Vector3(0, hy + 0.15, 0)
 			rg.add_child(hg)
-			_mesh(_torus(0.86, 1.04), _mat(pal["accent"]), Vector3.ZERO, hg)
-			for k in 2:
-				var sp := _mesh(_box(Vector3(1.9, 0.08, 0.1)), _mat(pal["accent"]), Vector3.ZERO, hg)
-				sp.rotation.y = k * PI / 2
-			for k in 4:
-				_mesh(_sphere(0.14), _mat("#fff6e8"), Vector3(cos(k * PI / 2) * 0.95, 0, sin(k * PI / 2) * 0.95), hg)
+			var hgl := _pz("handle", Vector3(2.2, 0.4, 2.2), false)
+			if hgl != null:
+				hg.add_child(hgl)
+			else:
+				_mesh(_torus(0.86, 1.04), _mat(pal["accent"]), Vector3.ZERO, hg)
+				for k in 2:
+					var sp := _mesh(_box(Vector3(1.9, 0.08, 0.1)), _mat(pal["accent"]), Vector3.ZERO, hg)
+					sp.rotation.y = k * PI / 2
+				for k in 4:
+					_mesh(_sphere(0.14), _mat("#fff6e8"), Vector3(cos(k * PI / 2) * 0.95, 0, sin(k * PI / 2) * 0.95), hg)
 			_mesh(_cyl(0.1, 0.1, absf(r["blocks"][0].y - hy) + 0.2), _mat("#b8aecb"), Vector3(0, (r["blocks"][0].y - hy) / 2.0 - 0.15, 0), hg)
 			_pick(hg, Vector3(2.2, 0.4, 2.2), {"kind": "handle", "i": ri})
 		objs["rotators"].append(rg)
@@ -750,16 +784,22 @@ func build_level(i: int, as_preview := false) -> void:
 		var cg := Node3D.new()
 		cg.position = Vector3(ck["p"]) + Vector3(0, -0.5, 0)
 		level_root.add_child(cg)
-		_mesh(_cyl(0.3, 0.36, 0.14), _mat("#8a7fa3"), Vector3(0, 0.07, 0), cg)
-		_mesh(_cyl(0.07, 0.07, 0.42), _mat("#d8d0e6"), Vector3(0, 0.33, 0), cg)
 		var wheel := Node3D.new()
 		wheel.position = Vector3(0, 0.56, 0)
 		cg.add_child(wheel)
-		_mesh(_torus(0.25, 0.35), _mat(pal["mech"]), Vector3.ZERO, wheel)
-		for k in 3:
-			var sp := _mesh(_box(Vector3(0.6, 0.05, 0.06)), _mat(pal["mech"]), Vector3.ZERO, wheel)
-			sp.rotation.y = k * PI / 3
-		_mesh(_sphere(0.08), _mat(pal["accent"]), Vector3(0.3, 0.07, 0), wheel)
+		var cb := _pz("crank_base", Vector3(0.72, 0.56, 0.72))
+		var cw := _pz("crank_wheel", Vector3(0.74, 0.2, 0.74), false)
+		if cb != null and cw != null:
+			cg.add_child(cb)
+			wheel.add_child(cw)
+		else:
+			_mesh(_cyl(0.3, 0.36, 0.14), _mat("#8a7fa3"), Vector3(0, 0.07, 0), cg)
+			_mesh(_cyl(0.07, 0.07, 0.42), _mat("#d8d0e6"), Vector3(0, 0.33, 0), cg)
+			_mesh(_torus(0.25, 0.35), _mat(pal["mech"]), Vector3.ZERO, wheel)
+			for k in 3:
+				var sp := _mesh(_box(Vector3(0.6, 0.05, 0.06)), _mat(pal["mech"]), Vector3.ZERO, wheel)
+				sp.rotation.y = k * PI / 3
+			_mesh(_sphere(0.08), _mat(pal["accent"]), Vector3(0.3, 0.07, 0), wheel)
 		objs["cranks"].append(wheel)
 	# kaydırıcılar
 	for si in L.sliders.size():
@@ -770,8 +810,13 @@ func build_level(i: int, as_preview := false) -> void:
 			grow.call(b)
 			grow.call(b + s["axis"] * s["max"])
 			grow.call(b + s["axis"] * s["min"])
-			_mesh(rbox_mesh, theme_app.block_mat, Vector3(b), sg)
-			_mesh(_box(Vector3(1.01, 0.12, 1.01)), _mat("#ffffff", {"rough": 0.5}), Vector3(b) + Vector3(0, 0.25, 0), sg)
+			var slg := _pz("slider", Vector3.ONE, false)
+			if slg != null:
+				slg.position = Vector3(b)
+				sg.add_child(slg)
+			else:
+				_mesh(rbox_mesh, theme_app.block_mat, Vector3(b), sg)
+				_mesh(_box(Vector3(1.01, 0.12, 1.01)), _mat("#ffffff", {"rough": 0.5}), Vector3(b) + Vector3(0, 0.25, 0), sg)
 			_pick(sg, Vector3.ONE, {"kind": "slide", "i": si}, Vector3(b))
 		if L.is_manual(si):
 			for sgn in [-1, 1]:
@@ -790,22 +835,41 @@ func build_level(i: int, as_preview := false) -> void:
 	# çöken taşlar
 	for c in L.crumbles:
 		grow.call(c)
-		objs["crumbles"].append(_mesh(rbox_mesh, theme_app.block_mat, Vector3(c)))
+		var crg := _pz("crumble", Vector3.ONE, false)
+		if crg != null:
+			crg.position = Vector3(c)
+			level_root.add_child(crg)
+			objs["crumbles"].append(crg)
+		else:
+			objs["crumbles"].append(_mesh(rbox_mesh, theme_app.block_mat, Vector3(c)))
 	# plakalar
 	for pl in L.plates:
 		var m := _mesh(_cyl(0.36, 0.4, 0.08), _mat(pal["mech"], {"emit": 0.0, "unique": true, "rough": 0.4}), Vector3(pl["p"]) + Vector3(0, -0.46, 0))
+		var plg := _pz("plate", Vector3(0.82, 0.1, 0.82), false)
+		if plg != null:
+			m.mesh = null
+			m.add_child(plg)
+			m.set_meta("led", _pz_tint(plg, "PlateLED", Color(pal["accent"]), 0.0))
 		objs["plates"].append(m)
 	# kollar
 	for lv in L.levers:
 		var lg := Node3D.new()
 		lg.position = Vector3(lv["p"]) + Vector3(0, -0.5, 0)
 		level_root.add_child(lg)
-		_mesh(_box(Vector3(0.6, 0.18, 0.4)), _mat("#8a7fa3"), Vector3(0, 0.09, 0), lg)
 		var arm := Node3D.new()
 		arm.position = Vector3(0, 0.16, 0)
-		lg.add_child(arm)
-		_mesh(_cyl(0.04, 0.04, 0.55), _mat("#d8d0e6"), Vector3(0, 0.27, 0), arm)
-		_mesh(_sphere(0.11), _mat(pal["accent"]), Vector3(0, 0.56, 0), arm)
+		var lb := _pz("lever_base", Vector3(0.6, 0.26, 0.4))
+		var la := _pz("lever_arm", Vector3(0.24, 0.68, 0.24))
+		if lb != null and la != null:
+			lg.add_child(lb)
+			lg.add_child(arm)
+			la.position = Vector3(0, -0.03, 0)
+			arm.add_child(la)
+		else:
+			_mesh(_box(Vector3(0.6, 0.18, 0.4)), _mat("#8a7fa3"), Vector3(0, 0.09, 0), lg)
+			lg.add_child(arm)
+			_mesh(_cyl(0.04, 0.04, 0.55), _mat("#d8d0e6"), Vector3(0, 0.27, 0), arm)
+			_mesh(_sphere(0.11), _mat(pal["accent"]), Vector3(0, 0.56, 0), arm)
 		objs["levers"].append(arm)
 	# göz yanılması halkaları
 	for ln in L.links:
@@ -823,6 +887,10 @@ func build_level(i: int, as_preview := false) -> void:
 			var m := _mesh(rbox_mesh, _mat(col, {"alpha": true, "unique": true, "rough": 0.35, "emit": 0.0}), Vector3(c))
 			var edge := _mesh(_box(Vector3(1.04, 1.04, 1.04)), _mat(col, {"alpha": true, "unique": true, "unshaded": true}), Vector3.ZERO, m)
 			edge.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			var pf := _pz("phantom", Vector3(1.04, 1.04, 1.04), false)
+			if pf != null:
+				m.add_child(pf)
+				_pz_tint(pf, "PhantomFrame", col, 1.8, 0.7)
 			ms.append({"m": m, "edge": edge})
 		objs["phantoms"].append({"ms": ms, "views": ph["views"], "col": col})
 	# ışınlayıcılar
@@ -831,8 +899,17 @@ func build_level(i: int, as_preview := false) -> void:
 		var pt: Dictionary = L.portals[pi]
 		for c in [pt["a"], pt["b"]]:
 			var col: String = pcols[pi % pcols.size()]
-			var m := _mesh(_torus(0.26, 0.38), _mat(col, {"emit": 2.2, "unshaded": true}), Vector3(c) + Vector3(0, -0.46, 0))
-			m.scale = Vector3(1, 0.2, 1)
+			var ptg := _pz("portal", Vector3(0.8, 0.14, 0.8), false)
+			var m: Node3D
+			if ptg != null:
+				m = Node3D.new()
+				m.position = Vector3(c) + Vector3(0, -0.44, 0)
+				level_root.add_child(m)
+				m.add_child(ptg)
+				_pz_tint(ptg, "PortalGlow", Color(col), 3.0)
+			else:
+				m = _mesh(_torus(0.26, 0.38), _mat(col, {"emit": 2.2, "unshaded": true}), Vector3(c) + Vector3(0, -0.46, 0))
+				m.scale = Vector3(1, 0.2, 1)
 			var beam := _mesh(_cyl(0.3, 0.34, 1.2), _mat(col, {"alpha": true, "unique": true, "unshaded": true}), Vector3(c) + Vector3(0, 0.12, 0))
 			beam.material_override.albedo_color.a = 0.18
 			objs["portals"].append({"ring": m, "beam": beam})
@@ -841,6 +918,13 @@ func build_level(i: int, as_preview := false) -> void:
 	grow.call(L.goal)
 	var gem := _mesh(_gem_mesh(), theme_app.crystal_mat, gp + Vector3(0, 0.1, 0))
 	gem.scale = Vector3(1, 1.35, 1)
+	var ggl := _pz("goal_crystal", Vector3(0.62, 0.62, 0.62), false)
+	if ggl != null:
+		# kuantum işlemci: ışıyan çekirdeği tema kristal malzemesini kullanır
+		gem.mesh = null
+		ggl.scale = Vector3(1, 1.0 / 1.35, 1)
+		gem.add_child(ggl)
+		AssetLoader.bind_surfaces(ggl, "CrystalCore", theme_app.crystal_mat)
 	var ring := _mesh(_torus(0.28, 0.42), _mat("#ffffff", {"alpha": true, "unique": true, "unshaded": true}), gp + Vector3(0, -0.47, 0))
 	ring.scale = Vector3(1, 0.1, 1)
 	ring.material_override.albedo_color.a = 0.8
@@ -860,8 +944,14 @@ func build_level(i: int, as_preview := false) -> void:
 	# varlıklar
 	for c in state["crates"]:
 		var m := _mesh(crate_mesh, _mat("#d9a066", {"alpha": true, "unique": true}))
-		_mesh(_box(Vector3(0.7, 0.08, 0.86)), _mat("#a8703f"), Vector3(0, 0.25, 0), m)
-		_mesh(_box(Vector3(0.7, 0.08, 0.86)), _mat("#a8703f"), Vector3(0, -0.25, 0), m)
+		var cgl := _pz("crate", Vector3(0.84, 0.84, 0.84), false)
+		if cgl != null:
+			# CPU paketi kasası
+			m.mesh = null
+			m.add_child(cgl)
+		else:
+			_mesh(_box(Vector3(0.7, 0.08, 0.86)), _mat("#a8703f"), Vector3(0, 0.25, 0), m)
+			_mesh(_box(Vector3(0.7, 0.08, 0.86)), _mat("#a8703f"), Vector3(0, -0.25, 0), m)
 		objs["crates"].append(m)
 	for b in state["balls"]:
 		var m := _mesh(_sphere(0.36), _mat("#f4f1ff", {"alpha": true, "unique": true, "rough": 0.35}))
@@ -964,6 +1054,13 @@ func _build_pcb(aabb: AABB) -> void:
 	bm.size = Vector3(aabb.size.x + 6.0, 0.14, aabb.size.z + 6.0)
 	var pm := ShaderMaterial.new()
 	pm.shader = load("res://shaders/pcb.gdshader")
+	# Blender'da pişirilmiş PCB doku seti (varsa ve grafik "Düşük" değilse)
+	var dd := AssetLoader.PBR + "pcb_detail/"
+	if ComponentFactory.use_models and ResourceLoader.exists(dd + "albedo.png"):
+		pm.set_shader_parameter("detail_albedo", load(dd + "albedo.png"))
+		pm.set_shader_parameter("detail_normal", load(dd + "normal.png"))
+		pm.set_shader_parameter("detail_mask", load(dd + "mask.png"))
+		pm.set_shader_parameter("detail_mix", 1.0)
 	var m := MeshInstance3D.new()
 	m.mesh = bm
 	m.material_override = pm
@@ -1123,6 +1220,10 @@ func _make_robot() -> Node3D:
 				(c as MeshInstance3D).visible = false
 		pose.add_child(rglb)
 		g.set_meta("led_mats", AssetLoader.unique_surfaces(rglb, "RobotLED"))
+		var ap := AssetLoader.anim_player(rglb)
+		if ap != null:
+			g.set_meta("anim", ap)
+			ap.play("idle")
 	# direnç bekleme göstergesi: başın üstünde dönen şarj halkası
 	var wr := _mesh(_torus(0.16, 0.2), _mat("#ffb84d", {"unshaded": true, "unique": true}), Vector3(0, 0.95, 0), g)
 	wr.scale = Vector3(1, 0.2, 1)
@@ -1280,6 +1381,8 @@ func _apply_visual(sA: Dictionary, sB: Dictionary, t: float, bump := false) -> v
 		var down := _plate_down(sB, L.plates[i]["p"])
 		objs["plates"][i].material_override.emission_energy_multiplier = 1.6 if down else 0.0
 		objs["plates"][i].material_override.emission_enabled = down
+		for lm in objs["plates"][i].get_meta("led", []):
+			(lm as StandardMaterial3D).emission_energy_multiplier = 3.5 if down else 0.0
 	_apply_circuit_visual(sA, sB, te)
 	for r in objs["relays"]:
 		ComponentFactory.set_relay(r["n"], bool(sB["relays"][r["ri"]]) if sB.has("relays") else false)
@@ -1835,6 +1938,7 @@ func _robot_victory() -> void:
 	if instant or not objs.has("player"):
 		return
 	_robot_reset()
+	objs["player"].set_meta("victory_until", time + 1.2)
 	var vis: Node3D = objs["player"].get_meta("vis")
 	var spin := _new_tw("robot_spin", vis)
 	spin.tween_property(vis, "rotation:y", TAU, 0.75).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
@@ -1931,8 +2035,35 @@ func _robot_pose() -> void:
 		st = Vector3(1.0 - 0.02 * br, 1.0 + 0.04 * br, 1.0 - 0.02 * br)
 	pose.scale = st
 	pose.position.y = hop
+	_robot_clip(pl)
 	var bm: StandardMaterial3D = pl.get_meta("bulb")
 	bm.emission_energy_multiplier = 3.2 + sin(time * 3.2) * 1.4
+
+## İskeletli robot modelinin klibi komut / duruma göre: yürü (F/J), dön (L/R), düş (ölüm), zafer, boşta nefes +
+## ara sıra etrafa bakınma. Model yoksa (prosedürel robot) hiçbir şey yapmaz.
+func _robot_clip(pl: Node3D) -> void:
+	var ap: AnimationPlayer = pl.get_meta("anim", null)
+	if ap == null:
+		return
+	var want := "idle"
+	var spd := _speed()
+	if pl.get_meta("victory_until", 0.0) > time:
+		want = "victory"
+		spd = 1.0
+	elif anim != null:
+		match String(anim.get("kind", "")):
+			"F", "J":
+				want = "fall" if anim["to"]["dead"] else "walk"
+			"L", "R":
+				want = "turn"
+			_:
+				want = "idle"
+	elif queue.is_empty() and fmod(time, 9.0) > 6.5:
+		want = "look"
+	if ap.current_animation != want:
+		ap.play(want, 0.12, spd)
+	else:
+		ap.speed_scale = spd
 
 # =====================================================================
 # Bilgisayar toplama: parçalar, montaj sahnesi ve vitrin
@@ -3097,12 +3228,42 @@ func _show_title() -> void:
 	cam_az = 20.0
 	cam_az_cur = 20.0
 	cam_zoom = 0.85
+	_title_diorama()
 	var got := 0
 	for k in progress["best"]:
 		got += int(progress["best"][k]["stars"])
 	lbl_title_stars.text = "%d / %d" % [got, levels.size() * 3]
 	_update_pc_buttons()
 	_show("title")
+
+## Başlık ekranında seviye önizlemesi yerine Blender dioraması + selam veren iskeletli robot (varsa)
+func _title_diorama() -> void:
+	if title_dio != null or not ComponentFactory.use_models:
+		return
+	var d := AssetLoader.scene_model("title_diorama")
+	if d == null:
+		return
+	level_root.visible = false
+	d.position = Vector3(cam_target.x, float(L.min_y) - 0.5, cam_target.z)
+	world.add_child(d)
+	title_dio = d
+	var spot := d.find_child("RobotSpot", true, false) as Node3D
+	var rb := AssetLoader.robot_model()
+	if rb != null:
+		rb.position = spot.position if spot != null else Vector3(2.7, 0, 0)
+		rb.rotation.y = 0.5
+		d.add_child(rb)
+		var ap := AssetLoader.anim_player(rb, [])
+		if ap != null:
+			ap.play("wave")
+			# animasyon kaynakları örnekler arasında paylaşılır (idle döngüde): klip değişimi zamanlayıcıyla
+			var tm := Timer.new()
+			tm.wait_time = 3.2
+			tm.autostart = true
+			d.add_child(tm)
+			tm.timeout.connect(func(): ap.play(["idle", "look", "wave", "idle"][randi() % 4], 0.2))
+	cam_target = d.position + Vector3(0, 2.4, 0)
+	cam_size = 13.5
 
 func _play() -> void:
 	audio.play("tap")
@@ -3149,6 +3310,16 @@ func _open_levels() -> void:
 			banner.add_theme_stylebox_override("panel", bsb)
 			var bh := HBoxContainer.new()
 			bh.add_theme_constant_override("separation", 10)
+			# faz adası ikonu (Blender render: assets/ui/phase_XX.png), yoksa atlanır
+			var pip := "res://assets/ui/phase_%02d.png" % ch_i
+			if ResourceLoader.exists(pip):
+				var pi_tex := TextureRect.new()
+				pi_tex.texture = load(pip)
+				pi_tex.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+				pi_tex.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+				pi_tex.custom_minimum_size = Vector2(64, 64)
+				pi_tex.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+				bh.add_child(pi_tex)
 			var bn := UIKit.label("FAZ %d" % ch_i, 16, Color(1, 1, 1, 0.8), UIKit.font_black)
 			bn.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 			bh.add_child(bn)

@@ -35,3 +35,4 @@ dist/
 Thumbs.db
 screenshots/test-sonuclari.json
 __pycache__/
+.blender_tmp/

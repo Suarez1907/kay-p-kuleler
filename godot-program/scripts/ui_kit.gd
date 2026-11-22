@@ -292,6 +292,18 @@ static func shake(n: Control) -> void:
 		tw.tween_property(n, "position:x", x + k, 0.05)
 
 
+static var _cmd_tex := {}
+const CMD_KINDS := ["F", "L", "R", "J", "A", "W", "1", "2", "C"]
+
+## Komut ikonu dokusu (önbellekli); dosya yoksa null
+static func cmd_texture(kind: String) -> Texture2D:
+	if not kind in CMD_KINDS:
+		return null
+	if not _cmd_tex.has(kind):
+		var path := "res://assets/ui/cmd_%s.png" % kind
+		_cmd_tex[kind] = load(path) if ResourceLoader.exists(path) else null
+	return _cmd_tex[kind]
+
 ## Vektör ikon. kind: play, pause, stop, step, menu, back, cam_l, cam_r, bulb, reset, sound, sound_off,
 ## music, music_off, star, star_empty, lock, trash, undo, check, close, gear, save, grid, sparkle, speed, home,
 ## ve komutlar: F, L, R, J, A, W, 1, 2
@@ -307,6 +319,12 @@ class Icon extends Control:
 		var w := stroke if stroke > 0 else maxf(2.4, m * 0.11)
 		var P := func(x: float, y: float) -> Vector2: return o + Vector2(x * m, y * m)
 		var col := color
+		# komutlar: Blender'da render edilmiş kabartma ikon (assets/ui/cmd_<C>.png) varsa o, yoksa vektör çizim
+		var tex := UIKit.cmd_texture(kind)
+		if tex != null:
+			var g := m * 1.18
+			draw_texture_rect(tex, Rect2(o + Vector2(m - g, m - g) / 2, Vector2(g, g)), false, col)
+			return
 		match kind:
 			"play":
 				draw_colored_polygon(PackedVector2Array([P.call(0.28, 0.16), P.call(0.86, 0.5), P.call(0.28, 0.84)]), col)

@@ -11,6 +11,9 @@ static func spawn(parent: Node3D, theme: ChapterTheme, aabb: AABB) -> Node3D:
 	var floor_y := aabb.position.y - 1.2
 	var center := Vector3(aabb.get_center().x, floor_y, aabb.get_center().z)
 	var reach := maxf(aabb.size.x, aabb.size.z) * 0.5
+	# Blender dekor seti (assets/models/themes/theme_XX.glb): kulenin iki yanına birer küme; yoksa prosedürel
+	if ComponentFactory.use_models and _glb_sets(root, theme, aabb):
+		return root
 	var S := ChapterTheme.VisualStyle
 	match theme.visual_style:
 		S.KINTSUGI:
@@ -46,6 +49,23 @@ static func spawn(parent: Node3D, theme: ChapterTheme, aabb: AABB) -> Node3D:
 		_:
 			_plinth(root, center, reach, theme.accent_color, 0.2)
 	return root
+
+
+static func _glb_sets(root: Node3D, theme: ChapterTheme, aabb: AABB) -> bool:
+	var a := AssetLoader.theme_model(theme.chapter_id)
+	if a == null:
+		return false
+	var y := aabb.position.y - 0.55
+	a.position = Vector3(aabb.position.x - 1.7, y, aabb.get_center().z)
+	root.add_child(a)
+	var b := AssetLoader.theme_model(theme.chapter_id, Vector3(1.0, 1.9, 1.7))
+	if b != null:
+		b.position = Vector3(aabb.end.x + 1.7, y, aabb.position.z + 0.4)
+		b.rotation.y = PI
+		root.add_child(b)
+	for mi in PartBuilder._meshes_in(root):
+		(mi as MeshInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	return true
 
 
 ## Kulenin yanında, blokların altında kalan bir nokta (yolun ve kameranın dışında).

@@ -181,7 +181,7 @@ def _planar_uv(o, mat_name):
     bm.to_mesh(o.data)
     bm.free()
 
-def finalize(path, budget):
+def finalize(path, budget, recenter=True):
     objs = [o for o in bpy.context.scene.objects if o.type == "MESH"]
     bpy.ops.object.select_all(action="DESELECT")
     for o in objs:
@@ -196,7 +196,7 @@ def finalize(path, budget):
     xs = [v.co.x for v in o.data.vertices]
     ys = [v.co.y for v in o.data.vertices]
     zs = [v.co.z for v in o.data.vertices]
-    off = ((min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2, min(zs))
+    off = ((min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2, min(zs)) if recenter else (0.0, 0.0, 0.0)
     for v in o.data.vertices:
         v.co.x -= off[0]
         v.co.y -= off[1]
@@ -225,8 +225,10 @@ def finalize(path, budget):
 
 # ---------------------------------------------------------------------------
 # 1) Robot: devre tamir dronu (ön yüz Godot +Z = robotun yürüme yönü)
-def build_robot():
-    reset()
+# İskeletli: her parça %100 tek kemiğe bağlı (katı deri). Kemikler: root, body, head, antenna, arm.L, arm.R,
+# wheel.L0..2, wheel.R0..2. Animasyonlar (Godot AnimationPlayer'a gelir): idle, walk, turn, fall, victory, wave, look.
+def _robot_parts():
+    """[(kemik, nesne)] — nesneleri oluşturur, hangi kemiğe ait olduklarını döndürür."""
     amber = mat("AmberCeramic", "#ff9a3c", 0.1, 0.45)
     visor = mat("Anthracite", "#2a2c33", 0.3, 0.5)
     glass = mat("LensGlass", "#cfefff", 0.0, 0.05, transmission=0.8, alpha=0.55)
@@ -234,39 +236,208 @@ def build_robot():
     metal = mat("BrushedDarkMetal", "#3a3d44", 0.85, 0.35)
     copper = mat("Copper", "#c87533", 0.95, 0.28)
     rubber = mat("TreadRubber", "#1c1d22", 0.0, 0.8)
-    # gövde (hafif eğimli üst)
-    box((0, 0.34, 0), (0.5, 0.36, 0.44), amber, bevel=0.045)
-    box((0, 0.545, -0.01), (0.44, 0.07, 0.38), amber, bevel=0.03)
-    box((0, 0.17, 0), (0.46, 0.04, 0.4), metal)
-    # vizör + mercek (+Z ön)
-    box((0, 0.37, 0.215), (0.38, 0.22, 0.04), visor, bevel=0.02)
-    cyl((0, 0.37, 0.238), 0.085, 0.02, visor, "z", 32)
-    cyl((0, 0.37, 0.245), 0.07, 0.02, glass, "z", 32)
-    cyl((0, 0.37, 0.24), 0.05, 0.01, led, "z", 24)
-    for sx in (-1, 1):
-        box((sx * 0.13, 0.42, 0.236), (0.05, 0.025, 0.01), led, bevel=0.003)
-    # palet takımları
-    for sx in (-1, 1):
-        x = sx * 0.3
-        box((x, 0.1, 0), (0.12, 0.13, 0.46), rubber, bevel=0.03)
-        for k in range(10):
-            z = -0.21 + k * 0.047
-            box((x, 0.03, z), (0.13, 0.02, 0.025), rubber, bevel=0.005)
-        for z in (-0.16, 0.0, 0.16):
-            cyl((x + sx * 0.055, 0.1, z), 0.045, 0.02, metal, "x", 20)
-        # bakır pistonlar gövdeye
-        for z in (-0.1, 0.1):
-            cyl((sx * 0.25, 0.2, z), 0.018, 0.12, copper, "x", 12)
-            cyl((sx * 0.235, 0.2, z), 0.028, 0.03, metal, "x", 12)
-    # anten: bobinli çubuk + parlayan uç
-    cyl((0, 0.67, -0.05), 0.012, 0.18, metal, "y", 12)
-    for k in range(5):
-        torus((0, 0.61 + k * 0.022, -0.05), 0.022, 0.006, copper, "y", 16, 6)
-    sphere((0, 0.775, -0.05), 0.03, led, 16)
-    # arka soğutma ızgarası
+    out = []
+    def add(bone, o):
+        out.append((bone, o))
+    add("body", box((0, 0.34, 0), (0.5, 0.36, 0.44), amber, bevel=0.045))
+    add("body", box((0, 0.17, 0), (0.46, 0.04, 0.4), metal))
     for k in range(7):
-        box((-0.15 + k * 0.05, 0.36, -0.235), (0.018, 0.2, 0.04), metal, bevel=0.004)
-    return finalize(os.path.join(OUT, "robot.glb"), BUDGET_ROBOT)
+        add("body", box((-0.15 + k * 0.05, 0.36, -0.235), (0.018, 0.2, 0.04), metal, bevel=0.004))
+    # kafa: üst kapak + vizör + mercek (başını çevirebilir)
+    add("head", box((0, 0.545, -0.01), (0.44, 0.07, 0.38), amber, bevel=0.03))
+    add("head", box((0, 0.37, 0.215), (0.38, 0.22, 0.04), visor, bevel=0.02))
+    add("head", cyl((0, 0.37, 0.238), 0.085, 0.02, visor, "z", 32))
+    add("head", cyl((0, 0.37, 0.245), 0.07, 0.02, glass, "z", 32))
+    add("head", cyl((0, 0.37, 0.24), 0.05, 0.01, led, "z", 24))
+    for sx in (-1, 1):
+        add("head", box((sx * 0.13, 0.42, 0.236), (0.05, 0.025, 0.01), led, bevel=0.003))
+    # anten
+    add("antenna", cyl((0, 0.67, -0.05), 0.012, 0.18, metal, "y", 12))
+    for k in range(5):
+        add("antenna", torus((0, 0.61 + k * 0.022, -0.05), 0.022, 0.006, copper, "y", 16, 6))
+    add("antenna", sphere((0, 0.775, -0.05), 0.03, led, 16))
+    # kollar (kısa kıskaçlı)
+    for sx, side in ((-1, "L"), (1, "R")):
+        add("arm." + side, cyl((sx * 0.27, 0.42, 0.02), 0.03, 0.05, metal, "x", 12))
+        add("arm." + side, box((sx * 0.3, 0.33, 0.02), (0.035, 0.16, 0.05), metal, bevel=0.01))
+        add("arm." + side, box((sx * 0.3, 0.245, 0.04), (0.04, 0.04, 0.09), copper, bevel=0.008))
+    # paletler + tekerlekler + pistonlar
+    for sx, side in ((-1, "L"), (1, "R")):
+        x = sx * 0.33
+        add("body", box((x, 0.1, 0), (0.12, 0.13, 0.46), rubber, bevel=0.03))
+        for k in range(10):
+            add("body", box((x, 0.03, -0.21 + k * 0.047), (0.13, 0.02, 0.025), rubber, bevel=0.005))
+        for wi, z in enumerate((-0.16, 0.0, 0.16)):
+            add("wheel.%s%d" % (side, wi), cyl((x + sx * 0.055, 0.1, z), 0.045, 0.02, metal, "x", 20))
+            add("wheel.%s%d" % (side, wi), box((x + sx * 0.066, 0.1, z), (0.004, 0.075, 0.012), copper, bevel=0))
+        for z in (-0.1, 0.1):
+            add("body", cyl((sx * 0.27, 0.2, z), 0.018, 0.1, copper, "x", 12))
+    return out
+
+BONES = {  # kemik: (baş, kuyruk, ebeveyn) — Godot koordinatlarında
+    "root": ((0, 0, 0), (0, 0.1, 0), None),
+    "body": ((0, 0.12, 0), (0, 0.45, 0), "root"),
+    "head": ((0, 0.3, 0.05), (0, 0.58, 0.05), "body"),
+    "antenna": ((0, 0.58, -0.05), (0, 0.78, -0.05), "head"),
+    "arm.L": ((-0.27, 0.42, 0.02), (-0.27, 0.6, 0.02), "body"),
+    "arm.R": ((0.27, 0.42, 0.02), (0.27, 0.6, 0.02), "body"),
+}
+for _s, _sx in (("L", -1), ("R", 1)):
+    for _i, _z in enumerate((-0.16, 0.0, 0.16)):
+        BONES["wheel.%s%d" % (_s, _i)] = ((_sx * 0.385, 0.1, _z), (_sx * 0.385, 0.2, _z), "root")
+
+def _key(pb, frame, loc=None, rot=None):
+    if loc is not None:
+        pb.location = loc
+        pb.keyframe_insert("location", frame=frame)
+    if rot is not None:
+        pb.rotation_euler = rot
+        pb.keyframe_insert("rotation_euler", frame=frame)
+
+def _actions(arm):
+    """Kemik eksenleri: yukarı bakan kemikte yerel X = sağ, Y = yukarı, Z = ileri (Godot +Z)."""
+    pbs = arm.pose.bones
+    for pb in pbs:
+        pb.rotation_mode = "XYZ"
+    wheels = [b for b in pbs if b.name.startswith("wheel")]
+    def act(name, frames, fn):
+        a = bpy.data.actions.new(name)
+        arm.animation_data_create()
+        arm.animation_data.action = a
+        for pb in pbs:
+            pb.location = (0, 0, 0)
+            pb.rotation_euler = (0, 0, 0)
+        fn()
+        for fc in _fcurves(a):
+            for kp in fc.keyframe_points:
+                kp.interpolation = "BEZIER"
+        a.use_fake_user = True
+        tr = arm.animation_data.nla_tracks.new()
+        tr.name = name
+        tr.strips.new(name, 1, a)
+        arm.animation_data.action = None
+    def idle():
+        for f, y in ((1, 0.0), (20, 0.012), (40, 0.0)):
+            _key(pbs["body"], f, loc=(0, y, 0))
+        for f, r in ((1, 0.0), (10, 0.08), (30, -0.08), (40, 0.0)):
+            _key(pbs["antenna"], f, rot=(r, 0, r * 0.5))
+    def walk():
+        for f in (1, 7, 13):
+            _key(pbs["body"], f, loc=(0, 0.0 if f != 7 else 0.015, 0))
+        for w in wheels:
+            for f, a in ((1, 0.0), (13, -2 * math.pi)):
+                _key(w, f, rot=(a, 0, 0))
+        for f, r in ((1, 0.12), (7, -0.05), (13, 0.12)):
+            _key(pbs["antenna"], f, rot=(r, 0, 0))
+    def turn():
+        for f, y in ((1, 0.0), (4, 0.06), (7, 0.0)):
+            _key(pbs["body"], f, loc=(0, y, 0))
+        for f, r in ((1, 0.0), (4, -0.15), (7, 0.0)):
+            _key(pbs["antenna"], f, rot=(0, 0, r))
+    def fall():
+        for f, r in ((1, 0.0), (6, 2.4), (12, 0.6), (18, 2.4)):
+            _key(pbs["arm.L"], f, rot=(0, 0, -r))
+            _key(pbs["arm.R"], f, rot=(0, 0, r))
+        for f, r in ((1, 0.0), (10, 0.4), (18, -0.3)):
+            _key(pbs["head"], f, rot=(r * 0.4, r, 0))
+    def victory():
+        for f, y, a in ((1, 0.0, 0.0), (8, 0.18, math.pi * 0.6), (15, 0.0, math.pi * 1.2), (22, 0.12, math.pi * 1.7), (30, 0.0, 2 * math.pi)):
+            _key(pbs["root"], f, loc=(0, y, 0), rot=(0, a, 0))
+        for f in (1, 8, 15, 22, 30):
+            up = 2.6 if f in (8, 22) else 1.2
+            _key(pbs["arm.L"], f, rot=(0, 0, -up))
+            _key(pbs["arm.R"], f, rot=(0, 0, up))
+    def wave():
+        _key(pbs["arm.L"], 1, rot=(0, 0, 0))
+        _key(pbs["arm.L"], 30, rot=(0, 0, 0))
+        for f, r in ((1, 2.2), (8, 2.8), (15, 2.2), (22, 2.8), (30, 2.2)):
+            _key(pbs["arm.R"], f, rot=(0, 0, r))
+        for f, y in ((1, 0.0), (15, 0.025), (30, 0.0)):
+            _key(pbs["body"], f, loc=(0, y, 0))
+    def look():
+        for f, r in ((1, 0.0), (15, 0.6), (30, 0.6), (45, -0.6), (60, -0.6), (75, 0.0)):
+            _key(pbs["head"], f, rot=(0, r, 0))
+    act("idle", 40, idle)
+    act("walk", 13, walk)
+    act("turn", 7, turn)
+    act("fall", 18, fall)
+    act("victory", 30, victory)
+    act("wave", 30, wave)
+    act("look", 75, look)
+
+def _fcurves(a):
+    try:
+        return list(a.fcurves)
+    except Exception:
+        out = []
+        for layer in getattr(a, "layers", []):
+            for strip in layer.strips:
+                for cb in strip.channelbags:
+                    out.extend(cb.fcurves)
+        return out
+
+def build_robot():
+    reset()
+    bpy.context.scene.render.fps = 30
+    parts = _robot_parts()
+    # her parçayı ait olduğu kemiğin köşe grubuna ata, pahları uygula, tek mesh'te birleştir
+    for bone, o in parts:
+        bpy.ops.object.select_all(action="DESELECT")
+        o.select_set(True)
+        bpy.context.view_layer.objects.active = o
+        bpy.ops.object.convert(target="MESH")
+        vg = o.vertex_groups.new(name=bone)
+        vg.add(list(range(len(o.data.vertices))), 1.0, "REPLACE")
+    objs = [o for _, o in parts]
+    bpy.ops.object.select_all(action="DESELECT")
+    for o in objs:
+        o.select_set(True)
+    bpy.context.view_layer.objects.active = objs[0]
+    bpy.ops.object.join()
+    mesh = bpy.context.active_object
+    mesh.name = "RobotMesh"
+    bpy.ops.object.shade_smooth_by_angle(angle=math.radians(40))
+    wn = mesh.modifiers.new("WeightedNormal", "WEIGHTED_NORMAL")
+    wn.keep_sharp = True
+    tri = mesh.modifiers.new("Triangulate", "TRIANGULATE")
+    tri.keep_custom_normals = True
+    bpy.ops.object.convert(target="MESH")
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.uv.smart_project(angle_limit=math.radians(66), island_margin=0.02)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    mesh.data.calc_loop_triangles()
+    tris = len(mesh.data.loop_triangles)
+    # iskelet
+    ad = bpy.data.armatures.new("RobotRig")
+    arm = bpy.data.objects.new("RobotRig", ad)
+    bpy.context.scene.collection.objects.link(arm)
+    bpy.context.view_layer.objects.active = arm
+    bpy.ops.object.mode_set(mode="EDIT")
+    for name, (h, t, parent) in BONES.items():
+        eb = ad.edit_bones.new(name)
+        eb.head = G(*h)
+        eb.tail = G(*t)
+        eb.roll = 0.0
+    for name, (h, t, parent) in BONES.items():
+        if parent:
+            ad.edit_bones[name].parent = ad.edit_bones[parent]
+    bpy.ops.object.mode_set(mode="OBJECT")
+    mesh.parent = arm
+    am = mesh.modifiers.new("Armature", "ARMATURE")
+    am.object = arm
+    bpy.ops.object.select_all(action="DESELECT")
+    arm.select_set(True)
+    bpy.context.view_layer.objects.active = arm
+    bpy.ops.object.mode_set(mode="POSE")
+    _actions(arm)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    path = os.path.join(OUT, "robot.glb")
+    bpy.ops.export_scene.gltf(filepath=path, export_format="GLB", export_yup=True, export_apply=False,
+                              export_materials="EXPORT", export_tangents=True, export_animations=True,
+                              export_animation_mode="NLA_TRACKS", export_skins=True, export_def_bones=False)
+    return {"file": "robot.glb", "tris": tris, "budget": BUDGET_ROBOT, "ok": tris <= BUDGET_ROBOT,
+            "materials": [m.name for m in mesh.data.materials if m], "animations": ["idle", "walk", "turn", "fall", "victory", "wave", "look"]}
 
 # ---------------------------------------------------------------------------
 # 2) Devre elemanları: 1×1 taban, üst yüz y=1.0 (Godot), orijin taban merkezi
@@ -734,4 +905,5 @@ def main():
     if bad:
         sys.exit(1)
 
-main()
+if __name__ == "__main__" and not os.environ.get("KK_NO_MAIN"):
+    main()

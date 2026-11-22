@@ -46,8 +46,39 @@ static func load_model(path: String, target := Vector3.ONE, align = true) -> Nod
 	n.position = Vector3(-c.x, y, -c.z)
 	return holder
 
+## Sahne modeli (assets/models/scenes/<ad>.glb): Blender'daki dünya koordinatlarıyla, ölçeklenmeden yüklenir.
+static func scene_model(name: String) -> Node3D:
+	var path := MODELS + "scenes/%s.glb" % name
+	if not exists(path):
+		return null
+	var res = load(path)
+	if not (res is PackedScene):
+		return null
+	var inst: Node = (res as PackedScene).instantiate()
+	if inst is Node3D:
+		return inst
+	inst.queue_free()
+	return null
+
+## Tema dekor seti (assets/models/themes/theme_XX.glb), tabanı y=0, hedef kutuya sığar
+static func theme_model(id: int, target := Vector3(1.4, 2.6, 2.4)) -> Node3D:
+	return load_model(MODELS + "themes/theme_%02d.glb" % id, target, true)
+
 static func robot_model() -> Node3D:
 	return load_model(MODELS + "robot.glb", Vector3(0.62, 0.8, 0.62), true)
+
+## Modeldeki ilk AnimationPlayer (iskeletli robot: idle, walk, turn, fall, victory, wave, look). Döngüler ayarlanır.
+static func anim_player(root: Node, loops := ["idle", "walk", "look"]) -> AnimationPlayer:
+	if root == null:
+		return null
+	var found := root.find_children("*", "AnimationPlayer", true, false)
+	if found.is_empty():
+		return null
+	var ap: AnimationPlayer = found[0]
+	for n in loops:
+		if ap.has_animation(n):
+			ap.get_animation(n).loop_mode = Animation.LOOP_LINEAR
+	return ap
 
 ## Devre elemanı: 1×1×1 hücre, taban y=0 (köprü için align = "top": üst yüz y=0)
 static func component_model(name: String, align = true) -> Node3D:

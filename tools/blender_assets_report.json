@@ -3,7 +3,7 @@
  "items": [
   {
    "file": "robot.glb",
-   "tris": 9084,
+   "tris": 9308,
    "budget": 10000,
    "ok": true,
    "materials": [
@@ -12,8 +12,17 @@
     "Anthracite",
     "LensGlass",
     "RobotLED",
-    "TreadRubber",
-    "Copper"
+    "Copper",
+    "TreadRubber"
+   ],
+   "animations": [
+    "idle",
+    "walk",
+    "turn",
+    "fall",
+    "victory",
+    "wave",
+    "look"
    ]
   },
   {
@@ -1828,6 +1837,6 @@
    ]
   }
  ],
- "total_tris": 134960,
- "seconds": 8.8
+ "total_tris": 135184,
+ "seconds": 11.8
 }
