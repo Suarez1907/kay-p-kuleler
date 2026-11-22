@@ -251,6 +251,17 @@ Mobile (Vulkan) renderer, AgX ton eşleme, parıltı, sis, yumuşak gölgeler; V
   16 bit PCM olarak üretilip önbelleğe alınır (pentatonik adımlar, kondansatör sweep, hata, röle, tuş "thock", montaj
   snap + cızırtı, güç tuşu, fan döngüsü, POST beep, Cmaj7 açılış akoru); `res://assets/audio/<ad>.wav|.ogg` varsa o
   kullanılır. Titreşim: 12 ms komut, 30+30 ms hata, 45 ms montaj, 60 ms güç; Ayarlar'da Ses ve Titreşim anahtarları.
+* **Blender varlıkları (`tools/blender_asset_generator.py`):** `blender --background --python tools/blender_asset_generator.py`
+  (Blender 5.x; bu ortamda PyPI `bpy` + `blender` sarmalayıcısı) robotu, 5 devre elemanını, köprüyü ve 100 PC parçasını
+  `.glb` olarak `godot-program/assets/models/` altına üretir (~9 sn). Her model: ince pah (Bevel 2–3 segment, 0,015–0,025;
+  ince parçalarda kısılır), açıyla yumuşatma + WeightedNormal, üçgenleştirme (tanjantlar için), Smart UV, Principled BSDF
+  (Metallic/Roughness/Emission/Transmission), uygulanmış dönüş/ölçek, orijin taban merkezinde. PC parçaları
+  `tools/pc_parts.py`'deki montaj kutularına birebir kurulur. Godot'nun adla bulduğu malzeme yuvaları: `RobotLED`
+  (tema/mod rengi), `Pins` (basışta parlama), `ChargeRing`, `Band1`–`Band4` (direnç gecikmesi), `MonitorScreen`
+  (finaldeki BIOS SubViewport dokusu), `RelayCover`, `DiodeArrow`, `BridgeLED`. Üçgen bütçeleri: robot ≤ 10 000,
+  bileşen ≤ 8 000, parça ≤ 6 000 (büyük parçalar ≤ 14 000); rapor `tools/blender_assets_report.json`. Diyot modeli -Z'ye
+  bakar (oyun yön 0 = +X, fabrika -90° ofset uygular), robotun önü +Z. Grafik "Düşük"te prosedürel modeller kullanılır.
+  Test: `--script res://tests/run_assets.gd`.
 * **Harici model/doku (`scripts/assets/asset_loader.gd`):** `assets/models/robot.glb`,
   `assets/models/components/*.glb`, `assets/models/pc_parts/part_NNN.glb`, `assets/textures/pbr/<ad>/{albedo,normal,
   roughness,ao}.png` eklenirse otomatik yüklenir (AABB'ye göre ölçeklenir, tabana hizalanır); yoksa prosedürel model.

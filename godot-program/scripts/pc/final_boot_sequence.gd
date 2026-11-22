@@ -25,6 +25,9 @@ var _lines_shown := 0
 var _power_pressed := false
 var _btns: HBoxContainer
 var _press_y := 0.0
+var _screen_mat: Material
+var _glb_screen_node: Node3D = null
+var _glb_screen_on := false
 
 const PHASE_SHORT := ["Anakart", "PSU", "CPU", "RAM", "NVMe", "GPU", "Soğutma", "I/O", "Kasa", "Çekirdek"]
 
@@ -164,6 +167,14 @@ func _build_screen() -> void:
 	screen_quad.position = sp.assembly_position + Vector3(0, 0, sp.assembly_scale.z / 2.0 + 0.004)
 	screen_quad.visible = false
 	asm.parts_root.add_child(screen_quad)
+	# monitör modelinde "MonitorScreen" yuvası varsa BIOS dokusu doğrudan oraya bağlanır
+	_screen_mat = m
+	for id in [SCREEN_ID, 93]:
+		if asm.nodes.has(id):
+			var found := AssetLoader.unique_surfaces(asm.nodes[id], "MonitorScreen")
+			if not found.is_empty():
+				_glb_screen_node = asm.nodes[id]
+				break
 
 func _build_buttons() -> void:
 	_btns = HBoxContainer.new()
@@ -261,7 +272,16 @@ func advance(dt: float) -> void:
 			g = maxf(g, 1.0 - absf(t - 20.8) / 0.4)
 		PartBuilder.set_glow(asm.nodes[id], g * 1.3)
 	# --- C: BIOS / POST ---
-	screen_quad.visible = t >= 12.0
+	if _glb_screen_node != null:
+		screen_quad.visible = false
+		if (t >= 12.0) != _glb_screen_on:
+			_glb_screen_on = t >= 12.0
+			if _glb_screen_on:
+				AssetLoader.bind_surfaces(_glb_screen_node, "MonitorScreen", _screen_mat)
+			else:
+				AssetLoader.unique_surfaces(_glb_screen_node, "MonitorScreen")
+	else:
+		screen_quad.visible = t >= 12.0
 	var lines := [[12.4, "BIOS v4.8 — ROBOTIC CORE SYSTEMS", Color("#7fd6ff"), 30], [12.9, "Copyright (C) Kayıp Kuleler Labs · Robo POST rev.100", Color("#8899aa"), 18],
 		[13.3, "CPU: ROBO-CORE 100 @ 4.80 GHz    MEMORY: 64 GB DDR5 ...... OK", Color("#c8d6e5"), 22], [13.9, "CHECKING HARDWARE MODULES...", Color("#ffd36e"), 24]]
 	for i in 10:

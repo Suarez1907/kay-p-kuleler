@@ -16,8 +16,8 @@ static var _pbr_cache := {}
 static func exists(path: String) -> bool:
 	return path != "" and ResourceLoader.exists(path)
 
-## .glb'yi yükle ve hedef kutuya sığdır. align_bottom: taban y=0 (değilse merkez orijinde).
-static func load_model(path: String, target := Vector3.ONE, align_bottom := true) -> Node3D:
+## .glb'yi yükle ve hedef kutuya sığdır. align: true/"bottom" taban y=0, false/"center" merkez orijinde, "top" üst yüz y=0.
+static func load_model(path: String, target := Vector3.ONE, align = true) -> Node3D:
 	if not exists(path):
 		return null
 	var res = load(path)
@@ -38,15 +38,71 @@ static func load_model(path: String, target := Vector3.ONE, align_bottom := true
 	var s := minf(target.x / maxf(box.size.x, 1e-4), minf(target.y / maxf(box.size.y, 1e-4), target.z / maxf(box.size.z, 1e-4)))
 	n.scale = Vector3.ONE * s
 	var c := box.get_center() * s
-	n.position = Vector3(-c.x, -box.position.y * s if align_bottom else -c.y, -c.z)
+	var y := -c.y
+	if align is bool and align or align is String and align == "bottom":
+		y = -box.position.y * s
+	elif align is String and align == "top":
+		y = -box.end.y * s
+	n.position = Vector3(-c.x, y, -c.z)
 	return holder
 
 static func robot_model() -> Node3D:
 	return load_model(MODELS + "robot.glb", Vector3(0.62, 0.8, 0.62), true)
 
-## Devre elemanı: 1×1×1 hücre, taban y=0
-static func component_model(name: String) -> Node3D:
-	return load_model(MODELS + "components/%s.glb" % name, Vector3.ONE, true)
+## Devre elemanı: 1×1×1 hücre, taban y=0 (köprü için align = "top": üst yüz y=0)
+static func component_model(name: String, align = true) -> Node3D:
+	return load_model(MODELS + "components/%s.glb" % name, Vector3.ONE, align)
+
+## Modeldeki adı verilen malzemenin kullanıldığı yüzeylere, örneğe özel kopya malzeme bağlar ve kopyaları döndürür
+## (ör. "RobotLED" tema rengi, "Band1".."Band4" direnç bantları, "Pins" basış parlaması, "MonitorScreen").
+static func unique_surfaces(root: Node, mat_name: String) -> Array:
+	var out := []
+	for mi in PartBuilder._meshes_in(root):
+		var m: MeshInstance3D = mi
+		if m.mesh == null:
+			continue
+		for i in m.mesh.get_surface_count():
+			var sm := m.mesh.surface_get_material(i)
+			if sm != null and sm.resource_name == mat_name:
+				var cp: Material = sm.duplicate()
+				m.set_surface_override_material(i, cp)
+				out.append(cp)
+	return out
+
+## Adı verilen malzemenin yüzeylerine verilen malzemeyi bağlar (ör. MonitorScreen → BIOS SubViewport dokusu)
+static func bind_surfaces(root: Node, mat_name: String, material: Material) -> int:
+	var n := 0
+	for mi in PartBuilder._meshes_in(root):
+		var m: MeshInstance3D = mi
+		if m.mesh == null:
+			continue
+		for i in m.mesh.get_surface_count():
+			var sm := m.mesh.surface_get_material(i)
+			if sm != null and sm.resource_name == mat_name:
+				m.set_surface_override_material(i, material)
+				n += 1
+	return n
+
+static var _overlay: ShaderMaterial
+## Harici modeller için enerji parlaması katmanı (örnek başına "glow")
+static func glow_overlay() -> ShaderMaterial:
+	if _overlay == null:
+		_overlay = ShaderMaterial.new()
+		_overlay.shader = load("res://shaders/glow_overlay.gdshader")
+	return _overlay
+
+## Modeldeki toplam üçgen sayısı
+static func triangle_count(root: Node) -> int:
+	var n := 0
+	for mi in PartBuilder._meshes_in(root):
+		var m: MeshInstance3D = mi
+		if m.mesh == null:
+			continue
+		for i in m.mesh.get_surface_count():
+			var arr := m.mesh.surface_get_arrays(i)
+			var idx = arr[Mesh.ARRAY_INDEX]
+			n += (idx.size() if idx != null else (arr[Mesh.ARRAY_VERTEX] as PackedVector3Array).size()) / 3
+	return n
 
 ## Bilgisayar parçası: parçanın montaj kutusuna sığar, merkezi orijinde
 static func part_model(id: int, size: Vector3, extra_path := "") -> Node3D:
