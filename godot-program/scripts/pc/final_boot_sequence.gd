@@ -14,6 +14,7 @@ var asm: Control
 var t := 0.0
 var done := false
 var robot: Node3D
+var _robot_ap: AnimationPlayer
 var screen_vp: SubViewport
 var screen_quad: MeshInstance3D
 var bios_lines: VBoxContainer
@@ -64,6 +65,7 @@ func _build_robot() -> void:
 		mi.material_override = ComponentFactory.material()
 		robot.add_child(mi)
 	robot.visible = false
+	_robot_ap = AssetLoader.anim_player(robot, ["idle", "walk", "look", "wave", "victory"])
 	var holder := Node3D.new()
 	holder.scale = Vector3.ONE * 0.6
 	holder.add_child(robot)
@@ -251,6 +253,18 @@ func advance(dt: float) -> void:
 		if t >= 22.0:
 			robot.position = top + Vector3(0, absf(sin(t * 5.0)) * 0.25, 0)
 			robot.rotation.y = t * 2.0
+	if _robot_ap != null:
+		var clip := "wave"
+		if t >= 22.0:
+			clip = "victory"
+		elif t >= 2.4 and t < 3.0:
+			clip = "turn"
+		elif t >= 3.0 and t < 5.0:
+			clip = "idle"
+		elif t >= 5.0:
+			clip = "look" if fmod(t, 6.0) < 3.0 else "idle"
+		if _robot_ap.current_animation != clip:
+			_robot_ap.play(clip, 0.15)
 	if pw != null:
 		var depress := 0.03 if t >= 3.0 and t < 3.35 else 0.0
 		pw.position.y = _press_y - depress

@@ -1,0 +1,507 @@
+{
+ "blender": "5.3.0",
+ "items": [
+  {
+   "file": "puzzle/stairs.glb",
+   "tris": 1284,
+   "budget": 6000,
+   "ok": true,
+   "materials": [
+    "PCB",
+    "Copper",
+    "Gold"
+   ]
+  },
+  {
+   "file": "puzzle/goal_crystal.glb",
+   "tris": 4428,
+   "budget": 6000,
+   "ok": true,
+   "materials": [
+    "PCBLight",
+    "Epoxy",
+    "Gold",
+    "CrystalCore"
+   ]
+  },
+  {
+   "file": "puzzle/crate.glb",
+   "tris": 1340,
+   "budget": 6000,
+   "ok": true,
+   "materials": [
+    "PCBLight",
+    "Epoxy",
+    "Aluminum",
+    "Pins",
+    "Gold",
+    "DarkMetal"
+   ]
+  },
+  {
+   "file": "puzzle/lever_arm.glb",
+   "tris": 1400,
+   "budget": 6000,
+   "ok": true,
+   "materials": [
+    "Pins",
+    "RedPlastic",
+    "Glass",
+    "Copper"
+   ]
+  },
+  {
+   "file": "puzzle/crank_wheel.glb",
+   "tris": 3672,
+   "budget": 6000,
+   "ok": true,
+   "materials": [
+    "Copper",
+    "Aluminum",
+    "DarkMetal",
+    "AmberCeramic"
+   ]
+  },
+  {
+   "file": "puzzle/handle.glb",
+   "tris": 4148,
+   "budget": 6000,
+   "ok": true,
+   "materials": [
+    "DarkMetal",
+    "Aluminum",
+    "HandleLED",
+    "Copper"
+   ]
+  },
+  {
+   "file": "puzzle/slider.glb",
+   "tris": 1768,
+   "budget": 6000,
+   "ok": true,
+   "materials": [
+    "PCB",
+    "WhitePlastic",
+    "Aluminum",
+    "DarkMetal",
+    "Gold"
+   ]
+  },
+  {
+   "file": "puzzle/portal.glb",
+   "tris": 5680,
+   "budget": 6000,
+   "ok": true,
+   "materials": [
+    "DarkMetal",
+    "PortalGlow",
+    "Aluminum"
+   ]
+  },
+  {
+   "file": "puzzle/plate.glb",
+   "tris": 2680,
+   "budget": 6000,
+   "ok": true,
+   "materials": [
+    "DarkMetal",
+    "Rubber",
+    "PlateLED",
+    "Copper"
+   ]
+  },
+  {
+   "file": "puzzle/crumble.glb",
+   "tris": 2952,
+   "budget": 6000,
+   "ok": true,
+   "materials": [
+    "Burnt",
+    "PCB",
+    "Copper"
+   ]
+  },
+  {
+   "file": "puzzle/phantom.glb",
+   "tris": 1296,
+   "budget": 6000,
+   "ok": true,
+   "materials": [
+    "PhantomFrame"
+   ]
+  },
+  {
+   "file": "puzzle/lever_base.glb",
+   "tris": 864,
+   "budget": 6000,
+   "ok": true,
+   "materials": [
+    "Epoxy",
+    "DarkMetal",
+    "Pins",
+    "Copper",
+    "Silkscreen"
+   ]
+  },
+  {
+   "file": "puzzle/crank_base.glb",
+   "tris": 2760,
+   "budget": 6000,
+   "ok": true,
+   "materials": [
+    "DarkMetal",
+    "Aluminum",
+    "Copper"
+   ]
+  },
+  {
+   "file": "textures/pbr/pcb_detail",
+   "tris": 0,
+   "budget": 0,
+   "ok": true,
+   "items": 302
+  },
+  {
+   "file": "scenes/workshop.glb",
+   "tris": 19180,
+   "budget": 40000,
+   "ok": true,
+   "materials": [
+    "DeskWood",
+    "ESDMat",
+    "WallPaint",
+    "Pegboard",
+    "RedPlastic",
+    "DarkMetal",
+    "WhitePlastic",
+    "Aluminum",
+    "AmberCeramic",
+    "StationDisplay",
+    "BrassWool",
+    "Glass",
+    "LampLED",
+    "SoftboxLight",
+    "Copper",
+    "MeterYellow",
+    "MeterLCD"
+   ]
+  },
+  {
+   "file": "scenes/title_diorama.glb",
+   "tris": 24776,
+   "budget": 40000,
+   "ok": true,
+   "materials": [
+    "PCB",
+    "Gold",
+    "IslandRockDark",
+    "IslandRock",
+    "TraceGlow",
+    "Epoxy",
+    "Pins",
+    "DarkMetal",
+    "Silkscreen",
+    "TowerLED",
+    "CrystalCore",
+    "PCBLight",
+    "Sleeve",
+    "Aluminum",
+    "Copper"
+   ]
+  },
+  {
+   "file": "ui/phase_01.png",
+   "tris": 0,
+   "budget": 0,
+   "ok": true
+  },
+  {
+   "file": "ui/phase_02.png",
+   "tris": 0,
+   "budget": 0,
+   "ok": true
+  },
+  {
+   "file": "ui/phase_03.png",
+   "tris": 0,
+   "budget": 0,
+   "ok": true
+  },
+  {
+   "file": "ui/phase_04.png",
+   "tris": 0,
+   "budget": 0,
+   "ok": true
+  },
+  {
+   "file": "ui/phase_05.png",
+   "tris": 0,
+   "budget": 0,
+   "ok": true
+  },
+  {
+   "file": "ui/phase_06.png",
+   "tris": 0,
+   "budget": 0,
+   "ok": true
+  },
+  {
+   "file": "ui/phase_07.png",
+   "tris": 0,
+   "budget": 0,
+   "ok": true
+  },
+  {
+   "file": "ui/phase_08.png",
+   "tris": 0,
+   "budget": 0,
+   "ok": true
+  },
+  {
+   "file": "ui/phase_09.png",
+   "tris": 0,
+   "budget": 0,
+   "ok": true
+  },
+  {
+   "file": "ui/phase_10.png",
+   "tris": 0,
+   "budget": 0,
+   "ok": true
+  },
+  {
+   "file": "themes/theme_01.glb",
+   "tris": 2320,
+   "budget": 8000,
+   "ok": true,
+   "materials": [
+    "T1Base",
+    "T1Accent",
+    "T1Detail"
+   ]
+  },
+  {
+   "file": "themes/theme_02.glb",
+   "tris": 7796,
+   "budget": 8000,
+   "ok": true,
+   "materials": [
+    "T2Base",
+    "T2Accent",
+    "T2Detail"
+   ]
+  },
+  {
+   "file": "themes/theme_03.glb",
+   "tris": 1112,
+   "budget": 8000,
+   "ok": true,
+   "materials": [
+    "T3Base",
+    "T3Accent",
+    "T3Detail"
+   ]
+  },
+  {
+   "file": "themes/theme_04.glb",
+   "tris": 546,
+   "budget": 8000,
+   "ok": true,
+   "materials": [
+    "T4Base",
+    "T4Detail",
+    "T4Accent"
+   ]
+  },
+  {
+   "file": "themes/theme_05.glb",
+   "tris": 510,
+   "budget": 8000,
+   "ok": true,
+   "materials": [
+    "T5Base",
+    "T5Detail",
+    "T5Accent"
+   ]
+  },
+  {
+   "file": "themes/theme_06.glb",
+   "tris": 2632,
+   "budget": 8000,
+   "ok": true,
+   "materials": [
+    "T6Base",
+    "T6Detail",
+    "T6Accent"
+   ]
+  },
+  {
+   "file": "themes/theme_07.glb",
+   "tris": 1148,
+   "budget": 8000,
+   "ok": true,
+   "materials": [
+    "T7Base",
+    "T7Detail",
+    "Mirror"
+   ]
+  },
+  {
+   "file": "themes/theme_08.glb",
+   "tris": 2838,
+   "budget": 8000,
+   "ok": true,
+   "materials": [
+    "T8Base",
+    "TerraGlass",
+    "Soil",
+    "T8Detail"
+   ]
+  },
+  {
+   "file": "themes/theme_09.glb",
+   "tris": 1180,
+   "budget": 8000,
+   "ok": true,
+   "materials": [
+    "T9Base",
+    "T9Accent",
+    "T9Detail"
+   ]
+  },
+  {
+   "file": "themes/theme_10.glb",
+   "tris": 1844,
+   "budget": 8000,
+   "ok": true,
+   "materials": [
+    "T10Base",
+    "T10Accent",
+    "HourGlass"
+   ]
+  },
+  {
+   "file": "themes/theme_11.glb",
+   "tris": 1400,
+   "budget": 8000,
+   "ok": true,
+   "materials": [
+    "T11Base",
+    "T11Detail",
+    "T11Accent"
+   ]
+  },
+  {
+   "file": "themes/theme_12.glb",
+   "tris": 1520,
+   "budget": 8000,
+   "ok": true,
+   "materials": [
+    "T12Base",
+    "T12Accent"
+   ]
+  },
+  {
+   "file": "themes/theme_13.glb",
+   "tris": 812,
+   "budget": 8000,
+   "ok": true,
+   "materials": [
+    "T13Base",
+    "T13Accent",
+    "T13Detail"
+   ]
+  },
+  {
+   "file": "themes/theme_14.glb",
+   "tris": 3172,
+   "budget": 8000,
+   "ok": true,
+   "materials": [
+    "T14Base",
+    "T14Detail",
+    "Stone",
+    "Bark",
+    "T14Accent"
+   ]
+  },
+  {
+   "file": "themes/theme_15.glb",
+   "tris": 4340,
+   "budget": 8000,
+   "ok": true,
+   "materials": [
+    "T15Base",
+    "T15Accent",
+    "T15Detail"
+   ]
+  },
+  {
+   "file": "ui/cmd_F.png",
+   "tris": 0,
+   "budget": 0,
+   "ok": true
+  },
+  {
+   "file": "ui/cmd_L.png",
+   "tris": 0,
+   "budget": 0,
+   "ok": true
+  },
+  {
+   "file": "ui/cmd_R.png",
+   "tris": 0,
+   "budget": 0,
+   "ok": true
+  },
+  {
+   "file": "ui/cmd_J.png",
+   "tris": 0,
+   "budget": 0,
+   "ok": true
+  },
+  {
+   "file": "ui/cmd_A.png",
+   "tris": 0,
+   "budget": 0,
+   "ok": true
+  },
+  {
+   "file": "ui/cmd_W.png",
+   "tris": 0,
+   "budget": 0,
+   "ok": true
+  },
+  {
+   "file": "ui/cmd_1.png",
+   "tris": 0,
+   "budget": 0,
+   "ok": true
+  },
+  {
+   "file": "ui/cmd_2.png",
+   "tris": 0,
+   "budget": 0,
+   "ok": true
+  },
+  {
+   "file": "ui/cmd_C.png",
+   "tris": 0,
+   "budget": 0,
+   "ok": true
+  },
+  {
+   "file": "art/icon-4096.png",
+   "tris": 0,
+   "budget": 0,
+   "ok": true
+  },
+  {
+   "file": "store/feature_graphic.png",
+   "tris": 0,
+   "budget": 0,
+   "ok": true
+  }
+ ],
+ "seconds": 5.3
+}

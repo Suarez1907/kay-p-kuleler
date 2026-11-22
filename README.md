@@ -262,6 +262,29 @@ Mobile (Vulkan) renderer, AgX ton eşleme, parıltı, sis, yumuşak gölgeler; V
   bileşen ≤ 8 000, parça ≤ 6 000 (büyük parçalar ≤ 14 000); rapor `tools/blender_assets_report.json`. Diyot modeli -Z'ye
   bakar (oyun yön 0 = +X, fabrika -90° ofset uygular), robotun önü +Z. Grafik "Düşük"te prosedürel modeller kullanılır.
   Test: `--script res://tests/run_assets.gd`.
+* **İskeletli robot:** `robot.glb` katı derili bir iskelet (root, body, head, antenna, kollar, 6 palet tekerleği) ve 7
+  animasyon taşır: `idle`, `walk` (tekerlekler döner), `turn`, `fall`, `victory`, `wave`, `look`. Oyunda
+  `AnimationPlayer` komuta göre klip seçer (F/J yürü, L/R dön, düşüşte fall, kazanınca victory, boşta ara sıra look);
+  finalde Robo güç tuşuna giderken el sallar, sonunda zafer dansı yapar. Başlık ekranında dioramadaki Robo selam verir.
+* **İkinci dalga Blender varlıkları (`tools/blender_scene_generator.py`, `tools/blender_2d_generator.py`):**
+  `blender --background --python tools/blender_scene_generator.py -- [--only puzzle,pcb,workshop,title,phases,themes,icon,cmds,store]`
+  (render'lar Cycles CPU; birleştirme `tools/compose_2d.py`, sistem `python3` + Pillow). Üretilenler:
+  * `assets/models/puzzle/`: PCB basamaklı merdiven, hedef kuantum işlemci (`CrystalCore` → tema kristal malzemesi),
+    CPU paketi kasa, sigorta şalteri kol, soğutuculu çark, fan çerçeveli döner tutamaç, raylı kayar blok, fiber optik
+    ışınlayıcı (`PortalGlow`), membran basınç plakası (`PlateLED` basınca yanar), yanık çöken blok, hayalet blok ışık
+    çerçevesi (`PhantomFrame` → bakış rengi). Her biri ≤ 6 000 üçgen.
+  * `assets/textures/pbr/pcb_detail/{albedo,normal,mask}.png`: 4×4 birimlik döşenebilir PCB kartı geometrisi tepeden
+    pişirilir (renk, yükseklik → normal, maske R=yol G=metal B=serigrafi); `pcb.gdshader` bunu kullanır, adım darbesi
+    yollar boyunca yayılmaya devam eder.
+  * `assets/models/scenes/workshop.glb` (montaj atölyesi: masa, ESD altlık, delikli pano + aletler, raflar ve
+    çekmeceler, havya istasyonu, alet çantası, büyüteçli lamba, softbox'lar; PC'nin alanı boş bırakılır) ve
+    `title_diorama.glb` (yüzen devre adasında kayıp kule, `RobotSpot` boş düğümü).
+  * `assets/models/themes/theme_01..15.glb`: 15 bölüm temasının dekor setleri (kulenin iki yanında; ≤ 8 000 üçgen).
+  * `assets/ui/phase_01..10.png` (seviye haritasındaki faz adası ikonları) ve `assets/ui/cmd_<C>.png` (F L R J A W 1 2 C
+    komut ikonları; dosya yoksa vektör çizim).
+  * `art/icon-4096.png` → `tools/make_icons.py` ile tüm başlatıcı simgeleri; `store/feature_graphic.png` (1024×500)
+    ve `store/screenshots/`.
+  Grafik ayarı "Düşük"te bu modellerin yerine prosedürel sürümler kullanılır. Rapor: `tools/blender_scene_report.json`.
 * **Harici model/doku (`scripts/assets/asset_loader.gd`):** `assets/models/robot.glb`,
   `assets/models/components/*.glb`, `assets/models/pc_parts/part_NNN.glb`, `assets/textures/pbr/<ad>/{albedo,normal,
   roughness,ao}.png` eklenirse otomatik yüklenir (AABB'ye göre ölçeklenir, tabana hizalanır); yoksa prosedürel model.

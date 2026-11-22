@@ -1,6 +1,7 @@
 // Kulenin altındaki baskı devre kartı (PCB): zümrüt yeşili lehim maskesi, altından geçen bakır yollar
 // (maskenin altında açık yeşil görünür), altın kaplı vialar ve pedler, beyaz serigrafi işaretleri.
-// Desen dünya koordinatından üretilir; doku dosyası yoktur.
+// Desen dünya koordinatından üretilir. Blender'da pişirilmiş doku seti (assets/textures/pbr/pcb_detail:
+// albedo + normal + maske R=yol G=metal B=serigrafi) varsa detail_mix = 1 ile onun yerine o kullanılır.
 shader_type spatial;
 
 uniform vec3 mask_color : source_color = vec3(0.03, 0.24, 0.16);
@@ -10,6 +11,11 @@ uniform vec3 silk : source_color = vec3(0.92, 0.94, 0.9);
 uniform float cell = 0.5;
 uniform float pulse = 0.0;
 uniform vec3 pulse_pos = vec3(0.0);
+uniform sampler2D detail_albedo : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D detail_normal : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D detail_mask : filter_linear_mipmap, repeat_enable;
+uniform float detail_mix = 0.0;
+uniform float detail_tile = 4.0;
 
 varying vec3 wpos;
 
@@ -54,8 +60,18 @@ void fragment() {
 	float frame = step(0.47, max(sp.x, sp.y)) * step(max(sp.x, sp.y), 0.485) * step(0.55, h12(floor(wpos.xz / (cell * 6.0))));
 	float tick = step(0.97, h12(id + 91.0)) * step(abs(f.y + 0.32), 0.02) * step(abs(f.x), 0.3);
 	col = mix(col, silk, max(frame * 0.35, tick * 0.8));
-	ALBEDO = col;
 	float metal = max(via, pad) + tr * 0.1;
+	if (detail_mix > 0.0) {
+		vec2 uv = wpos.xz / detail_tile;
+		vec3 mk = texture(detail_mask, uv).rgb;
+		col = mix(col, texture(detail_albedo, uv).rgb, detail_mix);
+		tr = mix(tr, mk.r, detail_mix);
+		metal = mix(metal, mk.g + mk.r * 0.1, detail_mix);
+		NORMAL_MAP = mix(vec3(0.5, 0.5, 1.0), texture(detail_normal, uv).rgb, detail_mix);
+		NORMAL_MAP_DEPTH = 1.0;
+		pad = mix(pad, mk.g, detail_mix);
+	}
+	ALBEDO = col;
 	METALLIC = metal * 0.8;
 	ROUGHNESS = mix(0.42, 0.22, metal);
 	SPECULAR = 0.5;
