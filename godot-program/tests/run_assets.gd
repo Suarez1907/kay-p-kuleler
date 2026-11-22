@@ -76,7 +76,9 @@ func _init() -> void:
 	if ap == null:
 		fails.append("robot: AnimationPlayer yok")
 	else:
-		for clip in ["idle", "walk", "turn", "fall", "victory", "wave", "look"]:
+		for clip in ["idle", "walk", "turn", "fall", "victory", "wave", "look", "turn_left", "turn_right", "climb", "jump_prep",
+				"jump_air", "land", "bump", "stumble", "push", "wait_tap", "idle_yawn", "idle_wipe", "idle_whistle", "happy", "sad",
+				"think", "point", "surprised", "spin", "teleport", "sleep", "dance"]:
 			if not ap.has_animation(clip):
 				fails.append("robot animasyonu yok: " + clip)
 	# bulmaca nesneleri
