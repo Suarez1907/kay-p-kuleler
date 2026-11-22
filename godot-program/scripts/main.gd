@@ -405,7 +405,7 @@ func _setup_world() -> void:
 	env.background_canvas_max_layer = -1
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color("#f4ecff")
-	env.ambient_light_energy = 0.38
+	env.ambient_light_energy = 0.5
 	# Doğrusal ton eşleme: pastel, düşük dinamik aralıklı bu sahnede renkler ekrana olduğu gibi gider.
 	# AgX beyazları ~%80'de tavanlıyor, ACES (beyaz=1) orta-açık tonları beyaza sıkıştırıyordu; ikisi de
 	# soğuk gökyüzü gradyanını ve taş blok tonlarını birlikte tutturmayı engelliyordu.
@@ -435,7 +435,8 @@ func _setup_world() -> void:
 	sun.shadow_normal_bias = 2.0
 	sun.shadow_enabled = true
 	sun.shadow_blur = 2.2
-	sun.shadow_opacity = 0.82
+	# gölgeler yumuşak: koyu bloklarda üst yüzler gölge altında kaybolmasın
+	sun.shadow_opacity = 0.55
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
 	sun.directional_shadow_max_distance = 120.0
 	add_child(sun)
@@ -653,6 +654,54 @@ func _build_shadow_proxy() -> void:
 	if not instant and not preview:
 		proxy.visible = false
 		get_tree().create_timer(0.85).timeout.connect(func(): if is_instance_valid(proxy): proxy.visible = true)
+
+## Okunabilirlik: Robo'nun basabileceği her SMD bloğunun üst yüzüne yüksekliğe göre açılan bir kapak
+## (alçak = koyu çelik, yüksek = açık çelik) ve parlak kenar çizgisi. Tek MultiMesh = tek çizim.
+const CAP_LOW := Color("#5a6a82")
+const CAP_HIGH := Color("#9fb3cc")
+
+func _build_walk_caps() -> void:
+	var tops := []
+	var ymin := 999
+	var ymax := -999
+	for p in L.statics:
+		var v: Dictionary = L.statics[p]
+		if String(v.get("t", "b")) != "b" or L.statics.has(p + Vector3i.UP):
+			continue
+		if String((L.comps.get(p, {}) as Dictionary).get("t", "")) != "":
+			continue   # diyot/kondansatör/direnç/röle üst yüzleri kendi işaretlerini taşır
+		tops.append(p)
+		ymin = mini(ymin, p.y)
+		ymax = maxi(ymax, p.y)
+	if tops.is_empty():
+		return
+	var pm := PlaneMesh.new()
+	pm.size = Vector2(0.84, 0.84)
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.use_custom_data = true
+	mm.mesh = pm
+	mm.instance_count = tops.size()
+	for k in tops.size():
+		var p: Vector3i = tops[k]
+		mm.set_instance_transform(k, Transform3D(Basis(), Vector3(p) + Vector3(0, 0.512, 0)))
+		var t := 0.5 if ymax == ymin else float(p.y - ymin) / float(ymax - ymin)
+		mm.set_instance_custom_data(k, CAP_LOW.lerp(CAP_HIGH, t))
+	var mi := MultiMeshInstance3D.new()
+	mi.multimesh = mm
+	var sm := ShaderMaterial.new()
+	sm.shader = load("res://shaders/walk_cap.gdshader")
+	mi.material_override = sm
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	level_root.add_child(mi)
+	objs["walk_caps"] = mi
+	if not instant and not preview:
+		# açılış kaskadı bitince yumuşakça belirir
+		mi.visible = false
+		get_tree().create_timer(0.85).timeout.connect(func():
+			if is_instance_valid(mi):
+				mi.visible = true
+				mi.scale = Vector3(1, 1, 1))
 
 func _shadow_box(st: SurfaceTool, c: Vector3, s: Vector3) -> void:
 	var h := s / 2.0
@@ -1124,6 +1173,7 @@ func build_level(i: int, as_preview := false) -> void:
 	objs["clone"] = holo
 	_build_relay_traces()
 	_build_shadow_proxy()
+	_build_walk_caps()
 	_build_visual_fx(bb["box"])
 	var aabb: AABB = bb["box"]
 	_build_goal_sparkles(Vector3(L.goal))
@@ -1390,6 +1440,15 @@ func _make_robot() -> Node3D:
 			g.set_meta("anim", ap)
 			ap.play("idle")
 		_attach_face(g, rglb)
+	# okunabilirlik: Robo'yu ve bastığı kareyi aydınlatan yumuşak ışık (gölgesiz)
+	var halo_l := OmniLight3D.new()
+	halo_l.light_color = Color("#fff3e0")
+	halo_l.light_energy = 0.9
+	halo_l.omni_range = 2.2
+	halo_l.omni_attenuation = 1.6
+	halo_l.shadow_enabled = false
+	halo_l.position = Vector3(0.35, 1.3, 0.35)
+	g.add_child(halo_l)
 	# direnç bekleme göstergesi: başın üstünde dönen şarj halkası
 	var wr := _mesh(_torus(0.16, 0.2), _mat("#ffb84d", {"unshaded": true, "unique": true}), Vector3(0, 0.95, 0), g)
 	wr.scale = Vector3(1, 0.2, 1)

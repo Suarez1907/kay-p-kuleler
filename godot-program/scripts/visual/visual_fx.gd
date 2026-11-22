@@ -45,8 +45,10 @@ static func apply_grade(r: ColorRect, phase: int, quality: int) -> void:
 	m.set_shader_parameter("saturation", g[3])
 	m.set_shader_parameter("contrast", g[4])
 	m.set_shader_parameter("warmth", g[5])
-	m.set_shader_parameter("grain", 0.03 if quality >= 2 else 0.0)
-	m.set_shader_parameter("chroma", 0.0016 if quality >= 2 else 0.0)
+	# film greni ve kromatik sapma oyun sırasında kapalı: ince ayrıntıyı titretip göz yoruyordu
+	m.set_shader_parameter("grain", 0.0)
+	m.set_shader_parameter("chroma", 0.0)
+	m.set_shader_parameter("vignette", 0.18)
 
 ## Alan derinliği (montaj yakın çekimleri / sinematik kameralar)
 static func dof(cam: Camera3D, focus_dist: float, quality: int, amount := 0.08) -> void:
