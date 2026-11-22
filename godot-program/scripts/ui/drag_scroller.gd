@@ -22,7 +22,7 @@ static func attach(sc: ScrollContainer, is_horizontal := false) -> DragScroller:
 	d.target = sc
 	d.horizontal = is_horizontal
 	sc.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	sc.add_child(d)
+	sc.add_child(d, false, Node.INTERNAL_MODE_BACK)
 	return d
 
 func _axis(v: Vector2) -> float:

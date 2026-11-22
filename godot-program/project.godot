@@ -14,10 +14,12 @@ config/quit_on_go_back=false
 [audio]
 
 general/text_to_speech=true
+buses/default_bus_layout="res://default_bus_layout.tres"
 
 [autoload]
 
 AudioHaptics="*res://scripts/audio/audio_haptics_manager.gd"
+ASMR="*res://scripts/audio/asmr_music_engine.gd"
 
 [display]
 

@@ -164,6 +164,21 @@ func set_phase(p: int) -> void:
 	if p == _phase:
 		return
 	_phase = p
+	# ASMR dosya müziği varsa oyun içi müzik onundur; başlıkta (p < 0) eski döngü çalar
+	var asmr := get_node_or_null("/root/ASMR")
+	if asmr != null and asmr.available:
+		asmr.set_level_phase(p if p < 10 else 9)
+		if p >= 0:
+			_phase_def = {}
+			var tw0 := create_tween()
+			tw0.tween_property(_music, "volume_db", -60.0, 0.8)
+			tw0.tween_callback(_music.stop)
+			return
+		_music.stream = _title_music
+		_music.volume_db = -17.0
+		if music_on and not _music.playing:
+			_music.play()
+		return
 	if p < 0:
 		_swap(_title_music)
 		_phase_def = {}
@@ -259,6 +274,13 @@ func _build_phase_music(p: int) -> AudioStreamWAV:
 
 func set_music(on: bool) -> void:
 	music_on = on
+	var asmr := get_node_or_null("/root/ASMR")
+	if asmr != null:
+		asmr.set_music_enabled(on)
+		if asmr.available and _phase >= 0:
+			if not on:
+				_music.stop()
+			return
 	if on and not _music.playing:
 		_music.play()
 	elif not on:

@@ -306,6 +306,26 @@ Mobile (Vulkan) renderer, AgX ton eşleme, parıltı, sis, yumuşak gölgeler; V
   çözümü tekrar izleme ve paylaşma (metin panoya, ekran görüntüsü `user://paylasim/`), faz başına prosedürel müzik
   (adım sesleri akorla uyumlu), erişilebilirlik (renk körü paleti, büyük yazı, komutları sesli okuma), geri al yığını,
   boş alana çift dokunuşla kamera sıfırlama. Test: `--script res://tests/run_features.gd`.
+* **ASMR ses hattı (`tools/generate_asmr_audio.py`, numpy + scipy, ffmpeg/libvorbis):** `python3 tools/generate_asmr_audio.py`
+  41 dosya üretir (44.1 kHz stereo, OGG q6, −1.5 dBFS, kırpılmasız; rapor `tools/asmr_audio_report.json`):
+  5 faz grubu × 3 senkron katman (`assets/audio/music/phase_X_Y_{think,code,run}.ogg`, C majör/A minör pentatonik,
+  90 BPM, 16 sn dikişsiz döngü), foley (`ui_key_thock_01..04`, `step_note_c5..c6`, SMD/diyot/kondansatör/direnç/röle) ve
+  montaj/final sesleri (`assets/audio/assembly/`). Ses yolları `default_bus_layout.tres`: Master (Limiter −0.5 dB),
+  ASMR_Music (Reverb 0.18 + menüde 750 Hz'e inen LowPass), Foley_UI (Compressor), Circuit_SFX (Reverb 0.25).
+  Motor `scripts/audio/asmr_music_engine.gd` (autoload `ASMR`): `AudioStreamSynchronized` ile think/code/run karışımı
+  (düşün 0 / −60 / −60 dB; kodlama code −6 dB, 4 sn sonra iner; Çalıştır run −2 dB), faz grubu değişiminde 1.5 sn
+  çapraz geçiş, çok varyasyonlu foley `AudioStreamRandomizer` (pitch 1.04, ±1.2 dB). Dosyalar yoksa eski prosedürel
+  sesler (AudioHaptics/GameAudio) çalar. Geliştirici panelinde "ASMR SES TESTİ".
+* **Blender sinematikleri (`tools/blender_animation_studio.py`):** `blender --background --python tools/blender_animation_studio.py`
+  → `assets/animations/`: `level_end_rigs.glb` (5 arketip × 240 kare: drop_snap, angle_insert, vertical_slide,
+  screw_lock, magnetic_orbit; CameraRig, PartSocketAnchor, RobotHelperAnchor, SparkAnchor), `phase_finale_01..09.glb`
+  (360 kare, faz kilit mekanizmaları + LockMarkers veri kanalı), `robot_cinematic_anims.glb` (robot_level_victory,
+  robot_inspect_snap, robot_power_jump, robot_finale_wave), `grand_finale_100.glb` (900 kare: kamera, PowerButtonAnchor,
+  FanSpeed, PowerLed, KeyboardWave, PhaseWake_01..10, RobotFinaleAnchor). 30 FPS, BEZIER (hazırlık → oturma → mikro sekme).
+  `scripts/pc/cinematic_director.gd` seviye 100 → büyük final, `% 10 == 0` → faz finali, diğerleri → faza uygun arketip;
+  parça PartSocketAnchor'a bağlanır, kare olayları (whoosh, oturma + kıvılcım + 45 ms titreşim, kilitler) ve finalde
+  kare 130 güç, 185 fanlar, 450 BIOS, 670 masaüstü. Basılı tut 2.5×, "Geç" çalışır; paket yoksa eski Tween akışı.
+  Geliştirici panelinde "BLENDER SİNEMATİK TESTİ". Test: `--script res://tests/run_cinematics.gd`.
 * **Google Play:** `docs/GOOGLE_PLAY.md`; `tools/godot-android-aab.sh` (Gradle AAB, hedef SDK 35) CI'da çalışır;
   gizlilik sayfası `web/gizlilik.html`. APK yalnızca arm64-v8a içerir (~25 MB küçük).
 * **Harici model/doku (`scripts/assets/asset_loader.gd`):** `assets/models/robot.glb`,

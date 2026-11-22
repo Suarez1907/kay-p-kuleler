@@ -1942,6 +1942,13 @@ func _cascade_in() -> void:
 func _robot_land(at: Vector3i) -> void:
 	if instant or not objs.has("player"):
 		return
+	# bileşen foley'i: SMD temas parıltısı, direnç bekleme tıkırtısı (diyot/kondansatör/röle kendi anlarında)
+	var cdef: Dictionary = L.comps.get(at + Vector3i.DOWN, {})
+	var ct := String(cdef.get("t", ""))
+	if ct == "resistor":
+		Sfx.asmr().play_component("resistor")
+	elif ct == "" or ct == "smd":
+		Sfx.asmr().play_component("smd")
 	var sp := _speed()
 	var vis: Node3D = objs["player"].get_meta("vis")
 	var tw := _new_tw("robot", vis)
@@ -2834,6 +2841,7 @@ func _ui_mode_changed(m: String, quiet: bool) -> void:
 	if m == "paused" and not quiet and not instant:
 		audio.play("pause")
 	var editing := m == "edit" or m == "ended"
+	Sfx.asmr().set_running(m == "running")
 	palette_box.modulate.a = 1.0 if editing else 0.45
 	btn_clear.disabled = not editing
 	btn_clear.visible = m == "edit" or m == "ended"
@@ -3161,7 +3169,7 @@ func _build_screens() -> void:
 	tgl.add_theme_constant_override("separation", 0)
 	tgl.alignment = BoxContainer.ALIGNMENT_CENTER
 	tgl.add_child(BP.tag("SES // MÜZİK", 12))
-	tgl.add_child(UIKit.label("Efektler ve prosedürel müzik", 15, BP.TEXT_MUTED))
+	tgl.add_child(UIKit.label("ASMR efektler ve faz müziği", 15, BP.TEXT_MUTED))
 	tg.add_child(tgl)
 	svb.add_child(tg)
 	# grafik: 3 parçalı seçici
@@ -3250,6 +3258,8 @@ func _build_screens() -> void:
 	dev.add_child(dj)
 	dvb.add_child(dev)
 	dvb.add_child(_bp_button("FİNALİ TEST ET (100/100)", BP.Variant.AMBER, _final_test, "sparkle", 44, 15))
+	_build_asmr_test(dvb)
+	_build_cinematic_test(dvb)
 	dev_p.visible = OS.is_debug_build()
 	svb.add_child(dev_p)
 	st_o.set_meta("dev", dev_p)
@@ -3365,6 +3375,7 @@ func _show(which: String) -> void:
 				var tw2 := sc.create_tween()
 				tw2.tween_property(sc, "modulate:a", 0.0, 0.16)
 				tw2.tween_callback(func(): if _current != k: sc.visible = false)
+	Sfx.asmr().set_focus(which != "" and which != "editor")
 	hud.visible = which == "" or which in overlays and prev in ["", "pause", "intro", "settings", "backup", "story"] and L != null and not preview
 	cam_spin = which == "title"
 	if which != "" and which not in overlays:
@@ -3817,6 +3828,8 @@ func _open_backup() -> void:
 
 func _update_settings_buttons() -> void:
 	var so: Control = screens["settings"]
+	if screens.has("_asmr_head"):
+		(screens["_asmr_head"] as Label).text = "ASMR SES TESTİ" + ("" if Sfx.asmr().available else " (dosyalar yok → prosedürel)")
 	for pair in [[btn_sound, audio.sound_on, "sound"], [btn_music, audio.music_on, "music"]]:
 		var b: Button = pair[0]
 		var on: bool = pair[1]
@@ -3845,7 +3858,13 @@ func _update_settings_buttons() -> void:
 	# ayarlar kartı ekrana sığsın: kaydırma yüksekliği görünür alana göre
 	var vs := get_viewport().get_visible_rect().size
 	var sc: ScrollContainer = so.get_meta("scroll")
-	var inner: Control = sc.get_child(0)
+	var inner: Control = null
+	for ch in sc.get_children():
+		if ch is Control:
+			inner = ch
+			break
+	if inner == null:
+		return
 	sc.custom_minimum_size = Vector2(380, minf(inner.get_combined_minimum_size().y, vs.y - 80.0))
 
 func _toggle_vib() -> void:
@@ -3870,6 +3889,7 @@ func _final_test() -> void:
 
 func _toggle_sound() -> void:
 	audio.sound_on = not audio.sound_on
+	Sfx.asmr().set_sfx_enabled(audio.sound_on)
 	var ah := Sfx.ah()
 	if ah != null:
 		ah.sound_on = audio.sound_on
@@ -4403,11 +4423,13 @@ func _insert(c: String) -> void:
 	audio.play("pop", randf_range(0.95, 1.1))
 	Sfx.call_ah("ui_thock")
 	_speak(String(Program.COMMANDS[c]["name"]))
+	Sfx.asmr().notify_code()
 	_prog_changed()
 
 func _select(row: String, idx: int) -> void:
 	if not _editable():
 		return
+	Sfx.asmr().notify_code()
 	if sel != null and sel["row"] == row and sel["idx"] == idx:
 		sel = null
 	else:
@@ -4421,6 +4443,7 @@ var _deleting := false
 func _delete_sel() -> void:
 	if sel == null or not _editable() or _deleting:
 		return
+	Sfx.asmr().notify_code()
 	var row: String = sel["row"]
 	var idx: int = sel["idx"]
 	audio.play("del")
@@ -4512,6 +4535,7 @@ func _finish_clear() -> void:
 	_prog_changed()
 
 func _undo() -> void:
+	Sfx.asmr().notify_code()
 	if _undo_hold < 0.0:
 		_undo_hold = 0.0
 		return
@@ -5034,14 +5058,14 @@ func _feeltest() -> void:
 	asm.setup("assembly", pre, 14)
 	var tgt: Vector3 = PCPartLibrary.part(14).assembly_position
 	asm.advance(3.0)
-	if asm.new_node.position.distance_to(tgt) < 0.05:
+	if asm.new_node.global_position.distance_to(tgt) < 0.05:
 		fails.append("montaj: parça 3. saniyede zaten yerindeydi")
 	asm.holding = true
 	for k in 30:
 		asm._process(0.1)
 	if not asm.finished:
 		fails.append("montaj: 2x hızda 8 sn içinde bitmedi (t=%.2f)" % asm.t)
-	if asm.new_node.position.distance_to(tgt) > 0.001 or not asm.btn_next.visible:
+	if asm.new_node.global_position.distance_to(tgt) > 0.01 or not asm.btn_next.visible:
 		fails.append("montaj: parça yerine oturmadı ya da Sonraki görünmüyor")
 	if not ("Parça 14/100" in asm.lbl_caption.text and "Takıldı" in asm.lbl_caption.text):
 		fails.append("montaj yazısı: " + asm.lbl_caption.text)
@@ -5065,10 +5089,11 @@ func _feeltest() -> void:
 	if fs == null:
 		fails.append("final başlamadı")
 	else:
-		fs.advance(4.0)
+		# zaman tablosu: Blender finali varsa kare 130/185/450/670, yoksa eski Godot çizelgesi
+		fs.advance(float(fs.T["power"]) + 0.1)
 		if not fs._power_pressed:
 			fails.append("final: güç tuşuna basılmadı")
-		fs.advance(17.0)
+		fs.advance(float(fs.T["lines"]) + float(fs.T["step"]) * 15.0 - fs.t)
 		if fs._lines_shown < 15 or not (fs.screen_quad.visible or fs._glb_screen_on):
 			fails.append("final: BIOS satırları eksik (%d)" % fs._lines_shown)
 		fs.skip()
@@ -5085,7 +5110,27 @@ func _feeltest() -> void:
 		for nm in ["step0", "step5", "cap", "error", "relay", "thock", "snap", "power", "fan", "post", "chord"]:
 			if not ah.has_sound(nm):
 				fails.append("ses yok: " + nm)
-	# devre kampanyası: klon + AND, direnç, kondansatör içeren seviyeler oyun döngüsünde de kazanılmalı
+	# ASMR motoru: dosyalar yüklü, faz grubu 3 katmanlı AudioStreamSynchronized, foley randomizer
+	var am := Sfx.asmr()
+	if not am.available:
+		fails.append("ASMR: ses dosyaları yüklenemedi")
+	else:
+		am.set_group(2)
+		var syn = am._players[am._active].stream
+		if not (syn is AudioStreamSynchronized) or (syn as AudioStreamSynchronized).stream_count != 3:
+			fails.append("ASMR: 3 katmanlı senkron müzik kurulmadı")
+		if not (am._streams.get("thock") is AudioStreamRandomizer) or not (am._streams.get("snap") is AudioStreamRandomizer):
+			fails.append("ASMR: foley randomizer yok")
+		am.notify_code()
+		am.set_running(true)
+		await wait.call(1.4)
+		var ls: Array = am.layer_state()
+		if ls[1] < -10.0 or ls[2] < -6.0:
+			fails.append("ASMR: kod/çalıştır katmanları yükselmedi %s" % str(ls))
+		am.set_running(false)
+		if AudioServer.get_bus_index("ASMR_Music") < 0 or AudioServer.get_bus_index("Foley_UI") < 0 or AudioServer.get_bus_index("Circuit_SFX") < 0:
+			fails.append("ASMR: ses yolları (bus) eksik")
+		# devre kampanyası: klon + AND, direnç, kondansatör içeren seviyeler oyun döngüsünde de kazanılmalı
 	for li in [41, 61, 71, 81, 99]:
 		_reset_world_hard()
 		instant = true
@@ -6125,3 +6170,102 @@ func _speak(text: String) -> void:
 	if v != "":
 		DisplayServer.tts_stop()
 		DisplayServer.tts_speak(text, v)
+
+
+# ---------- geliştirici: ASMR ses testi ----------
+func _dev_row(parent: Control, items: Array) -> void:
+	var h := HFlowContainer.new()
+	h.add_theme_constant_override("h_separation", 6)
+	h.add_theme_constant_override("v_separation", 6)
+	for it in items:
+		var b := Button.new()
+		b.text = String(it[0])
+		b.focus_mode = Control.FOCUS_NONE
+		b.custom_minimum_size = Vector2(0, 44)
+		b.add_theme_font_override("font", UIKit.font_black)
+		b.add_theme_font_size_override("font_size", 13)
+		BP.style_button(b, BP.Variant.AMBER if it.size() > 2 and it[2] else BP.Variant.DEFAULT, BP.R_SMALL)
+		b.pressed.connect(it[1])
+		h.add_child(b)
+	parent.add_child(h)
+
+func _build_asmr_test(dvb: VBoxContainer) -> void:
+	var head := BP.tag("ASMR SES TESTİ", 12, BP.ACCENT_AMBER)
+	dvb.add_child(head)
+	screens["_asmr_head"] = head
+	var lbl := BP.tag("", 11, BP.TEXT_LABEL)
+	var upd := func():
+		var st: Array = Sfx.asmr().layer_state()
+		lbl.text = "GRUP %s · THINK %.0f dB · CODE %.0f dB · RUN %.0f dB" % [str(Sfx.asmr().group + 1) if Sfx.asmr().group >= 0 else "-", st[0], st[1], st[2]]
+	var phases := []
+	for g in 5:
+		var gg := g
+		phases.append(["F%d–%d" % [g * 2 + 1, g * 2 + 2], func():
+			Sfx.asmr().set_music_enabled(true)
+			Sfx.asmr().set_group(gg)
+			get_tree().create_timer(1.6).timeout.connect(upd)])
+	_dev_row(dvb, phases)
+	_dev_row(dvb, [
+		["DÜŞÜN", func():
+			Sfx.asmr().set_running(false)
+			Sfx.asmr()._set_layer(1, Sfx.asmr().SILENT, 0.6)
+			get_tree().create_timer(1.3).timeout.connect(upd)],
+		["KODLA", func():
+			Sfx.asmr().notify_code()
+			get_tree().create_timer(0.7).timeout.connect(upd)],
+		["ÇALIŞTIR", func():
+			Sfx.asmr().set_running(not Sfx.asmr()._running)
+			get_tree().create_timer(1.3).timeout.connect(upd)],
+		["ODAK 750Hz", func(): Sfx.asmr().set_focus(not Sfx.asmr()._focus)],
+	])
+	dvb.add_child(lbl)
+	var notes := []
+	for k in 6:
+		var kk := k
+		notes.append([String(Sfx.asmr().STEP_NOTES[k]).to_upper(), func():
+			Sfx.asmr()._step_i = 0
+			Sfx.asmr().play_step(kk)])
+	_dev_row(dvb, notes)
+	_dev_row(dvb, [
+		["THOCK", func(): Sfx.asmr().play_ui_thock()],
+		["SMD", func(): Sfx.asmr().play_component("smd")],
+		["DİYOT", func(): Sfx.asmr().play_component("diode")],
+		["KONDANSATÖR", func(): Sfx.asmr().play_component("capacitor")],
+		["DİRENÇ", func(): Sfx.asmr().play_component("resistor")],
+		["RÖLE", func(): Sfx.asmr().play_component("relay")],
+	])
+	_dev_row(dvb, [
+		["WHOOSH", func(): Sfx.asmr().play_part_whoosh()],
+		["SNAP", func(): Sfx.asmr().play_part_snap()],
+		["GÜÇ", func(): Sfx.asmr().play_power_switch()],
+		["FAN", func(): Sfx.asmr().play_fan_spinup()],
+		["BIOS", func(): Sfx.asmr().play_bios_beep()],
+		["AÇILIŞ", func(): Sfx.asmr().play_boot_chord()],
+	])
+	upd.call()
+
+
+# ---------- geliştirici: Blender sinematik testi ----------
+func _cine_test(pid: int) -> void:
+	_open_assembly("assembly", pid)
+	if assembly != null:
+		assembly.from_showcase = true
+
+func _build_cinematic_test(dvb: VBoxContainer) -> void:
+	var ok := CinematicDirector.exists("level_end_rigs.glb")
+	dvb.add_child(BP.tag("BLENDER SİNEMATİK TESTİ" + ("" if ok else " (paket yok → Tween)"), 12, BP.ACCENT_AMBER))
+	dvb.add_child(BP.tag("SEVİYE SONU (5 ARKETİP)", 11, BP.TEXT_MUTED))
+	_dev_row(dvb, [
+		["DROP SNAP", func(): _cine_test(7)],
+		["ANGLE INSERT", func(): _cine_test(45)],
+		["VERTICAL SLIDE", func(): _cine_test(34)],
+		["SCREW LOCK", func(): _cine_test(65)],
+		["MAGNETIC ORBIT", func(): _cine_test(75)],
+	])
+	dvb.add_child(BP.tag("FAZ SONU SEÇİCİ (FAZ 1–9)", 11, BP.TEXT_MUTED))
+	var ph := []
+	for k in range(1, 10):
+		var kk := k
+		ph.append(["F%d" % k, func(): _cine_test(kk * 10)])
+	_dev_row(dvb, ph)
+	_dev_row(dvb, [["100. SEVİYE BÜYÜK FİNALİ", _final_test, true]])

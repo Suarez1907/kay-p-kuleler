@@ -1,0 +1,209 @@
+{
+ "fps": 30,
+ "items": [
+  {
+   "file": "level_end_rigs.glb",
+   "bytes": 207444,
+   "frames": 240,
+   "fps": 30,
+   "animations": [
+    "anim_drop_snap",
+    "anim_angle_insert",
+    "anim_vertical_slide",
+    "anim_screw_lock",
+    "anim_magnetic_orbit"
+   ]
+  },
+  {
+   "file": "phase_finale_01.glb",
+   "bytes": 109820,
+   "frames": 360,
+   "fps": 30,
+   "animations": [
+    "phase_finale_01"
+   ]
+  },
+  {
+   "file": "phase_finale_02.glb",
+   "bytes": 78456,
+   "frames": 360,
+   "fps": 30,
+   "animations": [
+    "phase_finale_02"
+   ]
+  },
+  {
+   "file": "phase_finale_03.glb",
+   "bytes": 56812,
+   "frames": 360,
+   "fps": 30,
+   "animations": [
+    "phase_finale_03"
+   ]
+  },
+  {
+   "file": "phase_finale_04.glb",
+   "bytes": 41460,
+   "frames": 360,
+   "fps": 30,
+   "animations": [
+    "phase_finale_04"
+   ]
+  },
+  {
+   "file": "phase_finale_05.glb",
+   "bytes": 61572,
+   "frames": 360,
+   "fps": 30,
+   "animations": [
+    "phase_finale_05"
+   ]
+  },
+  {
+   "file": "phase_finale_06.glb",
+   "bytes": 53532,
+   "frames": 360,
+   "fps": 30,
+   "animations": [
+    "phase_finale_06"
+   ]
+  },
+  {
+   "file": "phase_finale_07.glb",
+   "bytes": 52088,
+   "frames": 360,
+   "fps": 30,
+   "animations": [
+    "phase_finale_07"
+   ]
+  },
+  {
+   "file": "phase_finale_08.glb",
+   "bytes": 163324,
+   "frames": 360,
+   "fps": 30,
+   "animations": [
+    "phase_finale_08"
+   ]
+  },
+  {
+   "file": "phase_finale_09.glb",
+   "bytes": 99652,
+   "frames": 360,
+   "fps": 30,
+   "animations": [
+    "phase_finale_09"
+   ]
+  },
+  {
+   "file": "robot_cinematic_anims.glb",
+   "bytes": 499580,
+   "frames": 90,
+   "fps": 30,
+   "animations": [
+    "robot_level_victory",
+    "robot_inspect_snap",
+    "robot_power_jump",
+    "robot_finale_wave"
+   ]
+  },
+  {
+   "file": "grand_finale_100.glb",
+   "bytes": 196204,
+   "frames": 900,
+   "fps": 30,
+   "animations": [
+    "grand_finale_100"
+   ]
+  }
+ ],
+ "level_snaps": {
+  "anim_drop_snap": 135,
+  "anim_angle_insert": 140,
+  "anim_vertical_slide": 145,
+  "anim_screw_lock": 160,
+  "anim_magnetic_orbit": 225
+ },
+ "phase_events": {
+  "phase_finale_01": {
+   "snap": 150,
+   "locks": [
+    184,
+    202,
+    220,
+    238
+   ]
+  },
+  "phase_finale_02": {
+   "snap": 150,
+   "locks": [
+    180,
+    196,
+    212,
+    228,
+    266
+   ]
+  },
+  "phase_finale_03": {
+   "snap": 150,
+   "locks": [
+    200,
+    245
+   ]
+  },
+  "phase_finale_04": {
+   "snap": 150,
+   "locks": [
+    156
+   ]
+  },
+  "phase_finale_05": {
+   "snap": 150,
+   "locks": [
+    205,
+    232
+   ]
+  },
+  "phase_finale_06": {
+   "snap": 150,
+   "locks": [
+    155
+   ]
+  },
+  "phase_finale_07": {
+   "snap": 150,
+   "locks": [
+    200
+   ]
+  },
+  "phase_finale_08": {
+   "snap": 150,
+   "locks": [
+    173,
+    185,
+    197,
+    209,
+    221,
+    233
+   ]
+  },
+  "phase_finale_09": {
+   "snap": 150,
+   "locks": [
+    200,
+    225,
+    239,
+    253,
+    267
+   ]
+  }
+ },
+ "finale_events": {
+  "power": 130,
+  "fans": 185,
+  "bios": 450,
+  "desktop": 670
+ },
+ "total_kb": 1582.0,
+ "seconds": 6.6
+}

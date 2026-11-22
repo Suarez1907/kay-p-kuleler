@@ -42,6 +42,9 @@ var finished := false
 var _snapped := false
 var _shake := 0.0
 var from_showcase := false       # test montajı bitince vitrine dönülür
+var director: CinematicDirector = null   # Blender sinematiği (yoksa Tween akışı)
+var duration := DURATION
+var _whooshed := false
 
 var vp: SubViewport
 var world: Node3D
@@ -99,6 +102,9 @@ func setup(m: String, unlocked_ids: Array, pid := 0) -> void:
 		final_seq.cleanup()
 		final_seq.queue_free()
 		final_seq = null
+	_end_director()
+	duration = DURATION
+	_whooshed = false
 	fan_speed = float(FAN_MODES[int(pc_style.get("fan", 1)) % FAN_MODES.size()][1])
 	mode = m
 	unlocked = unlocked_ids.duplicate()
@@ -132,6 +138,16 @@ func setup(m: String, unlocked_ids: Array, pid := 0) -> void:
 		_badge.text = "%d/%d" % [all_ids.size(), PCPartLibrary.COUNT]
 		caption_box.modulate.a = 0.0
 		_apply_cam(_overview)
+		# Blender sinematiği: faza uygun arketip / faz finali; yüklenemezse eski Tween akışı
+		var d := CinematicDirector.new()
+		add_child(d)
+		new_node.visible = true
+		if d.begin(world, part_id, new_node, p.assembly_scale):
+			director = d
+			duration = d.duration
+			d.cue.connect(_on_cue)
+		else:
+			d.queue_free()
 		advance(0.0)
 	else:
 		var b := PCPartLibrary.bounds(unlocked) if not unlocked.is_empty() else AABB(Vector3(-1, 0, -1), Vector3(2, 1, 2))
@@ -503,7 +519,7 @@ func _process(dt: float) -> void:
 	if final_seq != null:
 		pass   # final kendi saatiyle ilerler
 	elif mode == "assembly" and not finished:
-		advance(dt * (2.0 if holding else 1.0))
+		advance(dt * (2.5 if holding else 1.0))
 	elif mode == "showcase":
 		_idle += dt
 		if _drag == null and _touches.is_empty() and _idle > 2.5:
@@ -516,7 +532,28 @@ func _skip() -> void:
 		final_seq.skip()
 		return
 	if mode == "assembly" and not finished:
-		advance(DURATION - t + 0.001)
+		advance(duration - t + 0.001)
+
+func _end_director() -> void:
+	if director != null:
+		director.end(cam)
+		director.queue_free()
+		director = null
+
+## Sinematik kare olayları: parça süzülmesi, tam oturma (kıvılcım + haptik), mekanik kilitler
+func _on_cue(kind: String, pos: Vector3) -> void:
+	match kind:
+		"whoosh":
+			Sfx.asmr().play_part_whoosh()
+		"snap":
+			_snapped = true
+			sparks.global_position = pos
+			sparks.restart()
+			sparks.emitting = true
+			Sfx.call_ah("snap")
+		"lock":
+			Sfx.asmr().play_part_snap()
+			Sfx.call_ah("vibrate", [25])
 
 static func _ease(x: float) -> float:
 	x = clampf(x, 0.0, 1.0)
@@ -524,9 +561,15 @@ static func _ease(x: float) -> float:
 
 ## Zamanı ilerletir (testler de doğrudan çağırır). Bütün durum t'den hesaplanır.
 func advance(dt: float) -> void:
-	t = minf(t + dt, DURATION)
+	t = minf(t + dt, duration)
 	if new_node == null:
 		return
+	if director != null:
+		_advance_cinematic()
+		return
+	if t >= 0.4 and not _whooshed:
+		_whooshed = true
+		Sfx.asmr().play_part_whoosh()
 	# 1) kamera
 	if t < 2.0:
 		_apply_cam(_blend(_overview, _close, _ease(t / 2.0)))
@@ -580,13 +623,13 @@ func advance(dt: float) -> void:
 		cam.position += Vector3(randf_range(-1, 1), randf_range(-1, 1), randf_range(-1, 1)) * 0.035 * _shake * _shake
 	# 4) yazı ve bitiş
 	caption_box.modulate.a = clampf((t - 5.5) / 0.6, 0.0, 1.0)
-	if t >= DURATION and not finished and part_id == PCPartLibrary.COUNT:
+	if t >= duration and not finished and part_id == PCPartLibrary.COUNT:
 		finished = true
 		for id in nodes:
 			PartBuilder.set_glow(nodes[id], 0.0)
 		start_final(false)
 		return
-	if t >= DURATION and not finished:
+	if t >= duration and not finished:
 		finished = true
 		btn_skip.visible = false
 		lbl_hint.visible = false
@@ -597,15 +640,50 @@ func advance(dt: float) -> void:
 		for id in nodes:
 			PartBuilder.set_glow(nodes[id], 0.0)
 
+## Blender sinematiği akışı: zaman rig'e aktarılır, oturmadan sonra komşu parçalarda enerji dalgası
+func _advance_cinematic() -> void:
+	director.seek(t)
+	var snap_t := float(CinematicDirector.SNAP.get(director.anim, CinematicDirector.PHASE_SNAP) if director.kind == "level" else CinematicDirector.PHASE_SNAP) / CinematicDirector.FPS
+	if t < snap_t:
+		PartBuilder.set_glow(new_node, 0.5 + 0.5 * sin(t * 10.0))
+	else:
+		var k := t - snap_t
+		PartBuilder.set_glow(new_node, maxf(0.0, 1.6 - k * 1.2))
+		var origin := PCPartLibrary.part(part_id).assembly_position
+		for id in nodes:
+			if id == part_id:
+				continue
+			var n: Node3D = nodes[id]
+			var dd := n.position.distance_to(origin)
+			var wave := 1.0 - absf(k * 4.0 - dd) / 0.9
+			PartBuilder.set_glow(n, clampf(wave, 0.0, 1.0) * 1.2 * clampf(1.0 - dd / 6.0, 0.0, 1.0))
+	caption_box.modulate.a = clampf((t - (duration - 2.5)) / 0.6, 0.0, 1.0)
+	if t >= duration and not finished:
+		for id in nodes:
+			PartBuilder.set_glow(nodes[id], 0.0)
+		if part_id == PCPartLibrary.COUNT:
+			finished = true
+			_end_director()
+			start_final(false)
+			return
+		finished = true
+		btn_skip.visible = false
+		lbl_hint.visible = false
+		btn_next.visible = true
+		UIKit.set_text(btn_next, "BİLGİSAYARIMA DÖN" if from_showcase else "SONRAKİ SEVİYE")
+		_layout()
+		UIKit.pop_in(btn_next, 0.0, 0.5)
+
 ## Büyük final: 100. parçanın montajı bittiğinde ya da test butonundan
 func start_final(skip_assembly: bool) -> void:
 	if final_seq != null:
 		return
 	if skip_assembly and not finished:
-		advance(DURATION - t + 0.001)
+		advance(duration - t + 0.001)
 		if final_seq != null:
 			return
 	finished = true
+	_end_director()
 	btn_next.visible = false
 	final_seq = FINAL_SCRIPT.new()
 	add_child(final_seq)

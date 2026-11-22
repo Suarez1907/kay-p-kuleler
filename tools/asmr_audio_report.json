@@ -1,0 +1,297 @@
+{
+ "sample_rate": 44100,
+ "bpm": 90.0,
+ "loop_sec": 16.0,
+ "files": [
+  {
+   "file": "music/phase_1_2_think.ogg",
+   "sec": 16.0,
+   "peak_dbfs": -1.5,
+   "clipped_samples": 0,
+   "bytes": 247340
+  },
+  {
+   "file": "music/phase_1_2_code.ogg",
+   "sec": 16.0,
+   "peak_dbfs": -1.5,
+   "clipped_samples": 0,
+   "bytes": 107658
+  },
+  {
+   "file": "music/phase_1_2_run.ogg",
+   "sec": 16.0,
+   "peak_dbfs": -1.5,
+   "clipped_samples": 0,
+   "bytes": 173461
+  },
+  {
+   "file": "music/phase_3_4_think.ogg",
+   "sec": 16.0,
+   "peak_dbfs": -1.5,
+   "clipped_samples": 0,
+   "bytes": 167024
+  },
+  {
+   "file": "music/phase_3_4_code.ogg",
+   "sec": 16.0,
+   "peak_dbfs": -1.5,
+   "clipped_samples": 0,
+   "bytes": 159792
+  },
+  {
+   "file": "music/phase_3_4_run.ogg",
+   "sec": 16.0,
+   "peak_dbfs": -1.5,
+   "clipped_samples": 0,
+   "bytes": 173815
+  },
+  {
+   "file": "music/phase_5_6_think.ogg",
+   "sec": 16.0,
+   "peak_dbfs": -1.5,
+   "clipped_samples": 0,
+   "bytes": 420925
+  },
+  {
+   "file": "music/phase_5_6_code.ogg",
+   "sec": 16.0,
+   "peak_dbfs": -1.5,
+   "clipped_samples": 0,
+   "bytes": 407231
+  },
+  {
+   "file": "music/phase_5_6_run.ogg",
+   "sec": 16.0,
+   "peak_dbfs": -1.5,
+   "clipped_samples": 0,
+   "bytes": 157458
+  },
+  {
+   "file": "music/phase_7_8_think.ogg",
+   "sec": 16.0,
+   "peak_dbfs": -1.5,
+   "clipped_samples": 0,
+   "bytes": 308807
+  },
+  {
+   "file": "music/phase_7_8_code.ogg",
+   "sec": 16.0,
+   "peak_dbfs": -1.5,
+   "clipped_samples": 0,
+   "bytes": 339107
+  },
+  {
+   "file": "music/phase_7_8_run.ogg",
+   "sec": 16.0,
+   "peak_dbfs": -1.5,
+   "clipped_samples": 0,
+   "bytes": 173818
+  },
+  {
+   "file": "music/phase_9_10_think.ogg",
+   "sec": 16.0,
+   "peak_dbfs": -1.5,
+   "clipped_samples": 0,
+   "bytes": 291741
+  },
+  {
+   "file": "music/phase_9_10_code.ogg",
+   "sec": 16.0,
+   "peak_dbfs": -1.5,
+   "clipped_samples": 0,
+   "bytes": 384038
+  },
+  {
+   "file": "music/phase_9_10_run.ogg",
+   "sec": 16.0,
+   "peak_dbfs": -1.5,
+   "clipped_samples": 0,
+   "bytes": 160580
+  },
+  {
+   "file": "sfx/ui_key_thock_01.ogg",
+   "sec": 0.14,
+   "peak_dbfs": -1.5,
+   "clipped_samples": 0,
+   "bytes": 6244
+  },
+  {
+   "file": "sfx/ui_key_thock_02.ogg",
+   "sec": 0.14,
+   "peak_dbfs": -1.5,
+   "clipped_samples": 0,
+   "bytes": 6183
+  },
+  {
+   "file": "sfx/ui_key_thock_03.ogg",
+   "sec": 0.14,
+   "peak_dbfs": -1.5,
+   "clipped_samples": 0,
+   "bytes": 6196
+  },
+  {
+   "file": "sfx/ui_key_thock_04.ogg",
+   "sec": 0.14,
+   "peak_dbfs": -1.5,
+   "clipped_samples": 0,
+   "bytes": 6174
+  },
+  {
+   "file": "sfx/step_note_c5.ogg",
+   "sec": 1.2,
+   "peak_dbfs": -1.5,
+   "clipped_samples": 0,
+   "bytes": 14483
+  },
+  {
+   "file": "sfx/step_note_d5.ogg",
+   "sec": 1.2,
+   "peak_dbfs": -1.5,
+   "clipped_samples": 0,
+   "bytes": 14035
+  },
+  {
+   "file": "sfx/step_note_e5.ogg",
+   "sec": 1.2,
+   "peak_dbfs": -1.5,
+   "clipped_samples": 0,
+   "bytes": 12826
+  },
+  {
+   "file": "sfx/step_note_g5.ogg",
+   "sec": 1.2,
+   "peak_dbfs": -1.5,
+   "clipped_samples": 0,
+   "bytes": 12623
+  },
+  {
+   "file": "sfx/step_note_a5.ogg",
+   "sec": 1.2,
+   "peak_dbfs": -1.5,
+   "clipped_samples": 0,
+   "bytes": 12207
+  },
+  {
+   "file": "sfx/step_note_c6.ogg",
+   "sec": 1.2,
+   "peak_dbfs": -1.5,
+   "clipped_samples": 0,
+   "bytes": 13750
+  },
+  {
+   "file": "sfx/sfx_smd_pulse_01.ogg",
+   "sec": 0.35,
+   "peak_dbfs": -1.5,
+   "clipped_samples": 0,
+   "bytes": 13693
+  },
+  {
+   "file": "sfx/sfx_smd_pulse_02.ogg",
+   "sec": 0.35,
+   "peak_dbfs": -1.5,
+   "clipped_samples": 0,
+   "bytes": 17616
+  },
+  {
+   "file": "sfx/sfx_smd_pulse_03.ogg",
+   "sec": 0.35,
+   "peak_dbfs": -1.5,
+   "clipped_samples": 0,
+   "bytes": 14294
+  },
+  {
+   "file": "sfx/sfx_diode_block.ogg",
+   "sec": 0.32,
+   "peak_dbfs": -1.5,
+   "clipped_samples": 0,
+   "bytes": 8585
+  },
+  {
+   "file": "sfx/sfx_capacitor_launch.ogg",
+   "sec": 0.7,
+   "peak_dbfs": -1.5,
+   "clipped_samples": 0,
+   "bytes": 18162
+  },
+  {
+   "file": "sfx/sfx_resistor_tick.ogg",
+   "sec": 0.18,
+   "peak_dbfs": -1.5,
+   "clipped_samples": 0,
+   "bytes": 8467
+  },
+  {
+   "file": "sfx/sfx_relay_clack_01.ogg",
+   "sec": 0.24,
+   "peak_dbfs": -1.5,
+   "clipped_samples": 0,
+   "bytes": 9519
+  },
+  {
+   "file": "sfx/sfx_relay_clack_02.ogg",
+   "sec": 0.24,
+   "peak_dbfs": -1.5,
+   "clipped_samples": 0,
+   "bytes": 9543
+  },
+  {
+   "file": "assembly/sfx_part_whoosh.ogg",
+   "sec": 1.1,
+   "peak_dbfs": -1.5,
+   "clipped_samples": 0,
+   "bytes": 27452
+  },
+  {
+   "file": "assembly/sfx_part_snap_01.ogg",
+   "sec": 0.5,
+   "peak_dbfs": -1.5,
+   "clipped_samples": 0,
+   "bytes": 17504
+  },
+  {
+   "file": "assembly/sfx_part_snap_02.ogg",
+   "sec": 0.5,
+   "peak_dbfs": -1.5,
+   "clipped_samples": 0,
+   "bytes": 17742
+  },
+  {
+   "file": "assembly/sfx_part_snap_03.ogg",
+   "sec": 0.5,
+   "peak_dbfs": -1.5,
+   "clipped_samples": 0,
+   "bytes": 16734
+  },
+  {
+   "file": "assembly/sfx_power_switch.ogg",
+   "sec": 0.5,
+   "peak_dbfs": -1.5,
+   "clipped_samples": 0,
+   "bytes": 13116
+  },
+  {
+   "file": "assembly/sfx_fan_spinup.ogg",
+   "sec": 6.0,
+   "peak_dbfs": -1.5,
+   "clipped_samples": 0,
+   "bytes": 158595
+  },
+  {
+   "file": "assembly/sfx_bios_beep.ogg",
+   "sec": 0.12,
+   "peak_dbfs": -1.5,
+   "clipped_samples": 0,
+   "bytes": 5094
+  },
+  {
+   "file": "assembly/sfx_boot_chord.ogg",
+   "sec": 4.6,
+   "peak_dbfs": -1.5,
+   "clipped_samples": 0,
+   "bytes": 103852
+  }
+ ],
+ "count": 41,
+ "total_mb": 4.24,
+ "problems": []
+}
