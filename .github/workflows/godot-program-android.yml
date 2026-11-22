@@ -64,7 +64,7 @@ jobs:
             -d ~/.local/share/godot/export_templates/$T/
           rm t.tpz
 
-      - name: Yorumlayıcı, sahne ve animasyon testleri (40 seviye)
+      - name: Yorumlayıcı, sahne ve animasyon testleri (100 seviye)
         shell: bash
         run: |
           G="$HOME/godot48/godot"; chmod +x "$G"; "$G" --headless --version

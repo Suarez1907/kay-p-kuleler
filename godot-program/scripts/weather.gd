@@ -4,7 +4,8 @@ class_name Weather
 extends Node
 
 ## Bölüm sırasına göre hava (9 bölüm; fazlası başa döner)
-const BY_CHAPTER := ["clear", "cumulus", "rain", "sunset", "storm", "snow", "night", "tornado", "electric"]
+const BY_CHAPTER := ["clear", "cumulus", "rain", "sunset", "storm", "snow", "night", "tornado", "electric",
+	"sunset", "night", "cumulus", "rain", "clear", "tornado"]
 
 const NAMES := {
 	"clear": "Güneşli sabah", "cumulus": "Parçalı bulutlu", "rain": "Yağmurlu", "sunset": "Gün batımı",
