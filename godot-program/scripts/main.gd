@@ -98,6 +98,8 @@ var ptr = null
 # ---------- arayüz (bkz. "Arayüz" bölümü) ----------
 var audio: GameAudio
 var gfx := 2                # 0 düşük, 1 orta, 2 yüksek
+var perf: PerfGovernor = null
+var perf_label: Label = null
 var ui: CanvasLayer
 var ui_root: Control
 var fx_layer: CanvasLayer
@@ -201,6 +203,10 @@ func _ready() -> void:
 		ah.sound_on = audio.sound_on
 		ah.haptics_on = progress.get("haptics", true)
 	gfx = int(progress.get("gfx", 2))
+	perf = PerfGovernor.new()
+	perf.name = "PerfGovernor"
+	add_child(perf)
+	perf.setup(get_viewport())
 	rbox_mesh = _rounded_box(Vector3.ONE, 0.03, 0)
 	crate_mesh = _rounded_box(Vector3(0.84, 0.84, 0.84), 0.04, 0)
 	_setup_world()
@@ -221,11 +227,26 @@ func _ready() -> void:
 		if a == "--layouttest":
 			_layouttest.call_deferred()
 			return
+		if a == "--perftest":
+			_perftest.call_deferred()
+			return
+		if a == "--perfcheck":
+			_perfcheck.call_deferred()
+			return
 		if a.begins_with("--themecycle="):
 			_themecycle.call_deferred(a.substr(13))
 			return
 	var migrated := _migrate_webview()
 	_show_title()
+	# varlık önbelleği + shader ısıtma; ilk açılışta cihaz ölçülüp grafik kalitesi otomatik seçilir
+	perf.start_warmup()
+	if not progress.has("gfx"):
+		perf.quality_picked.connect(_on_quality_picked, CONNECT_ONE_SHOT)
+		var bench_wait := func():
+			while not perf.warm_done:
+				await get_tree().process_frame
+			perf.start_benchmark()
+		bench_wait.call()
 	audio.set_music(progress.get("music", true))
 	_apply_access()
 	if migrated:
@@ -561,6 +582,50 @@ func _mat(color, opts := {}) -> StandardMaterial3D:
 	if not opts.get("unique", false):
 		mat_cache[key] = m
 	return m
+
+## Performans: statik blokların (devre elemanı + merdiven) gölgesi tek bir birleşik "yalnızca gölge" meshinden
+## gelir; hücrelerin çok yüzeyli modelleri gölge geçişinde ayrı ayrı çizilmez. Açılış (cascade) bitince görünür.
+func _build_shadow_proxy() -> void:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var n := 0
+	for p in cell_nodes:
+		var cell: Node3D = cell_nodes[p]
+		for mi in PartBuilder._meshes_in(cell):
+			(mi as GeometryInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		var c := Vector3(p)
+		var v: Dictionary = L.statics.get(p, {})
+		var top := 0.5 if String(v.get("t", "b")) == "b" else 0.15
+		_shadow_box(st, c + Vector3(0, (top - 0.5) / 2.0, 0), Vector3(0.96, top + 0.5, 0.96))
+		n += 1
+	if n == 0:
+		return
+	var proxy := MeshInstance3D.new()
+	proxy.mesh = st.commit()
+	proxy.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
+	proxy.material_override = StandardMaterial3D.new()
+	level_root.add_child(proxy)
+	objs["shadow_proxy"] = proxy
+	if not instant and not preview:
+		proxy.visible = false
+		get_tree().create_timer(0.85).timeout.connect(func(): if is_instance_valid(proxy): proxy.visible = true)
+
+func _shadow_box(st: SurfaceTool, c: Vector3, s: Vector3) -> void:
+	var h := s / 2.0
+	var faces := [[Vector3.UP, Vector3.RIGHT, Vector3.BACK], [Vector3.DOWN, Vector3.RIGHT, Vector3.FORWARD], [Vector3.RIGHT, Vector3.BACK, Vector3.UP],
+		[Vector3.LEFT, Vector3.FORWARD, Vector3.UP], [Vector3.BACK, Vector3.LEFT, Vector3.UP], [Vector3.FORWARD, Vector3.RIGHT, Vector3.UP]]
+	for f in faces:
+		var nrm: Vector3 = f[0]
+		var u: Vector3 = f[1]
+		var w: Vector3 = f[2]
+		var o := c + nrm * h
+		var a := o + (-u - w) * h
+		var b := o + (u - w) * h
+		var cc := o + (u + w) * h
+		var d := o + (-u + w) * h
+		for q in [a, b, cc, a, cc, d]:
+			st.set_normal(nrm)
+			st.add_vertex(q)
 
 ## Çöken blok / sigorta hücresi: sigortanın şeridi geçiş sayısına göre renk değiştirir
 class FuseCell extends Node3D:
@@ -1014,6 +1079,7 @@ func build_level(i: int, as_preview := false) -> void:
 	level_root.add_child(holo)
 	objs["clone"] = holo
 	_build_relay_traces()
+	_build_shadow_proxy()
 	var aabb: AABB = bb["box"]
 	_build_goal_sparkles(Vector3(L.goal))
 	# kamera
@@ -2318,6 +2384,8 @@ func _confetti(at: Vector3) -> void:
 # =====================================================================
 # Döngü, kamera, giriş
 func _process(dt: float) -> void:
+	if perf_label != null and Engine.get_process_frames() % 15 == 0:
+		_update_perf_label()
 	dt = minf(dt, 0.05)
 	time += dt
 	if theme_app:
@@ -3258,6 +3326,9 @@ func _build_screens() -> void:
 	dev.add_child(dj)
 	dvb.add_child(dev)
 	dvb.add_child(_bp_button("FİNALİ TEST ET (100/100)", BP.Variant.AMBER, _final_test, "sparkle", 44, 15))
+	_dev_row(dvb, [["FPS GÖSTERGESİ", _toggle_perf_label, true], ["DİNAMİK ÇÖZÜNÜRLÜK", func():
+		perf.enabled = not perf.enabled
+		_toast("Dinamik çözünürlük " + ("açık" if perf.enabled else "kapalı"))]])
 	_build_asmr_test(dvb)
 	_build_cinematic_test(dvb)
 	dev_p.visible = OS.is_debug_build()
@@ -3995,14 +4066,44 @@ func _apply_led_color() -> void:
 
 
 ## Grafik kalitesi: Düşük = hafif çözünürlük, Orta = doğal çözünürlük + 4x MSAA, Yüksek = 1,5x süper örnekleme + 8x MSAA
+func _on_quality_picked(lvl: int) -> void:
+	progress["gfx"] = mini(gfx, lvl)
+	_save_progress()
+	if lvl < gfx:
+		gfx = lvl
+		_apply_gfx()
+		_toast("Grafik otomatik ayarlandı: " + ["Düşük", "Orta", "Yüksek"][gfx])
+
+func _toggle_perf_label() -> void:
+	if perf_label == null:
+		perf_label = BP.tag("", 13, BP.ACCENT_CYAN)
+		perf_label.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+		perf_label.position = Vector2(-260, 70)
+		perf_label.size = Vector2(250, 20)
+		perf_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		fx_layer.get_child(0).add_child(perf_label)
+		perf_label.visible = false
+	perf_label.visible = not perf_label.visible
+
+func _update_perf_label() -> void:
+	if perf_label == null or not perf_label.visible or perf == null:
+		return
+	perf_label.text = "%d FPS · %.1f ms · %d çizim · 3D %%%d" % [roundi(perf.fps()), perf.frame_ms(),
+		RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME), roundi(get_viewport().scaling_3d_scale * 100.0)]
+
 func _apply_gfx() -> void:
 	var vp := get_viewport()
 	env.glow_enabled = gfx >= 1
 	env.fog_enabled = false
 	sun.shadow_enabled = gfx >= 1
 	sun.shadow_blur = 2.4 if gfx == 2 else 1.6
-	vp.msaa_3d = [Viewport.MSAA_DISABLED, Viewport.MSAA_4X, Viewport.MSAA_8X][gfx]
-	vp.scaling_3d_scale = [0.75, 1.0, 1.5][gfx]
+	# akıcılık: telefonlar zaten yüksek DPI — yerel çözünürlük + 4x MSAA en iyi kalite/kare dengesi;
+	# dinamik çözünürlük (PerfGovernor) zorlanınca ölçeği kademeli düşürür
+	vp.msaa_3d = [Viewport.MSAA_DISABLED, Viewport.MSAA_2X, Viewport.MSAA_4X][gfx]
+	if perf != null:
+		perf.set_base_scale([0.7, 0.85, 1.0][gfx])
+	else:
+		vp.scaling_3d_scale = [0.7, 0.85, 1.0][gfx]
 	RenderingServer.directional_shadow_atlas_set_size([1024, 4096, 4096][gfx], true)
 	weather.set_quality(gfx)
 	ComponentFactory.use_models = gfx >= 1
@@ -6269,3 +6370,117 @@ func _build_cinematic_test(dvb: VBoxContainer) -> void:
 		ph.append(["F%d" % k, func(): _cine_test(kk * 10)])
 	_dev_row(dvb, ph)
 	_dev_row(dvb, [["100. SEVİYE BÜYÜK FİNALİ", _final_test, true]])
+
+
+# ---------- performans ölçümü ----------
+# godot --path godot-program -- --perftest   (ekranlı; başsızda kare süresi anlamsızdır ama çizim çağrıları sayılır)
+## Her senaryoda: ortalama / p95 / en kötü kare süresi (ms), 33 ms üstü takılma sayısı, kare başına çizim çağrısı,
+## nesne ve ilkel sayısı; ayrıca kurulum süreleri (seviye kurma, satır çizimi, seviye haritası). Sonuç: user://perf.json
+func _perf_measure(frames: int) -> Dictionary:
+	var times := []
+	var dc := 0
+	var objs_n := 0
+	var prims := 0
+	var last := Time.get_ticks_usec()
+	for f in frames:
+		await get_tree().process_frame
+		var now := Time.get_ticks_usec()
+		times.append((now - last) / 1000.0)
+		last = now
+		dc = maxi(dc, RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME))
+		objs_n = maxi(objs_n, RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_OBJECTS_IN_FRAME))
+		prims = maxi(prims, RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_PRIMITIVES_IN_FRAME))
+	times.remove_at(0)
+	var sorted := times.duplicate()
+	sorted.sort()
+	var sum := 0.0
+	var hitches := 0
+	for t in times:
+		sum += t
+		if t > 33.4:
+			hitches += 1
+	return {"avg": snappedf(sum / times.size(), 0.01), "p95": snappedf(sorted[int(sorted.size() * 0.95)], 0.01),
+		"worst": snappedf(sorted.back(), 0.01), "hitches": hitches, "draw_calls": dc, "objects": objs_n, "primitives": prims}
+
+func _perftest() -> void:
+	var report := {"renderer": RenderingServer.get_current_rendering_method(), "gfx": gfx, "scenes": {}}
+	var t0 := Time.get_ticks_usec()
+	_show_title()
+	report["build_title_ms"] = (Time.get_ticks_usec() - t0) / 1000.0
+	report["scenes"]["title"] = await _perf_measure(120)
+	t0 = Time.get_ticks_usec()
+	_open_levels()
+	report["open_levels_ms"] = (Time.get_ticks_usec() - t0) / 1000.0
+	report["scenes"]["levels"] = await _perf_measure(90)
+	for li in [0, 11, 40, 61, 98]:
+		progress["seen"][str(li)] = 1
+		progress["story"] = {"0": 1, "1": 1, "2": 1, "3": 1, "4": 1, "5": 1, "6": 1, "7": 1, "8": 1, "9": 1}
+		t0 = Time.get_ticks_usec()
+		_start_level(li)
+		report["build_level_%d_ms" % (li + 1)] = (Time.get_ticks_usec() - t0) / 1000.0
+		prog = Program.parse_program(levels[li]["solution"])
+		t0 = Time.get_ticks_usec()
+		_render_rows()
+		report["render_rows_%d_ms" % (li + 1)] = (Time.get_ticks_usec() - t0) / 1000.0
+		report["scenes"]["level_%d_idle" % (li + 1)] = await _perf_measure(120)
+		_run_toggle()
+		report["scenes"]["level_%d_run" % (li + 1)] = await _perf_measure(150)
+	t0 = Time.get_ticks_usec()
+	_open_assembly("showcase")
+	report["open_showcase_ms"] = (Time.get_ticks_usec() - t0) / 1000.0
+	report["scenes"]["showcase"] = await _perf_measure(90)
+	_close_assembly()
+	var f := FileAccess.open("user://perf.json", FileAccess.WRITE)
+	f.store_string(JSON.stringify(report, "  "))
+	f.close()
+	print("perftest: " + JSON.stringify(report))
+	get_tree().quit()
+
+## Başsız yapısal akıcılık testi (CI): gölge vekili, vitrin toplaması, kurulum süreleri, varlık ısıtması
+func _perfcheck() -> void:
+	var fails := []
+	var info := {}
+	for li in [0, 40, 98]:
+		progress["seen"][str(li)] = 1
+		var t0 := Time.get_ticks_usec()
+		_start_level(li)
+		var ms := (Time.get_ticks_usec() - t0) / 1000.0
+		info["build_%d" % (li + 1)] = snappedf(ms, 0.1)
+		if ms > 400.0:
+			fails.append("seviye %d kurulumu %.0f ms" % [li + 1, ms])
+		if not objs.has("shadow_proxy"):
+			fails.append("seviye %d: gölge vekili yok" % (li + 1))
+		var casters := 0
+		for p in cell_nodes:
+			for mi in PartBuilder._meshes_in(cell_nodes[p]):
+				if (mi as GeometryInstance3D).cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_OFF:
+					casters += 1
+		if casters > 0:
+			fails.append("seviye %d: %d hücre meshi hâlâ gölge düşürüyor" % [li + 1, casters])
+	var ids := []
+	for k in range(1, 101):
+		ids.append(k)
+	progress["unlocked_parts"] = ids
+	_open_assembly("showcase")
+	for f in 4:
+		await get_tree().process_frame
+	var br = assembly._batch_root
+	if br == null:
+		fails.append("vitrin toplaması yapılmadı")
+	else:
+		info["batch_groups"] = br.get_child_count()
+		if br.get_child_count() > 90:
+			fails.append("vitrin toplaması %d grup (en fazla 90)" % br.get_child_count())
+	_close_assembly()
+	perf.start_warmup()
+	var guard := 0
+	while not perf.warm_done and guard < 600:
+		await get_tree().process_frame
+		guard += 1
+	info["warm_frames"] = guard
+	info["warm_cached"] = perf.cache.size()
+	if not perf.warm_done or perf.cache.size() < 20:
+		fails.append("varlık ısıtması tamamlanmadı (%d kaynak, %d kare)" % [perf.cache.size(), guard])
+	print("perfcheck: %s %s" % ["TAMAM" if fails.is_empty() else "HATA " + str(fails), JSON.stringify(info)])
+	get_tree().quit(0 if fails.is_empty() else 1)
+

@@ -103,6 +103,7 @@ func setup(m: String, unlocked_ids: Array, pid := 0) -> void:
 		final_seq.queue_free()
 		final_seq = null
 	_end_director()
+	_unbatch()
 	duration = DURATION
 	_whooshed = false
 	fan_speed = float(FAN_MODES[int(pc_style.get("fan", 1)) % FAN_MODES.size()][1])
@@ -155,6 +156,7 @@ func setup(m: String, unlocked_ids: Array, pid := 0) -> void:
 		cam_target = f["target"]
 		dist = f["dist"]
 		lbl_title.text = "BİLGİSAYARIM"
+		_batch_static.call_deferred()
 		lbl_caption.text = "Sürükle: döndür · iki parmak: yakınlaştır"
 		lbl_sub.text = _phase_summary()
 		caption_box.modulate.a = 1.0
@@ -201,6 +203,72 @@ func _spawn(id: int) -> Node3D:
 	return n
 
 ## Kasa parçalarının (faz 9) koyu yüzeyleri kasa rengine, tüm RGB/Accent yüzeyleri seçili ışık rengine boyanır
+## Performans (vitrin): parlamayan, dönmeyen bütün parça yüzeyleri malzemeye göre birkaç birleşik meshte toplanır
+## (~1000 çizim çağrısı → malzeme sayısı kadar). Montaj/final animasyonları için _unbatch() orijinallere döner.
+var _batch_root: Node3D = null
+
+func _batch_static() -> void:
+	_unbatch()
+	if mode != "showcase" or final_seq != null:
+		return
+	var groups := {}
+	var hidden := []
+	for id in nodes:
+		var n: Node3D = nodes[id]
+		var spinner = n.get_meta("spinner") if n.has_meta("spinner") else null
+		for mi in PartBuilder._meshes_in(n):
+			var m: MeshInstance3D = mi
+			if m.mesh == null or not m.visible or (spinner != null and (m == spinner or spinner.is_ancestor_of(m))):
+				continue
+			if m.material_override is ShaderMaterial:
+				continue
+			var xf := parts_root.global_transform.affine_inverse() * m.global_transform
+			for si in m.mesh.get_surface_count():
+				var mat: Material = m.get_active_material(si)
+				var key = _mat_key(mat)
+				if not groups.has(key):
+					var st := SurfaceTool.new()
+					st.begin(Mesh.PRIMITIVE_TRIANGLES)
+					groups[key] = {"st": st, "mat": mat, "shadow": false}
+				var g: Dictionary = groups[key]
+				(g["st"] as SurfaceTool).append_from(m.mesh, si, xf)
+				if m.cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_OFF:
+					g["shadow"] = true
+			hidden.append(m)
+	if groups.is_empty():
+		return
+	_batch_root = Node3D.new()
+	_batch_root.name = "StaticBatch"
+	parts_root.add_child(_batch_root)
+	for key in groups:
+		var g: Dictionary = groups[key]
+		var bm := MeshInstance3D.new()
+		bm.mesh = (g["st"] as SurfaceTool).commit()
+		bm.material_override = g["mat"]
+		bm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if g["shadow"] else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_batch_root.add_child(bm)
+	for m in hidden:
+		m.visible = false
+	_batch_root.set_meta("hidden", hidden)
+
+## Görsel olarak eş malzemeler aynı gruba düşer (glTF her dosyada aynı adlı malzemeyi ayrı kopyalar)
+static func _mat_key(mat: Material):
+	if mat is StandardMaterial3D:
+		var m: StandardMaterial3D = mat
+		return "%s|%s|%.2f|%.2f|%s|%s|%d|%s|%s" % [m.albedo_color.to_html(), m.albedo_texture.resource_path if m.albedo_texture else "",
+			m.metallic, m.roughness, m.emission_enabled, m.emission.to_html(), m.transparency, m.emission_energy_multiplier, m.normal_texture != null]
+	return mat.get_instance_id() if mat != null else 0
+
+func _unbatch() -> void:
+	if _batch_root == null or not is_instance_valid(_batch_root):
+		_batch_root = null
+		return
+	for m in _batch_root.get_meta("hidden", []):
+		if is_instance_valid(m):
+			(m as MeshInstance3D).visible = true
+	_batch_root.queue_free()
+	_batch_root = null
+
 func _style_node(id: int, n: Node3D) -> void:
 	var cc := Color(CASE_COLORS[int(pc_style.get("case", 0)) % CASE_COLORS.size()][1])
 	var rc := Color(RGB_COLORS[int(pc_style.get("rgb", 0)) % RGB_COLORS.size()][1])
@@ -219,8 +287,11 @@ func _style_node(id: int, n: Node3D) -> void:
 				sm.emission_energy_multiplier = 3.0
 
 func _restyle() -> void:
+	_unbatch()
 	for id in nodes:
 		_style_node(int(id), nodes[id])
+	if mode == "showcase" and final_seq == null:
+		_batch_static()
 	if final_seq == null:
 		fan_speed = float(FAN_MODES[int(pc_style.get("fan", 1)) % FAN_MODES.size()][1])
 	_update_style_panel()
@@ -684,6 +755,7 @@ func start_final(skip_assembly: bool) -> void:
 			return
 	finished = true
 	_end_director()
+	_unbatch()
 	btn_next.visible = false
 	final_seq = FINAL_SCRIPT.new()
 	add_child(final_seq)
