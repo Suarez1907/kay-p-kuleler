@@ -105,6 +105,9 @@ var weather_sun := 0.38
 var weather_amb := 0.4
 var vp: SubViewport           # gökyüzü ayrı bir görüntü alanında çizilir: çözünürlüğü grafik ayarına bağlı
 var _screen := Vector2i.ZERO
+## Okunabilirlik tabanı: hiçbir hava/tema sahneyi bu enerjilerin altına karartmaz
+const SUN_MIN := 0.5
+const AMB_MIN := 0.5
 const RES_SCALE := [0.5, 0.7, 1.0]   # Düşük / Orta / Yüksek (Yüksek = ekranın tam çözünürlüğü)
 
 func setup(bg_layer: CanvasLayer, world: Node3D, e: Environment, s: DirectionalLight3D, a: GameAudio) -> void:
@@ -176,7 +179,7 @@ func apply(k: String, seed: float) -> void:
 	# sahne ışığı
 	var lt: Array = P["light"]
 	sun.light_color = Color(lt[0])
-	_base = {"sun": float(lt[1]), "amb": float(lt[3])}
+	_base = {"sun": maxf(float(lt[1]), SUN_MIN), "amb": maxf(float(lt[3]), AMB_MIN)}
 	sun.light_energy = _base["sun"]
 	env.ambient_light_color = Color(lt[2])
 	env.ambient_light_energy = _base["amb"]
@@ -218,11 +221,11 @@ func blend_theme(bg_top: Color, bg_bottom: Color, light_col: Color, light_e: flo
 	sun.light_color = light_base_color.lerp(light_col, 0.78)
 	var se := lerpf(weather_sun, light_e, 0.78)
 	var ae := lerpf(weather_amb, amb_e, 0.78)
-	_base["sun"] = se
-	_base["amb"] = ae
-	sun.light_energy = se + flash * 0.45
+	_base["sun"] = maxf(se, SUN_MIN)
+	_base["amb"] = maxf(ae, AMB_MIN)
+	sun.light_energy = _base["sun"] + flash * 0.45
 	env.ambient_light_color = ambient_base_color.lerp(amb_col, 0.8)
-	env.ambient_light_energy = ae + flash * 0.35
+	env.ambient_light_energy = _base["amb"] + flash * 0.35
 
 
 func is_dark() -> bool:
