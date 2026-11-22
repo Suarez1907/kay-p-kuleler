@@ -32,6 +32,8 @@ var links := []              # {a, b, d, view}
 var cranks := []             # {p, rot, dir}
 var portals := []            # {a, b, on}
 var phantoms := []           # {cells, views:Array} — yalnızca o açılardan bakınca katı
+var comps := {}              # Vector3i (statik blok) -> {t:"diode"|"cap"|"res"|"relay", d, id, ri}; diğerleri SMD transistör
+var relay_count := 0
 var solution = {}
 
 static func v3(a) -> Vector3i:
@@ -107,6 +109,12 @@ func load_level(d: Dictionary) -> void:
 		else:
 			views.append(int(vw))
 		phantoms.append({"cells": v3list(ph["cells"]), "views": views})
+	for c in d.get("comps", []):
+		var e := {"t": String(c["t"]), "d": int(c.get("d", 0)), "id": String(c.get("id", "")), "ri": -1}
+		if e["t"] == "relay":
+			e["ri"] = relay_count
+			relay_count += 1
+		comps[v3(c["p"])] = e
 	solution = d.get("solution", {})
 
 func is_manual(i: int) -> bool:
@@ -115,7 +123,7 @@ func is_manual(i: int) -> bool:
 func initial_state() -> Dictionary:
 	var s := {
 		"p": start, "f": start_dir, "crates": crates0.duplicate(), "balls": [],
-		"levers": [], "rots": [], "slides": [], "bridges": [], "crumbles": [],
+		"levers": [], "rots": [], "slides": [], "bridges": [], "crumbles": [], "relays": [],
 		"view": view0, "dead": false, "moves": 0,
 	}
 	for b in balls0:
@@ -130,6 +138,8 @@ func initial_state() -> Dictionary:
 		s["bridges"].append(false)
 	for c in crumbles:
 		s["crumbles"].append(0)
+	for k in relay_count:
+		s["relays"].append(false)
 	settle(s, null)
 	return s
 
@@ -149,6 +159,7 @@ static func state_key(s: Dictionary) -> String:
 	parts.append(str(s["bridges"]))
 	parts.append(str(s["crumbles"]))
 	parts.append(str(s["view"]))
+	parts.append(str(s.get("relays", [])))
 	return "|".join(parts)
 
 # ---- dinamik bloklar ----
@@ -223,6 +234,9 @@ func _signals(s: Dictionary, W: Dictionary) -> Dictionary:
 		sig[pl["id"]] = sig.get(pl["id"], false) or W["ents"].has(pl["p"])
 	for i in levers.size():
 		sig[levers[i]["id"]] = s["levers"][i]
+	for c in comps.values():
+		if c["t"] == "relay":
+			sig[c["id"]] = bool(s["relays"][c["ri"]])
 	return sig
 
 static func eval_sig(sig: Dictionary, expr) -> bool:
@@ -432,7 +446,48 @@ func settle(s: Dictionary, frames) -> void:
 		if frames != null:
 			frames.append(clone(s))
 
+## Robo'nun durduğu hücrenin altındaki devre elemanı (yoksa boş sözlük = SMD transistör)
+func comp_at(p: Vector3i) -> Dictionary:
+	return comps.get(p + DOWN, {})
+
+## Diyot: üstüne yalnızca ok yönünde girilir ve yalnızca ok yönünde çıkılır
+func diode_ok(P: Vector3i, T, d: int) -> bool:
+	if T == null:
+		return false
+	var a := comp_at(P)
+	if a.get("t", "") == "diode" and int(a["d"]) != d:
+		return false
+	var b := comp_at(T)
+	if b.get("t", "") == "diode" and int(b["d"]) != d:
+		return false
+	return true
+
+## Varıştan sonra: röle tetiklenir, direnç bir adım bekletir, kondansatör ileri + yukarı fırlatır
+func after_arrive(s: Dictionary, frames) -> void:
+	if s["dead"]:
+		return
+	var c := comp_at(s["p"])
+	match String(c.get("t", "")):
+		"relay":
+			s["relays"][c["ri"]] = not s["relays"][c["ri"]]
+		"res":
+			s["moves"] += 1
+			if frames != null:
+				frames.append(clone(s))
+		"cap":
+			var W := build_world(s)
+			var T: Vector3i = s["p"] + DIRS[s["f"]] + UP
+			if _free(W, T) and _supported(W, T) and _free(W, s["p"] + UP) and diode_ok(s["p"], T, s["f"]):
+				s["p"] = T
+				s["moves"] += 1
+				if frames != null:
+					frames.append(clone(s))
+
 func walk_target(s: Dictionary, W: Dictionary, P: Vector3i, d: int):
+	var T = _walk_target_raw(s, W, P, d)
+	return T if T != null and diode_ok(P, T, d) else null
+
+func _walk_target_raw(s: Dictionary, W: Dictionary, P: Vector3i, d: int):
 	var Q: Vector3i = P + DIRS[d]
 	for ln in links:
 		if ln["view"] != s["view"]:
@@ -501,6 +556,12 @@ func step(s0: Dictionary, a: Dictionary) -> Dictionary:
 			var below = W["solid"].get(P + DOWN)
 			if below != null and below["t"] == "cr" and s["p"] != P:
 				s["crumbles"][below["i"]] = 1
+			s["moves"] += 1
+			frames.append(clone(s))
+			after_arrive(s, frames)
+			settle(s, frames)
+			frames[frames.size() - 1] = s
+			return {"ok": true, "state": s, "frames": frames}
 	elif t == "rot":
 		if not try_rotate(s, int(a["i"]), int(a["s"])):
 			return {"ok": false}

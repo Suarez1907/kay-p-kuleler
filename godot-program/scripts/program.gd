@@ -91,6 +91,8 @@ static func cmd_step(L: PuzzleLogic, s0: Dictionary, c: String) -> Dictionary:
 	var old_pos = null
 	if c == "F" or c == "J":
 		var T = L.walk_target(s, W, P, s["f"]) if c == "F" else _jump_target(s, W)
+		if c == "J" and T != null and not L.diode_ok(P, T, s["f"]):
+			T = null
 		if T == null:
 			return bump
 		old_pos = P
@@ -134,6 +136,8 @@ static func cmd_step(L: PuzzleLogic, s0: Dictionary, c: String) -> Dictionary:
 	var frames := [PuzzleLogic.clone(s)]
 	if moved_ent != null and L.try_teleport(s, moved_ent, old_pos):
 		frames.append(PuzzleLogic.clone(s))
+	if moved_ent != null and moved_ent["k"] == "p":
+		L.after_arrive(s, frames)
 	L.settle(s, frames)
 	frames[frames.size() - 1] = s
 	return {"state": s, "frames": frames, "bump": false, "pause": false}

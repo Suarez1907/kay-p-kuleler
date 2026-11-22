@@ -48,7 +48,14 @@ var runner = null
 var step_once = false
 var speed_idx := 0
 var end_reason := ""
-var run_log := {}           # Nova analizi için: {last, first_bump, bumps}
+var run_log := {}
+# ---------- bilgisayar toplama (montaj sahnesi / vitrin) ----------
+const ASSEMBLY_SCENE := preload("res://scenes/AssemblyScene.tscn")
+var assembly: Control = null
+var asm_layer: CanvasLayer
+var _asm_return := ""
+var btn_pc_title: Button
+var btn_pc_pause: Button           # Nova analizi için: {last, first_bump, bumps}
 var prog := {"main": [], "p1": [], "p2": []}
 var active_row := "main"
 var sel = null              # {row, idx}
@@ -208,6 +215,18 @@ func _load_progress() -> void:
 			for k in d:
 				progress[k] = d[k]
 	progress["unlocked"] = int(progress.get("unlocked", 1))
+	# bilgisayar parçaları: eski kayıtlarda tamamlanmış her seviyenin parçası verilir
+	if not progress.has("unlocked_parts"):
+		var parts := []
+		for k in progress.get("best", {}):
+			parts.append(int(k) + 1)
+		parts.sort()
+		progress["unlocked_parts"] = parts
+	var clean := []
+	for v in progress["unlocked_parts"]:
+		if int(v) >= 1 and int(v) <= PCPartLibrary.COUNT and not (int(v) in clean):
+			clean.append(int(v))
+	progress["unlocked_parts"] = clean
 
 func _save_progress() -> void:
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
@@ -622,7 +641,7 @@ func build_level(i: int, as_preview := false) -> void:
 	mode = "edit"
 	runner = null
 	objs = {"crates": [], "balls": [], "levers": [], "plates": [], "bridges": [], "rotators": [], "sliders": [],
-		"crumbles": [], "links": [], "cranks": [], "portals": [], "phantoms": [], "trail": Node3D.new()}
+		"crumbles": [], "links": [], "cranks": [], "portals": [], "phantoms": [], "relays": [], "trail": Node3D.new()}
 	level_root.add_child(objs["trail"])
 	# Not: GDScript lambdaları yerel değişkenleri kopyalar; sınır kutusu bir sözlükte tutulur.
 	var bb := {"box": AABB(Vector3(L.start), Vector3.ZERO)}
@@ -634,9 +653,13 @@ func build_level(i: int, as_preview := false) -> void:
 		grow.call(p)
 		if v["t"] == "b":
 			var first := level_root.get_child_count()
-			_mesh(_ao_box(p), theme_app.block_mat, Vector3(p))
-			_add_tile(p)
-			_add_window(p)
+			# zemin bloğu bir devre elemanıdır (varsayılan SMD transistör)
+			var cdef: Dictionary = L.comps.get(p, {})
+			var comp := ComponentFactory.build(ComponentFactory.type_of(String(cdef.get("t", ""))), int(cdef.get("d", 0)))
+			comp.position = Vector3(p)
+			level_root.add_child(comp)
+			if cdef.get("t", "") == "relay":
+				objs["relays"].append({"n": comp, "ri": int(cdef["ri"])})
 			# bloğun tüm parçaları tek bir hücre düğümünde: zıplama/açılış animasyonu hepsini birlikte taşır
 			var made := level_root.get_children().slice(first)
 			var cell := Node3D.new()
@@ -646,6 +669,7 @@ func build_level(i: int, as_preview := false) -> void:
 				level_root.remove_child(nd)
 				nd.position -= Vector3(p)
 				cell.add_child(nd)
+			cell.set_meta("comp", comp)
 			cell_nodes[p] = cell
 		else:
 			var sg := Node3D.new()
@@ -825,6 +849,7 @@ func build_level(i: int, as_preview := false) -> void:
 	# kamera
 	cam_target = aabb.get_center()
 	var sz := aabb.size
+	_build_pcb(aabb)
 	weather.place(cam_target, sz)
 	theme_app.bounds = aabb
 	theme_app.refresh_props()
@@ -840,6 +865,29 @@ func build_level(i: int, as_preview := false) -> void:
 	_on_resize()
 	if not instant and not as_preview:
 		_cascade_in()
+
+## Kulenin altındaki baskı devre kartı (PCB) tabanı
+func _build_pcb(aabb: AABB) -> void:
+	var bm := BoxMesh.new()
+	bm.size = Vector3(aabb.size.x + 6.0, 0.14, aabb.size.z + 6.0)
+	var pm := ShaderMaterial.new()
+	pm.shader = load("res://shaders/pcb.gdshader")
+	var m := MeshInstance3D.new()
+	m.mesh = bm
+	m.material_override = pm
+	m.position = Vector3(aabb.get_center().x, float(L.min_y) - 0.5 - 0.09, aabb.get_center().z)
+	m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	level_root.add_child(m)
+	objs["pcb"] = pm
+
+## Bir hücredeki devre elemanını parlat (Robo bastı / kondansatör boşaldı)
+func _comp_flash(cell_p: Vector3i, param := "glow", strength := 1.0) -> void:
+	var cell = cell_nodes.get(cell_p)
+	if cell == null or not is_instance_valid(cell) or not cell.has_meta("comp"):
+		return
+	var body: MeshInstance3D = cell.get_meta("comp").get_meta("body")
+	var tw := _new_tw("cflash:%s:%s" % [cell_p, param], body)
+	tw.tween_method(func(v: float): body.set_instance_shader_parameter(param, v), strength, 0.0, 0.7 / _speed()).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 
 ## Yürünebilir üst yüz karo detayı: bloğun üstünde açıkta kalan yüze biraz daha açık, kenarlardan içeri
 ## çekilmiş ince bir plaka. Aradaki şerit karo çerçevesi gibi okunur; ızgara kareleri anında sayılır.
@@ -1111,6 +1159,8 @@ func _apply_visual(sA: Dictionary, sB: Dictionary, t: float, bump := false) -> v
 		var down := _plate_down(sB, L.plates[i]["p"])
 		objs["plates"][i].material_override.emission_energy_multiplier = 1.6 if down else 0.0
 		objs["plates"][i].material_override.emission_enabled = down
+	for r in objs["relays"]:
+		ComponentFactory.set_relay(r["n"], bool(sB["relays"][r["ri"]]) if sB.has("relays") else false)
 	for o in objs["links"]:
 		o["m"].material_override.albedo_color.a = 0.95 if sB["view"] == o["view"] else 0.22
 	if not objs["phantoms"].is_empty():
@@ -1159,6 +1209,8 @@ func _frame_dur(a: Dictionary, b: Dictionary, first: bool, kind: String) -> floa
 		d = {"F": 0.34, "J": 0.4, "L": 0.22, "R": 0.22, "A": 0.3, "rot": 0.42, "slide": 0.26, "view": 0.0, "bump": 0.26}.get(kind, 0.3)
 		if kind == "A" and a["rots"] != b["rots"]:
 			d = 0.5
+	elif a == b:
+		d = 0.38   # direnç: Robo bir adım bekler
 	elif _jumpy(a["p"], b["p"], a, b):
 		d = 0.5
 	elif a["slides"] != b["slides"]:
@@ -1186,6 +1238,7 @@ func _update_queue(dt: float) -> void:
 			anim = queue.pop_front()
 			if not instant:
 				_sound_for(anim)
+				_comp_events(anim)
 				if anim["bump"]:
 					_robot_shake()
 		anim["t"] += dt / anim["dur"] if anim["dur"] > 0 else 1.0
@@ -1203,6 +1256,20 @@ func _update_queue(dt: float) -> void:
 		else:
 			_apply_visual(anim["from"], anim["to"], anim["t"], anim["bump"])
 			return
+
+## Devre elemanı olayları: kondansatör fırlatması, direnç beklemesi
+func _comp_events(a: Dictionary) -> void:
+	var sa: Dictionary = a["from"]
+	var sb: Dictionary = a["to"]
+	if a.get("first", false) or sa["dead"] or sb["dead"]:
+		return
+	var below: Vector3i = sa["p"] + Vector3i.DOWN
+	var c: Dictionary = L.comps.get(below, {})
+	if c.get("t", "") == "cap" and sa["p"] != sb["p"]:
+		_comp_flash(below, "charge", 1.0)
+		audio.play("jump", 1.2)
+	elif c.get("t", "") == "res" and sa == sb:
+		_comp_flash(below, "glow", 0.7)
 
 func _sound_for(a: Dictionary) -> void:
 	var sa: Dictionary = a["from"]
@@ -1521,6 +1588,12 @@ func _robot_land(at: Vector3i) -> void:
 	tw.tween_property(vis, "scale", Vector3(1.12, 0.88, 1.12), 0.08 / sp).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 	tw.tween_property(vis, "scale", Vector3.ONE, 0.2 / sp).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	_tile_bounce(at + Vector3i.DOWN)
+	_comp_flash(at + Vector3i.DOWN)
+	if objs.has("pcb"):
+		var pm: ShaderMaterial = objs["pcb"]
+		pm.set_shader_parameter("pulse_pos", Vector3(at))
+		var ptw := _new_tw("pcb_pulse", level_root)
+		ptw.tween_method(func(v: float): pm.set_shader_parameter("pulse", v), 1.0, 0.0, 0.9)
 	if theme_app:
 		theme_app.pulse_step()
 
@@ -1650,6 +1723,88 @@ func _robot_pose() -> void:
 	bm.emission_energy_multiplier = 3.2 + sin(time * 3.2) * 1.4
 
 # =====================================================================
+# Bilgisayar toplama: parçalar, montaj sahnesi ve vitrin
+func _parts() -> Array:
+	return progress["unlocked_parts"]
+
+func _unlock_part(id: int) -> bool:
+	if id < 1 or id > PCPartLibrary.COUNT or id in _parts():
+		return false
+	progress["unlocked_parts"].append(id)
+	return true
+
+func _update_pc_buttons() -> void:
+	var txt := "Bilgisayarım (%d/%d)" % [_parts().size(), PCPartLibrary.COUNT]
+	for b in [btn_pc_title, btn_pc_pause]:
+		if b != null:
+			UIKit.set_text(b, txt)
+
+## mode: "assembly" (yeni parçanın 8 sn montajı) ya da "showcase" (Bilgisayarım)
+func _open_assembly(m: String, pid := 0) -> void:
+	if assembly != null:
+		return
+	if asm_layer == null:
+		asm_layer = CanvasLayer.new()
+		asm_layer.layer = 40
+		add_child(asm_layer)
+	_asm_return = _current
+	assembly = ASSEMBLY_SCENE.instantiate()
+	asm_layer.add_child(assembly)
+	assembly.setup(m, _parts(), pid)
+	assembly.next_level.connect(_assembly_next)
+	assembly.closed.connect(_close_assembly)
+	assembly.test_requested.connect(_assembly_test)
+	# arkadaki oyun dünyası görünmezken çizilmesin
+	get_viewport().disable_3d = true
+	if hud:
+		hud.visible = false
+	assembly.modulate.a = 0.0
+	assembly.create_tween().tween_property(assembly, "modulate:a", 1.0, 0.35)
+	audio.play("whoosh")
+
+func _close_assembly() -> void:
+	if assembly == null:
+		return
+	assembly.queue_free()
+	assembly = null
+	get_viewport().disable_3d = false
+	_update_pc_buttons()
+	if win_shown:
+		_show("win")
+	else:
+		_show(_asm_return)
+
+## Montaj bitti: oyundan gelindiyse sonraki seviye, vitrinden test edildiyse vitrine dönüş
+func _assembly_next() -> void:
+	if assembly == null:
+		return
+	if assembly.from_showcase:
+		assembly.from_showcase = false
+		assembly.setup("showcase", _parts())
+		return
+	var nxt := mini(levels.size() - 1, level_idx + 1)
+	assembly.queue_free()
+	assembly = null
+	get_viewport().disable_3d = false
+	win_shown = false
+	_start_level(nxt)
+
+## Geliştirici kısayolu: sıradaki parçayı aç ve montajını hemen oynat
+func _assembly_test() -> void:
+	var nid := 0
+	for i in range(1, PCPartLibrary.COUNT + 1):
+		if not (i in _parts()):
+			nid = i
+			break
+	if nid == 0:
+		_toast("Bütün parçalar zaten takılı")
+		return
+	_unlock_part(nid)
+	_save_progress()
+	assembly.from_showcase = true
+	assembly.setup("assembly", _parts(), nid)
+
+# =====================================================================
 # Kazanma
 func _stars_for(blocks: int, par: int) -> int:
 	return 3 if blocks <= par else (2 if blocks <= par + 3 else 1)
@@ -1669,6 +1824,8 @@ func _on_win() -> void:
 		progress["best"][key] = {"blocks": blocks, "stars": stars}
 	progress["unlocked"] = maxi(int(progress["unlocked"]), mini(levels.size(), level_idx + 2))
 	progress["progs"][key] = Program.program_to_src(prog)
+	var part_id := level_idx + 1
+	var new_part := _unlock_part(part_id)
 	_save_progress()
 	if not instant:
 		_confetti(Vector3(L.goal))
@@ -1678,6 +1835,9 @@ func _on_win() -> void:
 	_prepare_win(stars, blocks, par)
 	if instant:
 		_show("win")
+	elif new_part:
+		# yeni parça kazanıldı: zafer anından sonra 8 saniyelik montaj sahnesi
+		get_tree().create_timer(1.4).timeout.connect(func(): if win_shown: _open_assembly("assembly", part_id))
 	else:
 		get_tree().create_timer(1.2).timeout.connect(func(): if win_shown: _show("win"))
 
@@ -1821,6 +1981,14 @@ func _notification(what: int) -> void:
 		_on_back()
 
 func _on_back() -> void:
+	if assembly != null:
+		if assembly.mode == "assembly" and not assembly.finished:
+			assembly._skip()
+		elif assembly.mode == "assembly" and not assembly.from_showcase:
+			_assembly_next()
+		else:
+			_close_assembly()
+		return
 	if _current in ["intro", "backup", "settings"]:
 		if _current == "settings":
 			_close_settings()
@@ -2230,6 +2398,10 @@ func _build_screens() -> void:
 	tr.add_child(UIKit.round_button("grid", _open_levels, 66, Color.WHITE, UIKit.PURPLE))
 	tr.add_child(UIKit.round_button("gear", _open_settings, 66, Color.WHITE, UIKit.INK))
 	tv.add_child(tr)
+	btn_pc_title = UIKit.button("Bilgisayarım", Color("#ffb84d"), func(): _open_assembly("showcase"), 22, "sparkle", UIKit.INK, 60)
+	var pcc := CenterContainer.new()
+	pcc.add_child(btn_pc_title)
+	tv.add_child(pcc)
 	lbl_title_stars = UIKit.label("", 22, UIKit.INK, UIKit.font_black)
 	var tsp := HBoxContainer.new()
 	tsp.add_theme_constant_override("separation", 6)
@@ -2333,6 +2505,8 @@ func _build_screens() -> void:
 		audio.play("mech")
 		_show(""), 24, "reset", UIKit.INK, 64))
 	pvb.add_child(UIKit.button("Seviyeler", UIKit.PURPLE, _open_levels, 26, "grid", Color.WHITE, 70))
+	btn_pc_pause = UIKit.button("Bilgisayarım", Color("#ffb84d"), func(): _open_assembly("showcase"), 24, "sparkle", UIKit.INK, 64)
+	pvb.add_child(btn_pc_pause)
 	pvb.add_child(UIKit.button("Ayarlar", Color.WHITE, _open_settings, 24, "gear", UIKit.INK, 64))
 	pvb.add_child(UIKit.button("Ana menü", UIKit.CORAL, _show_title, 24, "home", Color.WHITE, 64))
 	_center_box(pz, pcard)
@@ -2686,6 +2860,7 @@ func _show_title() -> void:
 	for k in progress["best"]:
 		got += int(progress["best"][k]["stars"])
 	lbl_title_stars.text = "%d / %d" % [got, levels.size() * 3]
+	_update_pc_buttons()
 	_show("title")
 
 func _play() -> void:
@@ -2888,6 +3063,7 @@ func _retry() -> void:
 
 func _open_pause() -> void:
 	audio.play("tap")
+	_update_pc_buttons()
 	if mode == "running":
 		_set_mode("paused", true)
 	_show("pause")
@@ -3778,6 +3954,28 @@ func _top_walk(n: Node, pos: Vector2, box: Dictionary) -> void:
 ## seviye 0 = başlık, -1 = seviye haritası, -2 = kazanma ekranı (seviye 12), -3 = duraklatma menüsü
 func _shot(spec: String) -> void:
 	var parts := spec.split(":")
+	# montaj/vitrin: --shot=asm,14,5.0:dosya.png  ya da  --shot=pc,60:dosya.png
+	if parts[0].begins_with("asm") or parts[0].begins_with("pc"):
+		var a := parts[0].split(",")
+		var n := int(a[1])
+		var ids := []
+		for i in range(1, n + 1):
+			ids.append(i)
+		progress["unlocked_parts"] = ids
+		_open_assembly("assembly" if a[0] == "asm" else "showcase", n)
+		assembly.modulate.a = 1.0
+		for f in 20:
+			await get_tree().process_frame
+		if a[0] == "asm":
+			assembly.t = 0.0
+			assembly._snapped = false
+			assembly.advance(float(a[2]))
+			assembly.set_process(false)
+		for f in 40:
+			await get_tree().process_frame
+		get_viewport().get_texture().get_image().save_png(parts[1])
+		get_tree().quit()
+		return
 	var i := int(parts[0]) - 1
 	var flags: PackedStringArray = parts[3].split(",") if parts.size() > 3 else PackedStringArray()
 	# cutout: üst kamera çentiği + alt hareket çubuğu (görünür alan pikseli)
@@ -3912,6 +4110,35 @@ func _feeltest() -> void:
 	var v2: Node3D = objs["player"].get_meta("vis")
 	if not v2.transform.is_equal_approx(Transform3D.IDENTITY):
 		fails.append("durdurunca robot katmanı sıfırlanmadı")
+	# montaj sahnesi: 8 sn zaman çizelgesi, basılı tutma 2x, bitişte "Sonraki Seviye"; vitrin modu
+	var asm: Control = ASSEMBLY_SCENE.instantiate()
+	add_child(asm)
+	var pre := []
+	for i in range(1, 14):
+		pre.append(i)
+	pre.append(14)
+	asm.setup("assembly", pre, 14)
+	var tgt: Vector3 = PCPartLibrary.part(14).assembly_position
+	asm.advance(3.0)
+	if asm.new_node.position.distance_to(tgt) < 0.05:
+		fails.append("montaj: parça 3. saniyede zaten yerindeydi")
+	asm.holding = true
+	for k in 30:
+		asm._process(0.1)
+	if not asm.finished:
+		fails.append("montaj: 2x hızda 8 sn içinde bitmedi (t=%.2f)" % asm.t)
+	if asm.new_node.position.distance_to(tgt) > 0.001 or not asm.btn_next.visible:
+		fails.append("montaj: parça yerine oturmadı ya da Sonraki görünmüyor")
+	if not ("Parça 14/100" in asm.lbl_caption.text and "Takıldı" in asm.lbl_caption.text):
+		fails.append("montaj yazısı: " + asm.lbl_caption.text)
+	asm.setup("assembly", pre, 14)
+	asm._skip()
+	if not asm.finished:
+		fails.append("montaj: Geç çalışmadı")
+	asm.setup("showcase", pre)
+	if asm.nodes.size() != pre.size() or not asm.btn_test.visible:
+		fails.append("vitrin: parça sayısı ya da test butonu")
+	asm.queue_free()
 	# hava durumu: her ön ayar uygulanır, şimşek gökte ve sahne ışığında görünür
 	for k in Weather.PRESETS:
 		weather.apply(k, 3.0)

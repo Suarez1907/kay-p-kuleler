@@ -74,6 +74,7 @@ jobs:
           "$G" --headless --script res://tests/run_themes.gd 2>&1 | grep -E "themes|HATA|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
           "$G" --headless -- --autotest 2>&1 | grep -E "autotest|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
           "$G" --headless -- --feeltest 2>&1 | grep -E "feeltest|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
+          "$G" --headless --script res://tests/run_parts.gd 2>&1 | grep -E "parts:|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
           "$G" --headless -- --layouttest 2>&1 | grep -E "layouttest|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
 
       - name: Android APK dışa aktar
