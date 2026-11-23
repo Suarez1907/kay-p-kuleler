@@ -1,8 +1,9 @@
-[gd_scene format=3]
+[gd_scene format=3 uid="uid://bnfmkqayqkbe6"]
 
-[ext_resource type="PackedScene" path="res://assets/models/components/smd_transistor.glb" id="1_turrv"]
-[ext_resource type="PackedScene" path="res://assets/models/backdrops/backdrop_01.glb" id="2_0dpco"]
-[ext_resource type="Texture2D" path="res://assets/hdri/studio_softbox_2k.exr" id="3_c8vyt"]
+[ext_resource type="PackedScene" uid="uid://uvg6aqodhsyw" path="res://assets/models/components/smd_transistor.glb" id="1_turrv"]
+[ext_resource type="PackedScene" uid="uid://37auuqng82a7" path="res://assets/models/backdrops/backdrop_01.glb" id="2_0dpco"]
+[ext_resource type="Texture2D" uid="uid://dm5o07fwcbyfi" path="res://assets/hdri/studio_softbox_2k.exr" id="3_c8vyt"]
+[ext_resource type="LightmapGIData" uid="uid://bfh6nwkica8lb" path="res://scenes/baked_levels/level_009.lmbake" id="4_0dpco"]
 
 [sub_resource type="PanoramaSkyMaterial" id="PanoramaSkyMaterial_gxqj3"]
 panorama = ExtResource("3_c8vyt")
@@ -23,7 +24,7 @@ metadata/kk_sig = "1:84987d3ec7e3b06a544d7614a008a1de"
 [node name="model" type="Node3D" parent="Cells/c_0_0_0/comp" unique_id=1622604326]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
 
-[node name="smd_transistor2" type="Node3D" parent="Cells/c_0_0_0/comp/model" unique_id=1666052889 instance=ExtResource("1_turrv")]
+[node name="smd_transistor2" parent="Cells/c_0_0_0/comp/model" unique_id=1666052889 instance=ExtResource("1_turrv")]
 transform = Transform3D(0.9090909, 0, 0, 0, 0.9090909, 0, 0, 0, 0.9090909, 0, 0, 0)
 
 [node name="c_1_0_0" type="Node3D" parent="Cells" unique_id=980315798]
@@ -34,7 +35,7 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0)
 [node name="model" type="Node3D" parent="Cells/c_1_0_0/comp" unique_id=1477207575]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
 
-[node name="smd_transistor2" type="Node3D" parent="Cells/c_1_0_0/comp/model" unique_id=1066215099 instance=ExtResource("1_turrv")]
+[node name="smd_transistor2" parent="Cells/c_1_0_0/comp/model" unique_id=1066215099 instance=ExtResource("1_turrv")]
 transform = Transform3D(0.9090909, 0, 0, 0, 0.9090909, 0, 0, 0, 0.9090909, 0, 0, 0)
 
 [node name="c_2_0_0" type="Node3D" parent="Cells" unique_id=1014369695]
@@ -45,12 +46,12 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2, 0, 0)
 [node name="model" type="Node3D" parent="Cells/c_2_0_0/comp" unique_id=1338567777]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
 
-[node name="smd_transistor2" type="Node3D" parent="Cells/c_2_0_0/comp/model" unique_id=603707029 instance=ExtResource("1_turrv")]
+[node name="smd_transistor2" parent="Cells/c_2_0_0/comp/model" unique_id=603707029 instance=ExtResource("1_turrv")]
 transform = Transform3D(0.9090909, 0, 0, 0, 0.9090909, 0, 0, 0, 0.9090909, 0, 0, 0)
 
 [node name="Stairs" type="Node3D" parent="." unique_id=673177908]
 
-[node name="Backdrop" type="Node3D" parent="." unique_id=1385229887 instance=ExtResource("2_0dpco")]
+[node name="Backdrop" parent="." unique_id=1385229887 instance=ExtResource("2_0dpco")]
 transform = Transform3D(0.6, 0, 0, 0, 0.6, 0, 0, 0, 0.6, 1, -6, 0)
 
 [node name="BakeSun" type="DirectionalLight3D" parent="." unique_id=1621398316]
@@ -82,3 +83,4 @@ max_texture_size = 2048
 environment_mode = 2
 environment_custom_sky = SubResource("Sky_f16ji")
 environment_custom_energy = 0.9
+light_data = ExtResource("4_0dpco")
