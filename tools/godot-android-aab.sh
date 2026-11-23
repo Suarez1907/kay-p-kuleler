@@ -36,6 +36,10 @@ export GODOT_ANDROID_KEYSTORE_RELEASE_PATH="${RELEASE_KEYSTORE}" \
        GODOT_ANDROID_KEYSTORE_RELEASE_USER="${RELEASE_KEY_ALIAS}" \
        GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD="${RELEASE_KEY_PASS}"
 mkdir -p "$(dirname "$OUT")"
-"$GODOT" --headless --export-release "Android AAB" "$OUT" 2>&1 | tail -20 || true
+LOG="$(dirname "$OUT")/aab-export.log"
+"$GODOT" --headless --export-release "Android AAB" "$OUT" > "$LOG" 2>&1 || true
+# Gradle hatasının asıl nedeni ("What went wrong") günlüğün ortasında kalır: ayrıca gösterilir
+grep -n -A15 "What went wrong" "$LOG" || true
+tail -25 "$LOG"
 test -s "$OUT"
 echo "AAB: $OUT ($(du -h "$OUT" | cut -f1))"
