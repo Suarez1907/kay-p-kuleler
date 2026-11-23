@@ -247,7 +247,7 @@ func _ready() -> void:
 	var migrated := _migrate_webview()
 	_show_title()
 	# varlık önbelleği + shader ısıtma; ilk açılışta cihaz ölçülüp grafik kalitesi otomatik seçilir
-	perf.start_warmup()
+	perf.start_warmup(_baked_warm_list())
 	if not progress.has("intro_film"):
 		_play_intro_film.call_deferred()
 	if not progress.has("gfx"):
@@ -657,6 +657,17 @@ var _bakegen_mode := false
 
 func _level_sig(i: int) -> String:
 	return "%d:%s" % [BAKE_VERSION, JSON.stringify(levels[i]).md5_text()]
+
+## Isıtma listesi: oyuncunun açacağı seviyenin (ve bir sonrakinin) fırınlanmış sahnesi; sahne yüklenince
+## ışık haritası (LightmapGIData + .exr) de önbelleğe girer, ilk seviye açılışı diskten okumayı beklemez
+func _baked_warm_list() -> Array:
+	var out := []
+	var cur := clampi(int(progress.get("unlocked", 1)) - 1, 0, LEVEL_CUSTOM - 1)
+	for i in [cur, mini(cur + 1, LEVEL_CUSTOM - 1)]:
+		var p := BAKED_DIR + "level_%03d.tscn" % (i + 1)
+		if ResourceLoader.exists(p) and not p in out:
+			out.append(p)
+	return out
 
 func _load_baked_level(i: int) -> Node3D:
 	var path := BAKED_DIR + "level_%03d.tscn" % (i + 1)
@@ -7705,7 +7716,7 @@ func _perfcheck() -> void:
 	var fails := []
 	var info := {}
 	# gerçek akıştaki gibi: varlıklar başlık ekranında ısıtılır, seviye kurulumu sonra ölçülür
-	perf.start_warmup()
+	perf.start_warmup(_baked_warm_list())
 	var g0 := 0
 	while not perf.warm_done and g0 < 600:
 		await get_tree().process_frame
@@ -7742,7 +7753,7 @@ func _perfcheck() -> void:
 		if br.get_child_count() > 90:
 			fails.append("vitrin toplaması %d grup (en fazla 90)" % br.get_child_count())
 	_close_assembly()
-	perf.start_warmup()
+	perf.start_warmup(_baked_warm_list())
 	var guard := 0
 	while not perf.warm_done and guard < 600:
 		await get_tree().process_frame
