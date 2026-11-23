@@ -201,6 +201,7 @@ func _next_name() -> String:
 
 func _spawn(id: int) -> Node3D:
 	var n := PartBuilder.build(PCPartLibrary.part(id))
+	AssetLoader.set_gi_dynamic(n)   # takılı parçalar oyuncuya göre değişir: fırınlanmaz, problardan ışık alır
 	parts_root.add_child(n)
 	nodes[id] = n
 	_style_node(id, n)
@@ -322,19 +323,26 @@ func _build_world() -> void:
 	env.glow_bloom = 0.08
 	env.glow_hdr_threshold = 1.1
 	env.fog_enabled = false
+	# ADIM 7: sıcak atölye 2K HDRI'sı ortam + yansıma ışığı, AgX (arka plan rengi aynı kalır)
+	StudioLighting.apply(env, StudioLighting.WORKSHOP, 1.0, 0.7, 1.3)
+	env.glow_intensity = 0.6
 	we.environment = env
 	world.add_child(we)
+	# fırınlanmış atölye (LightmapGI): varsa masa/raflar ve statik dolgu ışıkları ondan gelir
+	var baked: Node3D = _load_baked_workshop()
 	# stüdyo ışıkları: sıcak ana ışık, soğuk kenar ışığı, yumuşak dolgu
 	var key := DirectionalLight3D.new()
 	key.light_color = Color("#ffe9d2")
 	key.light_energy = 2.1
 	key.shadow_enabled = true
 	key.shadow_blur = 1.5
+	key.light_bake_mode = Light3D.BAKE_DYNAMIC   # dolaylı sıçrama fırında, parçaların keskin gölgesi gerçek zamanlı
 	world.add_child(key)
 	key.look_at_from_position(Vector3(5, 9, 6), Vector3.ZERO, Vector3.UP)
 	var rim := DirectionalLight3D.new()
 	rim.light_color = Color("#7fb4ff")
 	rim.light_energy = 1.1
+	rim.visible = baked == null                  # fırınlanmışta Fills/Rim (BAKE_STATIC) kullanılır
 	world.add_child(rim)
 	rim.look_at_from_position(Vector3(-6, 4, -7), Vector3.ZERO, Vector3.UP)
 	var spot := SpotLight3D.new()
@@ -343,12 +351,19 @@ func _build_world() -> void:
 	spot.spot_range = 16.0
 	spot.spot_angle = 34.0
 	spot.position = Vector3(0.5, 8.5, 2.5)
+	spot.visible = baked == null
 	world.add_child(spot)
 	spot.look_at(Vector3(0.6, 0.8, 0), Vector3.UP)
 	# Blender atölye sahnesi (masa, raflar, havya istasyonu, alet çantası, softbox ışıklar); yoksa düz masa + perde
-	var shop: Node3D = AssetLoader.scene_model("workshop") if ComponentFactory.use_models else null
-	if shop != null:
-		world.add_child(shop)
+	var shop: Node3D = null
+	if baked != null:
+		world.add_child(baked)
+		shop = baked.get_node_or_null("Workshop")
+		AssetLoader.enhance_materials(shop)
+	else:
+		shop = AssetLoader.scene_model("workshop") if ComponentFactory.use_models else null
+		if shop != null:
+			world.add_child(shop)
 	var desk := MeshInstance3D.new()
 	var dm := BoxMesh.new()
 	dm.size = Vector3(16, 0.2, 10)
@@ -413,6 +428,22 @@ func _build_world() -> void:
 	q.material = qm
 	sparks.draw_pass_1 = q
 	world.add_child(sparks)
+
+const BAKED_WORKSHOP := "res://scenes/baked/assembly_workshop.tscn"
+
+func _load_baked_workshop() -> Node3D:
+	if not ComponentFactory.use_models or not ResourceLoader.exists(BAKED_WORKSHOP):
+		return null
+	var root: Node3D = (load(BAKED_WORKSHOP) as PackedScene).instantiate()
+	var lm := root.get_node_or_null("LightmapGI") as LightmapGI
+	if lm == null or lm.light_data == null:
+		root.free()
+		return null
+	var bs := root.get_node_or_null("BakeSun")
+	if bs != null:
+		root.remove_child(bs)
+		bs.free()
+	return root
 
 func _build_ui() -> void:
 	theme = UIKit.make_theme()

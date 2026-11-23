@@ -229,6 +229,9 @@ func _ready() -> void:
 		if a == "--layouttest":
 			_layouttest.call_deferred()
 			return
+		if a.begins_with("--bakegen="):
+			_bakegen.call_deferred(a.substr(10))
+			return
 		if a.begins_with("--uiaudit"):
 			_uiaudit.call_deferred(a.substr(10) if a.length() > 10 else "")
 			return
@@ -244,7 +247,7 @@ func _ready() -> void:
 	var migrated := _migrate_webview()
 	_show_title()
 	# varlık önbelleği + shader ısıtma; ilk açılışta cihaz ölçülüp grafik kalitesi otomatik seçilir
-	perf.start_warmup()
+	perf.start_warmup(_baked_warm_list())
 	if not progress.has("intro_film"):
 		_play_intro_film.call_deferred()
 	if not progress.has("gfx"):
@@ -429,6 +432,8 @@ func _setup_world() -> void:
 	env.adjustment_enabled = true
 	env.adjustment_saturation = 1.1
 	env.adjustment_contrast = 1.05
+	# ADIM 7: 2K stüdyo HDRI ortam + yansıma ışığı, AgX ton eşleme (görünen arka plan oyunun gökyüzü shader'ı kalır)
+	StudioLighting.apply(env, StudioLighting.STUDIO, 1.0, 0.65, 1.0)
 	we.environment = env
 	add_child(we)
 
@@ -443,6 +448,8 @@ func _setup_world() -> void:
 	sun.shadow_opacity = 0.55
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
 	sun.directional_shadow_max_distance = 120.0
+	# dolaylı ışık sıçraması LightmapGI'a fırınlanır, robotun gerçek zamanlı keskin gölgesi korunur
+	sun.light_bake_mode = Light3D.BAKE_DYNAMIC
 	add_child(sun)
 	# güneş: üst yüz en parlak, +x yüzü orta, +z yüzü koyu → izometrik bakışta 3 ayrı ton
 	sun.look_at_from_position(Vector3(7.0, 10.0, 3.0), Vector3.ZERO, Vector3.UP)
@@ -609,15 +616,20 @@ func _build_visual_fx(box: AABB) -> void:
 ## Uzak manzara: adanın altında uzanan dev donanım dünyası; renkler gökyüzüne karışır (atmosferik derinlik)
 func _build_backdrop(ph: int, box: AABB) -> void:
 	var path := "res://assets/models/backdrops/backdrop_%02d.glb" % (ph + 1)
-	if not ResourceLoader.exists(path):
-		return
-	var ps = load(path)
-	if not (ps is PackedScene):
-		return
-	var bd: Node3D = (ps as PackedScene).instantiate()
-	# ortografik izometrik kamera: manzara ölçeklenip adanın çok altına konur ("bulutların altındaki şehir")
-	bd.scale = Vector3.ONE * 0.6
-	bd.position = Vector3(box.get_center().x, float(L.min_y) - 6.0, box.get_center().z)
+	var bd: Node3D = null
+	var baked_bd := objs.has("baked") and (objs["baked"] as Node).has_node("Backdrop")
+	if baked_bd:
+		bd = (objs["baked"] as Node).get_node("Backdrop")       # fırınlanmış sahnede: ışık haritası düğüm yoluna bağlı
+	else:
+		if not ResourceLoader.exists(path):
+			return
+		var ps = load(path)
+		if not (ps is PackedScene):
+			return
+		bd = (ps as PackedScene).instantiate()
+		# ortografik izometrik kamera: manzara ölçeklenip adanın çok altına konur ("bulutların altındaki şehir")
+		bd.scale = Vector3.ONE * 0.6
+		bd.position = Vector3(box.get_center().x, float(L.min_y) - 6.0, box.get_center().z)
 	var haze: Color = weather.veil_color()
 	for mi in PartBuilder._meshes_in(bd):
 		var m: MeshInstance3D = mi
@@ -631,8 +643,225 @@ func _build_backdrop(ph: int, box: AABB) -> void:
 					e.metallic *= 0.5
 				e.disable_receive_shadows = true
 				m.set_surface_override_material(i, e)
-	level_root.add_child(bd)
+	if not baked_bd:
+		level_root.add_child(bd)
 	objs["backdrop"] = bd
+
+# ---------- fırınlanmış seviyeler (LightmapGI) ----------
+## res://scenes/baked_levels/level_XXX.tscn: statik hücreler (Cells/c_x_y_z/comp), merdivenler (Stairs/s_x_y_z),
+## arka plan levhası (Backdrop), statik dolgu ışıkları (Fills), fırınlamada kullanılan güneş kopyası (BakeSun; oyunda
+## silinir: gerçek zamanlı güneş zaten var) ve LightmapGI. Seviye tanımı değişirse imza tutmaz → JSON kurucusuna düşülür.
+const BAKED_DIR := "res://scenes/baked_levels/"
+const BAKE_VERSION := 1
+var _bakegen_mode := false
+
+func _level_sig(i: int) -> String:
+	return "%d:%s" % [BAKE_VERSION, JSON.stringify(levels[i]).md5_text()]
+
+## Isıtma listesi: oyuncunun açacağı seviyenin (ve bir sonrakinin) fırınlanmış sahnesi; sahne yüklenince
+## ışık haritası (LightmapGIData + .exr) de önbelleğe girer, ilk seviye açılışı diskten okumayı beklemez
+func _baked_warm_list() -> Array:
+	var out := []
+	var cur := clampi(int(progress.get("unlocked", 1)) - 1, 0, LEVEL_CUSTOM - 1)
+	for i in [cur, mini(cur + 1, LEVEL_CUSTOM - 1)]:
+		var p := BAKED_DIR + "level_%03d.tscn" % (i + 1)
+		if ResourceLoader.exists(p) and not p in out:
+			out.append(p)
+	return out
+
+func _load_baked_level(i: int) -> Node3D:
+	var path := BAKED_DIR + "level_%03d.tscn" % (i + 1)
+	if not ComponentFactory.use_models or not ResourceLoader.exists(path) or OS.has_environment("KK_NO_BAKED"):
+		return null
+	var ps = load(path)
+	if not (ps is PackedScene):
+		return null
+	var root: Node3D = (ps as PackedScene).instantiate()
+	var lm := root.get_node_or_null("LightmapGI") as LightmapGI
+	if String(root.get_meta("kk_sig", "")) != _level_sig(i) or lm == null or lm.light_data == null:
+		root.free()
+		return null
+	var bs := root.get_node_or_null("BakeSun")
+	if bs != null:
+		root.remove_child(bs)
+		bs.free()
+	print_verbose("fırınlanmış seviye: ", path)
+	return root
+
+func _own_for_pack(n: Node, owner_node: Node) -> void:
+	if n != owner_node:
+		n.owner = owner_node
+	if n != owner_node and n.scene_file_path != "":
+		return              # içe aktarılmış model örnek olarak kaydedilir
+	for c in n.get_children():
+		_own_for_pack(c, owner_node)
+
+## godot --headless --path godot-program -- --bakegen=1-10   (assembly: --bakegen=assembly)
+## Sahneleri yazar; fırınlama editörde yapılır: tools/bake_lightmaps.sh
+func _bakegen(spec: String) -> void:
+	instant = true
+	_bakegen_mode = true
+	DirAccess.make_dir_recursive_absolute(BAKED_DIR)
+	var ids := []
+	for part in spec.split(","):
+		if part == "assembly":
+			ids.append(-1)
+		elif part.contains("-"):
+			for k in range(int(part.get_slice("-", 0)), int(part.get_slice("-", 1)) + 1):
+				ids.append(k)
+		elif part != "":
+			ids.append(int(part))
+	var made := []
+	for id in ids:
+		var path: String = _bakegen_assembly() if id == -1 else _bakegen_level(int(id) - 1)
+		if path != "":
+			made.append(path)
+		await get_tree().process_frame
+	print("bakegen: %d sahne → %s" % [made.size(), ",".join(made)])
+	get_tree().quit(0)
+
+func _bakegen_level(i: int) -> String:
+	build_level(i)
+	var root := Node3D.new()
+	root.name = "BakedLevel"
+	root.set_meta("kk_sig", _level_sig(i))
+	var cells := Node3D.new()
+	cells.name = "Cells"
+	root.add_child(cells)
+	var stairs := Node3D.new()
+	stairs.name = "Stairs"
+	root.add_child(stairs)
+	var box := AABB(Vector3(L.start), Vector3.ZERO)
+	for p in L.statics:
+		var v: Dictionary = L.statics[p]
+		box = box.expand(Vector3(p))
+		if v["t"] == "b":
+			var cdef: Dictionary = L.comps.get(p, {})
+			var comp := ComponentFactory.bare(ComponentFactory.type_of(String(cdef.get("t", ""))), int(cdef.get("d", 0)))
+			if comp == null:
+				continue
+			comp.name = "comp"
+			var cell := Node3D.new()
+			cell.name = "c_%d_%d_%d" % [p.x, p.y, p.z]
+			cell.position = Vector3(p)
+			cell.add_child(comp)
+			cells.add_child(cell)
+		else:
+			var sg := Node3D.new()
+			sg.name = "s_%d_%d_%d" % [p.x, p.y, p.z]
+			sg.position = Vector3(p)
+			sg.rotation.y = [0.0, -PI / 2, PI, PI / 2][int(v["d"])]
+			var stg := _pz("stairs", Vector3.ONE)
+			if stg != null:
+				stg.name = "model"
+				stg.position = Vector3(0, -0.5, 0)
+				sg.add_child(stg)
+			stairs.add_child(sg)
+	# arka plan levhası: oyundaki dönüşümün aynısı
+	if objs.has("backdrop") and objs["backdrop"] is Node3D:
+		var src: Node3D = objs["backdrop"]
+		var bd: Node3D = (load(src.scene_file_path) as PackedScene).instantiate()
+		bd.name = "Backdrop"
+		bd.transform = src.transform
+		root.add_child(bd)
+	# fırınlama güneşi: tema + hava durumunun güneşi (BAKE_DYNAMIC: dolaylı sıçrama fırınlanır)
+	var bs := DirectionalLight3D.new()
+	bs.name = "BakeSun"
+	bs.transform = sun.global_transform
+	bs.light_color = sun.light_color
+	bs.light_energy = sun.light_energy
+	bs.shadow_enabled = true
+	bs.light_bake_mode = Light3D.BAKE_DYNAMIC
+	root.add_child(bs)
+	# statik dolgu ışıkları (çalışma anında 0 GPU maliyeti): hedef kristalin sıcak parıltısı + soğuk tepe dolgusu
+	var fills := Node3D.new()
+	fills.name = "Fills"
+	root.add_child(fills)
+	var gl := OmniLight3D.new()
+	gl.name = "GoalGlow"
+	gl.light_color = Color("#ffcf7a")
+	gl.light_energy = 1.6
+	gl.omni_range = 4.0
+	gl.position = Vector3(L.goal) + Vector3(0, 0.6, 0)
+	gl.light_bake_mode = Light3D.BAKE_STATIC
+	fills.add_child(gl)
+	var tf := OmniLight3D.new()
+	tf.name = "TopFill"
+	tf.light_color = Color("#bcd4ff")
+	tf.light_energy = 1.5
+	tf.omni_range = maxf(8.0, box.size.length())
+	tf.position = box.get_center() + Vector3(0, box.size.y + 4.0, 0)
+	tf.light_bake_mode = Light3D.BAKE_STATIC
+	fills.add_child(tf)
+	var lm := LightmapGI.new()
+	lm.name = "LightmapGI"
+	StudioLighting.configure_lightmap(lm, false)
+	root.add_child(lm)
+	_own_for_pack(root, root)
+	var ps := PackedScene.new()
+	ps.pack(root)
+	var path := BAKED_DIR + "level_%03d.tscn" % (i + 1)
+	var err := ResourceSaver.save(ps, path)
+	root.free()
+	return path if err == OK else ""
+
+func _bakegen_assembly() -> String:
+	# atölye: Blender atölye sahnesi (masa, raflar, softbox'lar) + statik dolgu/vurgu ışıkları + LightmapGI (yüksek kalite)
+	var root := Node3D.new()
+	root.name = "BakedWorkshop"
+	var shop_path := AssetLoader.MODELS + "scenes/workshop.glb"
+	if not ResourceLoader.exists(shop_path):
+		return ""
+	var shop: Node3D = (load(shop_path) as PackedScene).instantiate()
+	shop.name = "Workshop"
+	root.add_child(shop)
+	var ks := DirectionalLight3D.new()
+	ks.name = "BakeSun"
+	ks.light_color = Color("#ffe9d2")
+	ks.light_energy = 2.1
+	ks.shadow_enabled = true
+	ks.light_bake_mode = Light3D.BAKE_DYNAMIC
+	root.add_child(ks)
+	ks.look_at_from_position(Vector3(5, 9, 6), Vector3.ZERO, Vector3.UP)
+	var fills := Node3D.new()
+	fills.name = "Fills"
+	root.add_child(fills)
+	var rim := DirectionalLight3D.new()
+	rim.name = "Rim"
+	rim.light_color = Color("#7fb4ff")
+	rim.light_energy = 1.1
+	rim.light_bake_mode = Light3D.BAKE_STATIC
+	fills.add_child(rim)
+	rim.look_at_from_position(Vector3(-6, 4, -7), Vector3.ZERO, Vector3.UP)
+	var spot := SpotLight3D.new()
+	spot.name = "DeskSpot"
+	spot.light_color = Color("#ffd9a8")
+	spot.light_energy = 3.0
+	spot.spot_range = 16.0
+	spot.spot_angle = 34.0
+	spot.light_bake_mode = Light3D.BAKE_STATIC
+	fills.add_child(spot)
+	spot.look_at_from_position(Vector3(0.5, 8.5, 2.5), Vector3(0.6, 0.8, 0), Vector3.UP)
+	var edge := OmniLight3D.new()
+	edge.name = "WarmEdge"
+	edge.light_color = Color("#ffb46b")
+	edge.light_energy = 1.2
+	edge.omni_range = 7.0
+	edge.position = Vector3(-4.5, 2.5, -3.5)
+	edge.light_bake_mode = Light3D.BAKE_STATIC
+	fills.add_child(edge)
+	var lm := LightmapGI.new()
+	lm.name = "LightmapGI"
+	StudioLighting.configure_lightmap(lm, true, StudioLighting.WORKSHOP)
+	root.add_child(lm)
+	_own_for_pack(root, root)
+	var ps := PackedScene.new()
+	ps.pack(root)
+	DirAccess.make_dir_recursive_absolute("res://scenes/baked/")
+	var path := "res://scenes/baked/assembly_workshop.tscn"
+	var err := ResourceSaver.save(ps, path)
+	root.free()
+	return path if err == OK else ""
 
 func _build_shadow_proxy() -> void:
 	var st := SurfaceTool.new()
@@ -875,6 +1104,11 @@ func build_level(i: int, as_preview := false) -> void:
 	objs = {"crates": [], "balls": [], "levers": [], "plates": [], "bridges": [], "rotators": [], "sliders": [],
 		"crumbles": [], "links": [], "cranks": [], "portals": [], "phantoms": [], "relays": [], "trail": Node3D.new()}
 	level_root.add_child(objs["trail"])
+	# ADIM 7: fırınlanmış statik sahne (LightmapGI) varsa yüklenir; hücreler yerinde sahiplenilir
+	var baked: Node3D = null if (as_preview or _bakegen_mode or i >= LEVEL_CUSTOM) else _load_baked_level(i)
+	if baked != null:
+		level_root.add_child(baked)
+		objs["baked"] = baked
 	# Not: GDScript lambdaları yerel değişkenleri kopyalar; sınır kutusu bir sözlükte tutulur.
 	var bb := {"box": AABB(Vector3(L.start), Vector3.ZERO)}
 	var grow := func(p: Vector3i): bb["box"] = bb["box"].expand(Vector3(p))
@@ -883,6 +1117,19 @@ func build_level(i: int, as_preview := false) -> void:
 	for p in L.statics:
 		var v: Dictionary = L.statics[p]
 		grow.call(p)
+		if v["t"] == "b" and baked != null and baked.has_node("Cells/c_%d_%d_%d" % [p.x, p.y, p.z]):
+			var bc: Node3D = baked.get_node("Cells/c_%d_%d_%d" % [p.x, p.y, p.z])
+			var bdef: Dictionary = L.comps.get(p, {})
+			var bcomp: Node3D = bc.get_node("comp")
+			ComponentFactory.adopt(bcomp, ComponentFactory.type_of(String(bdef.get("t", ""))), int(bdef.get("delay", 1)))
+			if bdef.get("t", "") == "relay" and String(bdef.get("mode", "")) == "":
+				objs["relays"].append({"n": bcomp, "ri": int(bdef["ri"])})
+			bc.set_meta("comp", bcomp)
+			cell_nodes[p] = bc
+			continue
+		if v["t"] != "b" and baked != null and baked.has_node("Stairs/s_%d_%d_%d" % [p.x, p.y, p.z]):
+			cell_nodes[p] = baked.get_node("Stairs/s_%d_%d_%d" % [p.x, p.y, p.z])
+			continue
 		if v["t"] == "b":
 			var first := level_root.get_child_count()
 			# zemin bloğu bir devre elemanıdır (varsayılan SMD transistör)
@@ -1176,6 +1423,17 @@ func build_level(i: int, as_preview := false) -> void:
 	level_root.add_child(holo)
 	objs["clone"] = holo
 	_build_relay_traces()
+	# hareketli nesneler ışık haritasına fırınlanmaz; problardan dolaylı ışık alır
+	for k in ["bridges", "sliders", "crumbles", "levers", "cranks", "crates", "balls"]:
+		for o in objs.get(k, []):
+			for x in (o if o is Array else [o]):
+				if x is Node:
+					AssetLoader.set_gi_dynamic(x)
+				elif x is Dictionary and x.get("n") is Node:
+					AssetLoader.set_gi_dynamic(x["n"])
+	for k in ["player", "clone"]:
+		if objs.has(k):
+			AssetLoader.set_gi_dynamic(objs[k])
 	_build_shadow_proxy()
 	_build_walk_caps()
 	_build_visual_fx(bb["box"])
@@ -7458,7 +7716,7 @@ func _perfcheck() -> void:
 	var fails := []
 	var info := {}
 	# gerçek akıştaki gibi: varlıklar başlık ekranında ısıtılır, seviye kurulumu sonra ölçülür
-	perf.start_warmup()
+	perf.start_warmup(_baked_warm_list())
 	var g0 := 0
 	while not perf.warm_done and g0 < 600:
 		await get_tree().process_frame
@@ -7495,7 +7753,7 @@ func _perfcheck() -> void:
 		if br.get_child_count() > 90:
 			fails.append("vitrin toplaması %d grup (en fazla 90)" % br.get_child_count())
 	_close_assembly()
-	perf.start_warmup()
+	perf.start_warmup(_baked_warm_list())
 	var guard := 0
 	while not perf.warm_done and guard < 600:
 		await get_tree().process_frame

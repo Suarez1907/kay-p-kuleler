@@ -187,7 +187,26 @@ def _planar_uv(o, mat_name):
     bm.to_mesh(o.data)
     bm.free()
 
-def finalize(path, budget, recenter=True):
+def _add_lightmap_uv(o):
+    """Godot LightmapGI için ikinci UV katmanı (glTF TEXCOORD_1 → Godot UV2): çakışmasız akıllı projeksiyon,
+    adalar arası 0.03 boşluk. UV1 (doku) etkin kalır."""
+    uvs = o.data.uv_layers
+    # uv_layers.new() koleksiyonu yeniden ayırır: eski katman referansları geçersizleşir (bellek bozulması);
+    # bu yüzden ada göre tutulur
+    first_name = uvs.active.name
+    if uvs.get("UVMap2") is None:
+        uvs.new(name="UVMap2")
+    uvs.active = uvs["UVMap2"]
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.uv.smart_project(angle_limit=math.radians(66), island_margin=0.03, area_weight=1.0)
+    bpy.ops.uv.pack_islands(margin=0.03, rotate=True)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    uvs = o.data.uv_layers
+    uvs.active = uvs[first_name]
+    uvs[first_name].active_render = True
+
+def finalize(path, budget, recenter=True, uv2=True):
     objs = [o for o in bpy.context.scene.objects if o.type == "MESH"]
     bpy.ops.object.select_all(action="DESELECT")
     for o in objs:
@@ -220,6 +239,8 @@ def finalize(path, budget, recenter=True):
     bpy.ops.uv.smart_project(angle_limit=math.radians(66), island_margin=0.02)
     bpy.ops.object.mode_set(mode="OBJECT")
     _planar_uv(o, "MonitorScreen")
+    if uv2:
+        _add_lightmap_uv(o)
     # üçgen sayısı
     o.data.calc_loop_triangles()
     tris = len(o.data.loop_triangles)
@@ -1059,8 +1080,10 @@ def main():
         for f in (build_smd, build_diode, build_capacitor, build_resistor, build_relay, build_bridge):
             report["items"].append(f())
     if "parts" in ONLY:
+        first = int(_arg("--from", "1")) - 1      # --from 94: yalnızca part_094 ve sonrası
         for i, row in enumerate(pc_parts.P):
-            report["items"].append(build_part(i, row))
+            if i >= first:
+                report["items"].append(build_part(i, row))
     bad = [it for it in report["items"] if not it["ok"]]
     report["total_tris"] = sum(it["tris"] for it in report["items"])
     report["seconds"] = round(time.time() - t0, 1)

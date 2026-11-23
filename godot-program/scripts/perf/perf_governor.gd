@@ -52,8 +52,12 @@ func _apply() -> void:
 
 # ---------------------------------------------------------------------------
 # varlık önbelleği + shader ısıtma
-func start_warmup() -> void:
+## extra: önceden yüklenecek ek kaynaklar (ör. oyuncunun açacağı seviyenin fırınlanmış sahnesi + ışık haritası)
+func start_warmup(extra: Array = []) -> void:
 	_queue = []
+	for f in extra:
+		if ResourceLoader.exists(f):
+			_queue.append(f)
 	for f in WARM_FILES:
 		if ResourceLoader.exists(f):
 			_queue.append(f)
@@ -97,7 +101,7 @@ func _add_textures(d: String) -> void:
 		_add_textures(d + sub + "/")
 	for fn in da.get_files():
 		var f := fn.trim_suffix(".import").trim_suffix(".remap")
-		if f.ends_with(".png") and not (d + f) in _queue and ResourceLoader.exists(d + f):
+		if (f.ends_with(".png") or f.ends_with(".jpg")) and not (d + f) in _queue and ResourceLoader.exists(d + f):
 			_queue.append(d + f)
 
 func _process(dt: float) -> void:

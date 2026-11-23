@@ -1,0 +1,23 @@
+[gd_resource type="StandardMaterial3D" format=3]
+
+[ext_resource type="Texture2D" path="res://assets/textures/pbr/epoxy_black_2k/albedo.jpg" id="1_p840u"]
+[ext_resource type="Texture2D" path="res://assets/textures/pbr/epoxy_black_2k/ao.jpg" id="2_sclin"]
+[ext_resource type="Texture2D" path="res://assets/textures/pbr/epoxy_black_2k/normal.jpg" id="3_uwant"]
+[ext_resource type="Texture2D" path="res://assets/textures/pbr/epoxy_black_2k/roughness.jpg" id="4_pr7jm"]
+
+[resource]
+resource_name = "epoxy_black_2k"
+albedo_texture = ExtResource("1_p840u")
+roughness_texture = ExtResource("4_pr7jm")
+roughness_texture_channel = 4
+normal_enabled = true
+normal_scale = 0.85
+normal_texture = ExtResource("3_uwant")
+ao_enabled = true
+ao_light_affect = 0.65
+ao_texture = ExtResource("2_sclin")
+ao_texture_channel = 4
+uv1_scale = Vector3(1.6, 1.6, 1.6)
+uv1_triplanar = true
+uv1_triplanar_sharpness = 4.0
+texture_filter = 5
