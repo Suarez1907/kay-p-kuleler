@@ -777,7 +777,7 @@ func _bakegen_level(i: int) -> String:
 	var tf := OmniLight3D.new()
 	tf.name = "TopFill"
 	tf.light_color = Color("#bcd4ff")
-	tf.light_energy = 0.8
+	tf.light_energy = 1.5
 	tf.omni_range = maxf(8.0, box.size.length())
 	tf.position = box.get_center() + Vector3(0, box.size.y + 4.0, 0)
 	tf.light_bake_mode = Light3D.BAKE_STATIC

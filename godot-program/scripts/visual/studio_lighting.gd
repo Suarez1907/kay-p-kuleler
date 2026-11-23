@@ -65,4 +65,4 @@ static func configure_lightmap(lm: LightmapGI, high := true, path := STUDIO) -> 
 	if s != null:
 		lm.environment_mode = LightmapGI.ENVIRONMENT_MODE_CUSTOM_SKY
 		lm.environment_custom_sky = s
-		lm.environment_custom_energy = 0.9
+		lm.environment_custom_energy = 2.0   # fırınlanmış ortam ışığı gerçek zamanlıdaki kadar aydınlık kalsın
