@@ -229,6 +229,9 @@ func _ready() -> void:
 		if a == "--layouttest":
 			_layouttest.call_deferred()
 			return
+		if a.begins_with("--uiaudit"):
+			_uiaudit.call_deferred(a.substr(10) if a.length() > 10 else "")
+			return
 		if a == "--perftest":
 			_perftest.call_deferred()
 			return
@@ -2505,6 +2508,10 @@ func _update_pc_buttons() -> void:
 	for b in [btn_pc_title, btn_pc_pause]:
 		if b != null:
 			UIKit.set_text(b, txt)
+			# düğmenin en küçük genişliği yeni metni kapsasın (yoksa metin düğmeden taşar)
+			var lb: Label = b.get_meta("label")
+			var fs := lb.get_theme_font_size("font_size")
+			b.custom_minimum_size.x = UIKit.font_black.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + 76.0
 			if b.has_meta("bar"):
 				(b.get_meta("bar") as BP.Bar).set_value(float(n) / PCPartLibrary.COUNT)
 
@@ -2760,6 +2767,9 @@ func _update_offset() -> void:
 		cam.h_offset = px * cam.size / vs.y
 
 func _on_resize() -> void:
+	# döndürmede (dikey ↔ yatay) arayüz ölçeği yeniden hesaplanır
+	if progress != null and not progress.is_empty():
+		_apply_access()
 	var vs := get_viewport().get_visible_rect().size
 	portrait = vs.x < vs.y * 0.95
 	if ui_root != null:
@@ -3326,8 +3336,10 @@ func _build_screens() -> void:
 	var play := _bp_button("OYNA", BP.Variant.PRIMARY, _play, "play", 64, 26)
 	title_play = play
 	col.add_child(play)
-	var r1 := HBoxContainer.new()
-	r1.add_theme_constant_override("separation", 10)
+	# dar ekranda iki düğme alt alta iner (akış kabı), genişte yan yana
+	var r1 := HFlowContainer.new()
+	r1.add_theme_constant_override("h_separation", 10)
+	r1.add_theme_constant_override("v_separation", 10)
 	var b_lv := _bp_button("SEVİYELER", BP.Variant.DEFAULT, _open_levels, "grid", 52)
 	btn_pc_title = _pc_button(52)
 	for b in [b_lv, btn_pc_title]:
@@ -3665,6 +3677,7 @@ func _build_screens() -> void:
 	var vib := CheckButton.new()
 	vib.focus_mode = Control.FOCUS_NONE
 	vib.custom_minimum_size = Vector2(64, 44)
+	BP.style_switch(vib)
 	vib.toggled.connect(func(on: bool):
 		if on != progress.get("haptics", true):
 			_toggle_vib())
@@ -3687,6 +3700,7 @@ func _build_screens() -> void:
 		var cb := CheckButton.new()
 		cb.focus_mode = Control.FOCUS_NONE
 		cb.custom_minimum_size = Vector2(64, 44)
+		BP.style_switch(cb)
 		var key: String = opt[0]
 		cb.toggled.connect(func(on: bool): _set_access(key, on))
 		row.add_child(cb)
@@ -3699,6 +3713,7 @@ func _build_screens() -> void:
 		_play_intro_film(), "play", 48))
 	# geliştirici / test: yalnızca debug derlemesinde
 	var dev_p := PanelContainer.new()
+	dev_p.set_meta("audit_skip", true)   # yalnızca debug derlemede; arayüz denetimi saymaz
 	dev_p.add_theme_stylebox_override("panel", BP.chamfer(Color("#F59E0B0F"), BP.R_STD, BP.ACCENT_AMBER, BP.BORDER_W, 12))
 	var dvb := VBoxContainer.new()
 	dvb.add_theme_constant_override("separation", 8)
@@ -3837,6 +3852,8 @@ func _show(which: String) -> void:
 				var tw2 := sc.create_tween()
 				tw2.tween_property(sc, "modulate:a", 0.0, 0.16)
 				tw2.tween_callback(func(): if _current != k: sc.visible = false)
+	if screens.has(which) and screens[which] is Control:
+		_fit_widths(screens[which], get_viewport().get_visible_rect().size.x)
 	Sfx.asmr().set_focus(which != "" and which != "editor")
 	hud.visible = which == "" or which in overlays and prev in ["", "pause", "intro", "settings", "backup", "story"] and L != null and not preview
 	cam_spin = which == "title"
@@ -3934,15 +3951,15 @@ func _fit_chrome(inner: float) -> void:
 	# Dar ekranda sabit düğme genişlikleri paneli taşırmasın: tek alt satır iç genişliğe sığdırılır.
 	if run_row == null:
 		return
+	# yan düğmeler 48 dp dokunma hedefinin altına inmez; sığmazsa ÇALIŞTIR daralır
 	var sep := 6
-	var side := 46
+	var side := int(BP.MIN_TOUCH)
 	var speed_w := 52
 	var run_w := 132.0
 	var need := float(side * 4 + speed_w) + run_w + sep * 5
 	if need > inner:
 		sep = 4
-		side = 44
-		speed_w = 44
+		speed_w = side
 		run_w = maxf(56.0, inner - side * 4 - speed_w - sep * 5)
 	# çok darda ÇALIŞTIR yazısı gizlenir, yalnızca ▶ kalır
 	(btn_run.get_meta("label") as Label).visible = run_w >= 104.0
@@ -3975,10 +3992,44 @@ func _fit_panel() -> void:
 		panel.size.y = h
 		panel.position.y = y
 
+## Dar ekran: tasarımda sabit genişlik verilmiş kartlar/metinler görünür alana sığacak kadar daraltılır
+## (asıl genişlik "fit_w" metasında saklanır; geniş ekranda aynen geri gelir).
+var _fit_vw := -1.0
+
+func _fit_widths(n: Node, vw: float, depth := 0) -> void:
+	if n is BaseButton:
+		# dokunma hedefi tabanı: 48 dp (1 mantıksal px ≈ 1 dp); kare ikon düğmeleri iki yönde büyür
+		var bb := n as BaseButton
+		var m := bb.custom_minimum_size
+		if m.y >= 34.0 and m.y < BP.MIN_TOUCH:
+			if absf(m.x - m.y) < 1.0:
+				m.x = BP.MIN_TOUCH
+			m.y = BP.MIN_TOUCH
+			bb.custom_minimum_size = m
+		elif m.y == 0.0 and m.x > 0.0 and m.x < BP.MIN_TOUCH:
+			bb.custom_minimum_size.x = BP.MIN_TOUCH
+	if n is Control:
+		var c := n as Control
+		if not c.has_meta("fit_w") and c.custom_minimum_size.x >= 300.0 and not (c is ScrollContainer and depth == 0):
+			c.set_meta("fit_w", c.custom_minimum_size.x)
+		if c.has_meta("fit_w"):
+			var pad := 24.0 if (c is PanelContainer) else 72.0
+			c.custom_minimum_size.x = minf(float(c.get_meta("fit_w")), vw - pad)
+		elif c is Label and (c as Label).autowrap_mode == TextServer.AUTOWRAP_OFF and not (c as Label).clip_text \
+				and (c as Label).text.length() > 28 and c.get_minimum_size().x > vw - 96.0:
+			# tek satırlık uzun metin dar ekranda kartı genişletmesin: sözcükten kaydır
+			(c as Label).autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			c.custom_minimum_size.x = vw - 110.0
+	for ch in n.get_children():
+		_fit_widths(ch, vw, depth + 1)
+
 func _layout() -> void:
 	if ui_root == null:
 		return
 	var vs := get_viewport().get_visible_rect().size
+	if absf(vs.x - _fit_vw) > 0.5:
+		_fit_vw = vs.x
+		_fit_widths(ui_root, vs.x)
 	portrait = vs.x < vs.y * 0.95
 	var safe := _safe_margins()
 	_safe_applied = safe
@@ -4001,13 +4052,20 @@ func _layout() -> void:
 	var pill: Control = view_dots.get_meta("pill")
 	pill.reset_size()
 	top_bar.reset_size()
-	var dots_x := vs.x - right - pill.size.x
+	# hap henüz görünmüyorsa boyutu 0 ölçülür; sonradan belirince taşmasın diye tipik genişlik varsayılır
+	var dots_x := vs.x - right - maxf(120.0, maxf(pill.size.x, pill.get_combined_minimum_size().x))
 	var title_right := panel.position.x - 10.0 if not portrait else dots_x - 8.0
 	var text_w := clampf(title_right - left - 200.0, 72.0, 380.0)
+	if text_w < 160.0:
+		# dar ekranda başlık kesilmesin ("36. DD"): tam genişlik alır, yıldız hapı alt satıra iner
+		# üst çubukta başlığın yanında blok sayacı rozeti var: onun genişliği düşülür
+		var badge: Control = top_bar.get_child(top_bar.get_child_count() - 1)
+		var bw := badge.get_combined_minimum_size().x + 12.0 if badge.visible else 0.0
+		text_w = clampf(vs.x - left - right - bw - 40.0, 72.0, 380.0)
 	lbl_chap.custom_minimum_size.x = text_w
 	lbl_name.custom_minimum_size.x = text_w
 	top_bar.reset_size()
-	if top_bar.position.x + top_bar.size.x + 8.0 > dots_x:
+	if top_bar.position.x + maxf(top_bar.size.x, top_bar.get_combined_minimum_size().x) + 8.0 > dots_x:
 		pill.position = Vector2(left, top + top_bar.size.y + 6.0)
 	else:
 		pill.position = Vector2(dots_x, top + maxf(0.0, (top_bar.size.y - pill.size.y) * 0.5))
@@ -4025,8 +4083,12 @@ func _layout() -> void:
 	toast_pill.reset_size()
 	toast_pill.position.x = (vs.x - toast_pill.size.x) / 2.0
 	var tp: Control = screens["title"].get_meta("star_pill")
-	tp.reset_size()
-	tp.position = Vector2(vs.x - safe.z - tp.size.x - 12, safe.y + 12)
+	# sağ üst köşeye sabit: sayı büyüdükçe sola doğru uzar (metin sonradan güncellense de kesilmez)
+	tp.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	tp.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	tp.offset_right = -(safe.z + 12.0)
+	tp.offset_left = tp.offset_right - tp.get_combined_minimum_size().x
+	tp.offset_top = safe.y + 12.0
 	var tg: ColorRect = screens["title"].get_meta("grid")
 	(tg.material as ShaderMaterial).set_shader_parameter("hole_center", Vector2(0.5, 0.43 if not portrait else 0.42))
 	var tvb: VBoxContainer = screens["title"].get_meta("vbox")
@@ -4900,6 +4962,8 @@ func _render_rows() -> void:
 		btn_cond.text = ""
 		UIKit.set_text(btn_cond, caption)
 		_render_cond_chips(ins, btn_cond.disabled or not show_sel)
+	if hud != null:
+		_fit_widths(hud, get_viewport().get_visible_rect().size.x)
 	if _exec["proc"] != "" and tile_nodes.has(_exec["proc"]) and _exec["idx"] < tile_nodes[_exec["proc"]].size():
 		var t: Button = tile_nodes[_exec["proc"]][_exec["idx"]]
 		(t.get_meta("ring") as Panel).visible = true
@@ -5013,7 +5077,7 @@ func _render_cond_chips(ins: Dictionary, off: bool) -> void:
 		var b := Button.new()
 		b.text = COND_CHIP[k]
 		b.focus_mode = Control.FOCUS_NONE
-		b.custom_minimum_size = Vector2(0, 40)
+		b.custom_minimum_size = Vector2(0, BP.MIN_TOUCH)
 		b.add_theme_font_override("font", UIKit.font_black)
 		b.add_theme_font_size_override("font_size", 13)
 		var on: bool = String(ins["k"]) == k
@@ -5222,6 +5286,110 @@ func _themecycle(dir: String) -> void:
 	print("themecycle: ", "TAMAM" if bad.is_empty() else "HATA " + str(bad))
 	get_tree().quit(0 if bad.is_empty() else 1)
 
+
+## Arayüz denetimi (impeccable "audit.native" ölçütleri): her ekranda görünür düğmelerin dokunma boyutu (≥ 48 dp),
+## yazı boyutu (≥ 12 sp) ve ekrandan taşan öğeler dp cinsinden ölçülür.
+##   godot --headless --path godot-program -- --uiaudit=1080x2400@2.625[:noscale]
+func _uiaudit(spec: String) -> void:
+	instant = true
+	var win := Vector2i(1080, 2400)
+	var dens := 2.625
+	var noscale := spec.ends_with(":noscale")
+	spec = spec.trim_suffix(":noscale")
+	if spec != "":
+		var a := spec.split("@")
+		var wh := a[0].split("x")
+		win = Vector2i(int(wh[0]), int(wh[1]))
+		if a.size() > 1:
+			dens = float(a[1])
+	_ui_density_override = 0.0 if noscale else dens
+	var root := get_tree().root
+	root.content_scale_mode = Window.CONTENT_SCALE_MODE_CANVAS_ITEMS
+	root.content_scale_aspect = Window.CONTENT_SCALE_ASPECT_EXPAND
+	root.content_scale_size = Vector2i(720, 720)
+	root.size = win
+	safe_override = Vector4(0, 100, 0, 72) * (720.0 / float(mini(win.x, win.y)))
+	_apply_access()
+	var f := root.content_scale_factor
+	var dp_per_px := float(mini(win.x, win.y)) / 720.0 * f / dens
+	print("uiaudit: pencere %s yoğunluk %.2f ölçek %.2f → 1 mantıksal px = %.2f dp, görünür alan %s" % [win, dens, f, dp_per_px, get_viewport().get_visible_rect().size])
+	var screens_to := [["başlık", func(): _show_title()], ["kuleler", func(): _open_levels()],
+		["oyun", func():
+			progress["seen"]["35"] = 1
+			_start_level(35)
+			prog = Program.parse_program(levels[35]["solution"])
+			sel = {"row": "main", "idx": 0}
+			_render_rows()],
+		["duraklat", func(): _open_pause()], ["ayarlar", func(): _open_settings()], ["günlük", func(): _open_daily()],
+		["atölye", func(): _open_workshop()], ["başarımlar", func(): _open_achievements()]]
+	var total_bad := 0
+	for sc in screens_to:
+		(sc[1] as Callable).call()
+		for k in 4:
+			await get_tree().process_frame
+		_layout()
+		await get_tree().process_frame
+		var r := _audit_tree(ui_root, dp_per_px, get_viewport().get_visible_rect())
+		if OS.has_environment("KK_AUDIT_SMALL"):
+			print("    küçük: ", r["small_touch"].slice(0, 40))
+			print("    yazı: ", r["small_text"].slice(0, 20))
+		if OS.has_environment("KK_AUDIT_WIDE"):
+			_audit_wide(ui_root, get_viewport().get_visible_rect().size.x - 40.0, 0)
+		total_bad += int(r["small_touch"].size()) + int(r["small_text"].size()) + int(r["overflow"].size())
+		print("  %-10s düğme %2d (en küçük %4.1f dp, <48: %d) · yazı en küçük %4.1f sp (<12: %d) · taşan %d %s" % [sc[0], r["buttons"], r["min_touch"],
+			r["small_touch"].size(), r["min_text"], r["small_text"].size(), r["overflow"].size(), str(r["overflow"].slice(0, 30)) if not r["overflow"].is_empty() else ""])
+	print("uiaudit: %s (%d sorun)" % ["TAMAM" if total_bad == 0 else "SORUNLU", total_bad])
+	get_tree().quit(0 if total_bad == 0 else 1)
+
+func _audit_wide(n: Node, lim: float, d: int) -> void:
+	if n is CanvasItem and not (n as CanvasItem).is_visible_in_tree():
+		return
+	if n is Control and (n as Control).get_combined_minimum_size().x > lim and d > 0:
+		var c := n as Control
+		var kids_wide := false
+		for ch in c.get_children():
+			if ch is Control and (ch as Control).is_visible_in_tree() and (ch as Control).get_combined_minimum_size().x > lim:
+				kids_wide = true
+		if not kids_wide:
+			print("    GENİŞ: %s %s min=%d" % [c.get_class(), (c as Label).text.left(40) if c is Label else ((c as Button).text.left(30) if c is Button else c.name), int(c.get_combined_minimum_size().x)])
+	for ch in n.get_children():
+		_audit_wide(ch, lim, d + 1)
+
+func _audit_tree(n: Node, dp: float, vr: Rect2) -> Dictionary:
+	var out := {"buttons": 0, "min_touch": 999.0, "min_text": 999.0, "small_touch": [], "small_text": [], "overflow": []}
+	_audit_walk(n, dp, vr, out, false)
+	return out
+
+func _audit_walk(n: Node, dp: float, vr: Rect2, out: Dictionary, in_scroll: bool) -> void:
+	if n is CanvasItem and not (n as CanvasItem).is_visible_in_tree():
+		return
+	if n.has_meta("audit_skip"):
+		return
+	if n is Control:
+		var c := n as Control
+		var r := c.get_global_rect()
+		if c.modulate.a > 0.05 and r.size.x > 2 and r.size.y > 2:
+			if c is BaseButton and not (c as BaseButton).disabled and c.mouse_filter != Control.MOUSE_FILTER_IGNORE:
+				out["buttons"] += 1
+				var t := minf(r.size.x, r.size.y) * dp
+				out["min_touch"] = minf(out["min_touch"], t)
+				if t < 47.5:
+					out["small_touch"].append("%s %s/%s %.0fx%.0f" % [str(c.get_parent().get_parent().name) + ">" + str(c.get_parent().name) + " min" + str(c.custom_minimum_size), c.get_class(), (c as Button).text.left(10) if c is Button else ((c.get_meta("label") as Label).text.left(10) if c.has_meta("label") and c.get_meta("label") is Label else ""), r.size.x * dp, r.size.y * dp])
+			var fs := 0
+			if c is Label and (c as Label).text.strip_edges() != "":
+				fs = c.get_theme_font_size("font_size")
+			elif c is Button and (c as Button).text.strip_edges() != "":
+				fs = c.get_theme_font_size("font_size")
+			if fs > 0:
+				var sp := fs * dp
+				out["min_text"] = minf(out["min_text"], sp)
+				if sp < 11.5:
+					out["small_text"].append("%s %.0fsp" % [(c as Label).text.left(14) if c is Label else (c as Button).text.left(14), sp])
+			if not in_scroll and (r.position.x < vr.position.x - 2 or r.end.x > vr.end.x + 2 or r.end.y > vr.end.y + 2):
+				out["overflow"].append("%s:%s min%d(%d..%d)" % [c.get_class(), (c as Label).text.left(12) if c is Label else ((c as Button).text.left(12) if c is Button else ""), int(c.get_combined_minimum_size().x), int(r.position.x), int(r.end.x)])
+	var sc := in_scroll or n is ScrollContainer
+	for ch in n.get_children(true):
+		_audit_walk(ch, dp, vr, out, sc)
 
 ## Telefon genişlikleri, yatay ekran ve üst çentik: sekmeler örtüşmez, her biri seçilir,
 ## panel güvenli alanın içinde kalır, menü/ipucu/kamera/tema başparmak hizasındadır.
@@ -6053,7 +6221,11 @@ func _build_feature_screens() -> void:
 	etv.add_child(BP.tag("ATÖLYE // KULE EDİTÖRÜ", 12, Color(BP.ACCENT_CYAN, 0.8)))
 	var einfo := UIKit.label("", 18, BP.TEXT_PRIMARY, UIKit.font_black)
 	etv.add_child(einfo)
+	einfo.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	einfo.custom_minimum_size.x = 560   # _fit_widths dar ekranda görünür alana çeker
 	var ehelp := UIKit.label("Araç seç, sahnede kareye dokun. Sürükle: döndür · çift dokun: kamera", 13, BP.TEXT_LABEL)
+	ehelp.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	ehelp.custom_minimum_size.x = 560
 	etv.add_child(ehelp)
 	etop.add_child(etv)
 	ed.add_child(etop)
@@ -7064,9 +7236,43 @@ func _set_access(key: String, on: bool) -> void:
 func _view_cols() -> Array:
 	return VIEW_COLS_CB if colorblind else VIEW_COLS
 
+## Arayüz ölçeği: tasarım 720 px'lik mantıksal kısa kenara göre yapıldı; yüksek yoğunluklu telefonda bu 1 px ≈ 0.57 dp
+## eder (44 px düğme ≈ 25 dp, 13 px yazı ≈ 7 sp). Ölçek, 1 mantıksal px ≈ 1 dp olacak şekilde ekran yoğunluğundan
+## hesaplanır; kısa kenar dikeyde en az 400, yatayda 600 mantıksal px kalır (dar yerleşim layouttest ile güvenceli).
+## Masaüstünde 1.0.
+const UI_SIZE_MUL := [0.88, 1.0, 1.15]   # Ayarlar → Arayüz: Küçük / Normal / Büyük
+var _ui_density_override := 0.0          # --uiaudit için (cihaz yoğunluğu, dp başına fiziksel piksel)
+
+func _ui_density() -> float:
+	if _ui_density_override > 0.0:
+		return _ui_density_override
+	if OS.has_environment("KK_UI_DENSITY"):
+		return float(OS.get_environment("KK_UI_DENSITY"))   # masaüstünde telefon ölçeğini denemek için
+	if OS.has_feature("mobile"):
+		var dpi := DisplayServer.screen_get_dpi()
+		if dpi > 0:
+			return dpi / 160.0
+	return 0.0
+
+func _ui_scale_factor(win: Vector2i, density: float, size_i: int) -> float:
+	var short_px := float(mini(win.x, win.y))
+	var base := short_px / 720.0          # mantıksal px başına fiziksel px (ölçek 1.0'da)
+	var f := 1.0
+	if density > 0.0 and base > 0.0:
+		f = density / base                  # 1 mantıksal px = 1 dp
+	f *= float(UI_SIZE_MUL[clampi(size_i, 0, 2)])
+	# yatay ekranda pencereler dikeyde sığmaz: eski 720 px düzeni korunur; dikeyde kısa kenar en az 400 mantıksal px
+	if win.x > win.y:
+		return 1.0
+	var fmax := maxf(1.0, 720.0 / 400.0)   # 360 dp telefonda 0.9 dp/px: ayarlar ve seviye başlığı 360 px'e sığmıyor
+	return clampf(f, 1.0, fmax)
+
 func _apply_access() -> void:
 	var acc: Dictionary = progress.get("access", {})
-	get_tree().root.content_scale_factor = 1.18 if acc.get("big", false) else 1.0
+	var size_i := int(acc.get("ui", 2 if acc.get("big", false) else 1))
+	var nf := _ui_scale_factor(get_tree().root.size, _ui_density(), size_i)
+	if absf(get_tree().root.content_scale_factor - nf) > 0.001:
+		get_tree().root.content_scale_factor = nf
 	colorblind = bool(acc.get("cb", false))
 	_layout.call_deferred()
 

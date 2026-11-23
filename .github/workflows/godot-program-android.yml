@@ -81,6 +81,8 @@ jobs:
           "$G" --headless -- --perfcheck 2>&1 | grep -E "perfcheck|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
           "$G" --headless --script res://tools/level_database_builder.gd -- --check 2>&1 | grep -E "levels_100|ÇÖZÜMSÜZ|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
           "$G" --headless -- --layouttest 2>&1 | grep -E "layouttest|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
+          # arayüz denetimi: tipik telefonda (1080×2400, 420 dpi) dokunma ≥ 48 dp, yazı ≥ 12 sp, taşma yok
+          "$G" --headless -- --uiaudit=1080x2400@2.625 2>&1 | grep -E "uiaudit|^  |SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
 
       - name: Android APK dışa aktar
         shell: bash
@@ -112,6 +114,13 @@ jobs:
           export GODOT="$HOME/godot48/godot"
           export RELEASE_KEYSTORE="$PWD/android/keystore/kayipkuleler.jks" RELEASE_KEY_ALIAS=kayipkuleler RELEASE_KEY_PASS=kayipkuleler
           timeout 1500 tools/godot-android-aab.sh "$PWD/dist/KayipKuleler-$VER.aab"
+
+      - name: Google Play uyumluluk denetimi (hedef API, izinler, debuggable, 64 bit)
+        shell: bash
+        run: |
+          files="dist/KayipKuleler-$VER.apk"
+          [ -s "dist/KayipKuleler-$VER.aab" ] && files="$files dist/KayipKuleler-$VER.aab"
+          python3 tools/check_play_compliance.py $files
 
       - uses: actions/upload-artifact@v4
         if: always()
