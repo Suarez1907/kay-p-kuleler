@@ -319,6 +319,13 @@ Mobile (Vulkan) renderer, AgX ton eşleme, parıltı, sis, yumuşak gölgeler; V
 * **Fotoğraf modu (Duraklatma → FOTOĞRAF MODU):** arayüz gizlenir; sürükleyerek serbest yörünge (yatay + dikey açı),
   tekerlek/çimdik/± ile 0.4×–4× yakınlaşma, ROBO odağı, filtreler (normal, sepya, noir, neon, blueprint ızgaralı —
   `post_grade.gdshader` `filter`), alan derinliği anahtarı; ÇEK → `user://photos/` (+ mümkünse Resimler/KayipKuleler).
+* **Okunabilirlik ve tasarım denetimi (`docs/TASARIM_DENETIMI.md`):** arayüz ölçeği ekran yoğunluğundan hesaplanır
+  (telefonda 1 mantıksal px ≈ 1 dp; önce ≈ 0.57 dp idi). Dokunma hedefi ≥ 48 dp, yazı ≥ 12 sp, ikincil metin kontrastı
+  5:1, dar ekranda pencereler sığdırılır. Ölçüm: `-- --uiaudit=1080x2400@2.625` (CI'da). Masaüstünde telefon ölçeğini
+  denemek için `KK_UI_DENSITY=2.625`.
+* **Google Play denetimi:** `tools/check_play_compliance.py` (hedef API ≥ 36, izinler, debuggable, 64 bit) her sürümde
+  CI'da çalışır; elle yapılacaklar `docs/GOOGLE_PLAY.md`. Proje skill'leri `.claude/skills/` (Godot + oyun tasarımı,
+  gamedev-skills paketinden, Apache-2.0).
 * **ASMR ses hattı (`tools/generate_asmr_audio.py`, numpy + scipy, ffmpeg/libvorbis):** `python3 tools/generate_asmr_audio.py`
   41 dosya üretir (44.1 kHz stereo, OGG q6, −1.5 dBFS, kırpılmasız; rapor `tools/asmr_audio_report.json`):
   5 faz grubu × 3 senkron katman (`assets/audio/music/phase_X_Y_{think,code,run}.ogg`, C majör/A minör pentatonik,

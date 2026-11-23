@@ -16,7 +16,7 @@ const ACCENT_CYAN_DARK := Color("#051322")
 const ACCENT_AMBER := Color("#F59E0B")
 const DANGER_CORAL := Color("#F45B69")
 const TEXT_PRIMARY := Color("#F1F5F9")
-const TEXT_MUTED := Color("#64748B")
+const TEXT_MUTED := Color("#7A8AA1")   # 5.0:1 koyu panelde (WCAG AA; eski #64748B 3.7:1 idi)
 ## ikincil metin: muted'ın okunur, hafif cyan tonlu sürümü (teknik etiketler)
 const TEXT_LABEL := Color("#7FA6C9")
 
@@ -25,7 +25,7 @@ const R_SMALL := 6      # komut tuşları
 const R_STD := 10       # buton / kart
 const R_MODAL := 14     # modallar
 const BORDER_W := 1.5
-const MIN_TOUCH := 44.0
+const MIN_TOUCH := 48.0   # Android Material: 48 dp dokunma hedefi (ölçek 1 px ≈ 1 dp)
 
 enum Variant { DEFAULT, PRIMARY, AMBER, DANGER, GHOST, CYAN_OUTLINE }
 
@@ -237,9 +237,57 @@ class Bar extends Control:
 static func tag(text: String, size := 13, col := TEXT_LABEL) -> Label:
 	var l := Label.new()
 	l.text = text
-	l.add_theme_font_size_override("font_size", size)
+	# okunabilirlik tabanı: etiketler 12 sp altına inmez (impeccable audit.native: metin ölçeği)
+	l.add_theme_font_size_override("font_size", maxi(size, 12))
 	l.add_theme_color_override("font_color", col)
 	l.add_theme_constant_override("outline_size", 0)
 	if UIKit.font_bold:
 		l.add_theme_font_override("font", UIKit.font_bold)
 	return l
+
+# ---------- açma/kapama anahtarı ----------
+# Varsayılan CheckButton simgesi küçük ve soluktu (kapalı hâli bir noktadan ibaret). Pahlı Blueprint anahtarı:
+# açık = cyan dolgu + beyaz düğme sağda, kapalı = çelik çerçeve + gri düğme solda. 2x çözünürlükte çizilir.
+static var _sw_on: Texture2D
+static var _sw_off: Texture2D
+
+static func _switch_tex(on: bool) -> Texture2D:
+	var w := 104
+	var h := 56
+	var img := Image.create(w, h, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+	var r := h / 2.0
+	var fill := ACCENT_CYAN if on else Color("#0B192E")
+	var edge := ACCENT_CYAN if on else BORDER_STEEL.lightened(0.25)
+	var knob := Color.WHITE if on else Color("#8FA3BF")
+	var kx := w - r if on else r
+	for y in h:
+		for x in w:
+			var p := Vector2(x + 0.5, y + 0.5)
+			var cx := clampf(p.x, r, w - r)
+			var d := p.distance_to(Vector2(cx, r))
+			if d <= r:
+				var a := clampf(r - d, 0.0, 1.0)
+				var c := edge if d > r - 4.0 else fill
+				var kd := p.distance_to(Vector2(kx, r))
+				if kd <= r - 9.0:
+					c = knob
+					a = clampf(r - 9.0 - kd, 0.0, 1.0)
+					img.set_pixel(x, y, Color(c, a).blend(Color(fill, 1.0 - a)) if a < 1.0 else c)
+					continue
+				img.set_pixel(x, y, Color(c, a))
+	var t := ImageTexture.create_from_image(img)
+	return t
+
+static func style_switch(cb: CheckButton) -> void:
+	if _sw_on == null:
+		_sw_on = _switch_tex(true)
+		_sw_off = _switch_tex(false)
+	# 2x çizilen dokular yarı boyutta gösterilir (52×28 mantıksal px)
+	cb.add_theme_constant_override("icon_max_width", 52)
+	for k in ["checked", "checked_mirrored"]:
+		cb.add_theme_icon_override(k, _sw_on)
+	for k in ["unchecked", "unchecked_mirrored"]:
+		cb.add_theme_icon_override(k, _sw_off)
+	cb.add_theme_icon_override("checked_disabled", _sw_on)
+	cb.add_theme_icon_override("unchecked_disabled", _sw_off)

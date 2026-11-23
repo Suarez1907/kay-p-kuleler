@@ -3,7 +3,7 @@
 #   tools/godot-android-aab.sh <çıktı.aab>
 # Gerekenler: GODOT, Android SDK (ANDROID_HOME/ANDROID_SDK_ROOT), JDK 17, export şablonlarında android_source.zip,
 # imza için RELEASE_KEYSTORE / RELEASE_KEY_ALIAS / RELEASE_KEY_PASS. APK dışa aktarımına dokunmaz: geçici bir
-# "Android AAB" ön ayarı (Gradle, export_format=1, hedef SDK 35) ekleyip onunla dışa aktarır, sonra eski hâline döner.
+# "Android AAB" ön ayarı (Gradle, export_format=1, hedef SDK 36 — Play 31 Ağu 2026 sonrası zorunlu) ekleyip onunla dışa aktarır, sonra eski hâline döner.
 set -euo pipefail
 OUT="$1"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -23,7 +23,7 @@ def setopt(o, k, v):
 opts = setopt(opts, "gradle_build/use_gradle_build", "true")
 opts = setopt(opts, "gradle_build/export_format", "1")
 opts = setopt(opts, "gradle_build/min_sdk", '"24"')
-opts = setopt(opts, "gradle_build/target_sdk", '"35"')
+opts = setopt(opts, "gradle_build/target_sdk", '"36"')
 opts = setopt(opts, "architectures/armeabi-v7a", "true")
 s = s.rstrip("\n") + "\n\n[preset.1]" + head + "[preset.1.options]" + opts
 open(p, "w").write(s)
