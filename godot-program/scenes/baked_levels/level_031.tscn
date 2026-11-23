@@ -1,0 +1,161 @@
+[gd_scene format=3]
+
+[ext_resource type="PackedScene" path="res://assets/models/components/smd_transistor.glb" id="1_tgtc5"]
+[ext_resource type="PackedScene" path="res://assets/models/components/diode.glb" id="2_pbbsy"]
+[ext_resource type="PackedScene" path="res://assets/models/puzzle/stairs.glb" id="3_48u80"]
+[ext_resource type="PackedScene" path="res://assets/models/backdrops/backdrop_04.glb" id="4_jp2ai"]
+[ext_resource type="Texture2D" path="res://assets/hdri/studio_softbox_2k.exr" id="5_r6fb7"]
+
+[sub_resource type="PanoramaSkyMaterial" id="PanoramaSkyMaterial_rqese"]
+panorama = ExtResource("5_r6fb7")
+
+[sub_resource type="Sky" id="Sky_2a7uo"]
+sky_material = SubResource("PanoramaSkyMaterial_rqese")
+process_mode = 1
+
+[node name="BakedLevel" type="Node3D" unique_id=1994624954]
+metadata/kk_sig = "1:9dd6ea8577121e468d4646f9ccae8f57"
+
+[node name="Cells" type="Node3D" parent="." unique_id=794996815]
+
+[node name="c_0_0_0" type="Node3D" parent="Cells" unique_id=1795896906]
+
+[node name="comp" type="Node3D" parent="Cells/c_0_0_0" unique_id=49073798]
+
+[node name="model" type="Node3D" parent="Cells/c_0_0_0/comp" unique_id=47851960]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
+
+[node name="smd_transistor2" type="Node3D" parent="Cells/c_0_0_0/comp/model" unique_id=1666052889 instance=ExtResource("1_tgtc5")]
+transform = Transform3D(0.9090909, 0, 0, 0, 0.9090909, 0, 0, 0, 0.9090909, 0, 0, 0)
+
+[node name="c_1_0_0" type="Node3D" parent="Cells" unique_id=1664301706]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0)
+
+[node name="comp" type="Node3D" parent="Cells/c_1_0_0" unique_id=49611562]
+
+[node name="model" type="Node3D" parent="Cells/c_1_0_0/comp" unique_id=1306081936]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
+
+[node name="smd_transistor2" type="Node3D" parent="Cells/c_1_0_0/comp/model" unique_id=305329937 instance=ExtResource("1_tgtc5")]
+transform = Transform3D(0.9090909, 0, 0, 0, 0.9090909, 0, 0, 0, 0.9090909, 0, 0, 0)
+
+[node name="c_1_0_1" type="Node3D" parent="Cells" unique_id=496481993]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 1)
+
+[node name="comp" type="Node3D" parent="Cells/c_1_0_1" unique_id=1137334152]
+
+[node name="model" type="Node3D" parent="Cells/c_1_0_1/comp" unique_id=1367438772]
+transform = Transform3D(-1, 0, 8.742278e-08, 0, 1, 0, -8.742278e-08, 0, -1, 0, -0.5, 0)
+
+[node name="diode2" type="Node3D" parent="Cells/c_1_0_1/comp/model" unique_id=1615320329 instance=ExtResource("2_pbbsy")]
+transform = Transform3D(0.9433963, 0, 0, 0, 0.9433963, 0, 0, 0, 0.9433963, 0, 0, 0)
+
+[node name="c_1_0_2" type="Node3D" parent="Cells" unique_id=1823273997]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 2)
+
+[node name="comp" type="Node3D" parent="Cells/c_1_0_2" unique_id=1879755450]
+
+[node name="model" type="Node3D" parent="Cells/c_1_0_2/comp" unique_id=1204674898]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
+
+[node name="smd_transistor2" type="Node3D" parent="Cells/c_1_0_2/comp/model" unique_id=1085385986 instance=ExtResource("1_tgtc5")]
+transform = Transform3D(0.9090909, 0, 0, 0, 0.9090909, 0, 0, 0, 0.9090909, 0, 0, 0)
+
+[node name="c_1_0_3" type="Node3D" parent="Cells" unique_id=2065127122]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 3)
+
+[node name="comp" type="Node3D" parent="Cells/c_1_0_3" unique_id=153863818]
+
+[node name="model" type="Node3D" parent="Cells/c_1_0_3/comp" unique_id=1349018671]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
+
+[node name="smd_transistor2" type="Node3D" parent="Cells/c_1_0_3/comp/model" unique_id=1081754589 instance=ExtResource("1_tgtc5")]
+transform = Transform3D(0.9090909, 0, 0, 0, 0.9090909, 0, 0, 0, 0.9090909, 0, 0, 0)
+
+[node name="c_1_2_4" type="Node3D" parent="Cells" unique_id=552321280]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 2, 4)
+
+[node name="comp" type="Node3D" parent="Cells/c_1_2_4" unique_id=328225491]
+
+[node name="model" type="Node3D" parent="Cells/c_1_2_4/comp" unique_id=1872405529]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
+
+[node name="smd_transistor2" type="Node3D" parent="Cells/c_1_2_4/comp/model" unique_id=1901814740 instance=ExtResource("1_tgtc5")]
+transform = Transform3D(0.9090909, 0, 0, 0, 0.9090909, 0, 0, 0, 0.9090909, 0, 0, 0)
+
+[node name="c_1_1_4" type="Node3D" parent="Cells" unique_id=701837839]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 4)
+
+[node name="comp" type="Node3D" parent="Cells/c_1_1_4" unique_id=1385193765]
+
+[node name="model" type="Node3D" parent="Cells/c_1_1_4/comp" unique_id=251743997]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
+
+[node name="smd_transistor2" type="Node3D" parent="Cells/c_1_1_4/comp/model" unique_id=588891192 instance=ExtResource("1_tgtc5")]
+transform = Transform3D(0.9090909, 0, 0, 0, 0.9090909, 0, 0, 0, 0.9090909, 0, 0, 0)
+
+[node name="c_1_2_5" type="Node3D" parent="Cells" unique_id=920001384]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 2, 5)
+
+[node name="comp" type="Node3D" parent="Cells/c_1_2_5" unique_id=943016358]
+
+[node name="model" type="Node3D" parent="Cells/c_1_2_5/comp" unique_id=1220004061]
+transform = Transform3D(-1, 0, 8.742278e-08, 0, 1, 0, -8.742278e-08, 0, -1, 0, -0.5, 0)
+
+[node name="diode2" type="Node3D" parent="Cells/c_1_2_5/comp/model" unique_id=625747490 instance=ExtResource("2_pbbsy")]
+transform = Transform3D(0.9433963, 0, 0, 0, 0.9433963, 0, 0, 0, 0.9433963, 0, 0, 0)
+
+[node name="c_1_2_6" type="Node3D" parent="Cells" unique_id=1141703061]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 2, 6)
+
+[node name="comp" type="Node3D" parent="Cells/c_1_2_6" unique_id=1135308872]
+
+[node name="model" type="Node3D" parent="Cells/c_1_2_6/comp" unique_id=2127572787]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
+
+[node name="smd_transistor2" type="Node3D" parent="Cells/c_1_2_6/comp/model" unique_id=629149005 instance=ExtResource("1_tgtc5")]
+transform = Transform3D(0.9090909, 0, 0, 0, 0.9090909, 0, 0, 0, 0.9090909, 0, 0, 0)
+
+[node name="Stairs" type="Node3D" parent="." unique_id=1056766096]
+
+[node name="s_1_1_3" type="Node3D" parent="Stairs" unique_id=62091371]
+transform = Transform3D(-4.371139e-08, 0, -1, 0, 1, 0, 1, 0, -4.371139e-08, 1, 1, 3)
+
+[node name="model" type="Node3D" parent="Stairs/s_1_1_3" unique_id=1257755974]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
+
+[node name="stairs2" type="Node3D" parent="Stairs/s_1_1_3/model" unique_id=704735296 instance=ExtResource("3_48u80")]
+transform = Transform3D(0.98911977, 0, 0, 0, 0.98911977, 0, 0, 0, 0.98911977, 0, 0, 0)
+
+[node name="Backdrop" type="Node3D" parent="." unique_id=1466886213 instance=ExtResource("4_jp2ai")]
+transform = Transform3D(0.6, 0, 0, 0, 0.6, 0, 0, 0, 0.6, 0.5, -6, 3)
+
+[node name="BakeSun" type="DirectionalLight3D" parent="." unique_id=463507599]
+transform = Transform3D(0.9135454, 0.34493226, -0.21553762, 0, 0.5299193, 0.8480481, 0.40673664, -0.7747305, 0.4841054, 7, 10, 3)
+light_color = Color(0.87458825, 0.9077647, 0.8638431, 1)
+light_energy = 0.6428
+shadow_enabled = true
+
+[node name="Fills" type="Node3D" parent="." unique_id=1735098185]
+
+[node name="GoalGlow" type="OmniLight3D" parent="Fills" unique_id=1513137744]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 3.6, 6)
+light_color = Color(1, 0.8117647, 0.47843137, 1)
+light_energy = 1.6
+light_bake_mode = 1
+omni_range = 4.0
+
+[node name="TopFill" type="OmniLight3D" parent="Fills" unique_id=832526566]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.5, 7, 3)
+light_color = Color(0.7372549, 0.83137256, 1, 1)
+light_energy = 1.5
+light_bake_mode = 1
+omni_range = 8.0
+
+[node name="LightmapGI" type="LightmapGI" parent="." unique_id=2043944893]
+bounce_indirect_energy = 1.15
+directional = true
+max_texture_size = 2048
+environment_mode = 2
+environment_custom_sky = SubResource("Sky_2a7uo")
+environment_custom_energy = 2.0
