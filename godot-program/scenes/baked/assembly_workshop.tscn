@@ -1,0 +1,55 @@
+[gd_scene format=3 uid="uid://c2qvhyc24qhiv"]
+
+[ext_resource type="PackedScene" uid="uid://p688dnvau8pn" path="res://assets/models/scenes/workshop.glb" id="1_v122r"]
+[ext_resource type="Texture2D" uid="uid://btethkyhs2agx" path="res://assets/hdri/workshop_warm_2k.exr" id="2_dnasd"]
+[ext_resource type="LightmapGIData" uid="uid://cob5uba3wr06k" path="res://scenes/baked/assembly_workshop.lmbake" id="3_dnasd"]
+
+[sub_resource type="PanoramaSkyMaterial" id="PanoramaSkyMaterial_d6anf"]
+panorama = ExtResource("2_dnasd")
+
+[sub_resource type="Sky" id="Sky_wdwww"]
+sky_material = SubResource("PanoramaSkyMaterial_d6anf")
+process_mode = 1
+
+[node name="BakedWorkshop" type="Node3D" unique_id=838508830]
+
+[node name="Workshop" parent="." unique_id=806154833 instance=ExtResource("1_v122r")]
+
+[node name="BakeSun" type="DirectionalLight3D" parent="." unique_id=1616069964]
+transform = Transform3D(0.76822126, -0.48350778, 0.41959074, 0, 0.6554216, 0.7552632, -0.64018446, -0.58020926, 0.5035088, 5, 9, 6)
+light_color = Color(1, 0.9137255, 0.8235294, 1)
+light_energy = 2.1
+shadow_enabled = true
+
+[node name="Fills" type="Node3D" parent="." unique_id=1795691875]
+
+[node name="Rim" type="DirectionalLight3D" parent="Fills" unique_id=1614640384]
+transform = Transform3D(-0.75925666, 0.25902462, -0.59702224, 0, 0.91737896, 0.3980149, 0.6507913, 0.30219546, -0.6965261, -6, 4, -7)
+light_color = Color(0.49803922, 0.7058824, 1, 1)
+light_energy = 1.1
+light_bake_mode = 1
+
+[node name="DeskSpot" type="SpotLight3D" parent="Fills" unique_id=571844489]
+transform = Transform3D(0.99920094, 0.038011704, -0.012351321, 0, 0.30902988, 0.9510523, 0.039968047, -0.95029235, 0.30878294, 0.5, 8.5, 2.5)
+light_color = Color(1, 0.8509804, 0.65882355, 1)
+light_energy = 3.0
+light_bake_mode = 1
+spot_range = 16.0
+spot_angle = 34.0
+
+[node name="WarmEdge" type="OmniLight3D" parent="Fills" unique_id=83228471]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4.5, 2.5, -3.5)
+light_color = Color(1, 0.7058824, 0.41960785, 1)
+light_energy = 1.2
+light_bake_mode = 1
+omni_range = 7.0
+
+[node name="LightmapGI" type="LightmapGI" parent="." unique_id=1215368735]
+quality = 2
+bounce_indirect_energy = 1.15
+directional = true
+max_texture_size = 2048
+environment_mode = 2
+environment_custom_sky = SubResource("Sky_wdwww")
+environment_custom_energy = 0.9
+light_data = ExtResource("3_dnasd")

@@ -319,6 +319,19 @@ Mobile (Vulkan) renderer, AgX ton eşleme, parıltı, sis, yumuşak gölgeler; V
 * **Fotoğraf modu (Duraklatma → FOTOĞRAF MODU):** arayüz gizlenir; sürükleyerek serbest yörünge (yatay + dikey açı),
   tekerlek/çimdik/± ile 0.4×–4× yakınlaşma, ROBO odağı, filtreler (normal, sepya, noir, neon, blueprint ızgaralı —
   `post_grade.gdshader` `filter`), alan derinliği anahtarı; ÇEK → `user://photos/` (+ mümkünse Resimler/KayipKuleler).
+* **2K PBR + HDRI + LightmapGI (ADIM 7):**
+  `python3 tools/build_2k_pbr_library.py` gerçek CC0 2K setleri indirir (ambientCG Metal012 / Metal057A / Plastic012A /
+  Porcelain001, Poly Haven dark_wood) ve 2K stüdyo HDRI'larını (Poly Haven studio_small_08, photo_studio_loft_hall);
+  ağ yoksa prosedürel 2K üretir. `pcb_circuit_2k` ve `gold_contacts_2k` prosedüreldir. `tools/configure_pbr_imports.py`
+  2K dokuları VRAM sıkıştırmalı (ETC2/ASTC) + mipmap yapar, normal haritalarını RG sıkıştırır, statik modellere
+  `light_baking=Static` verir. `res://tools/make_pbr_materials.gd` → `assets/materials/pbr/*.tres`
+  (`PBRMaterialBank`); `AssetLoader` glTF malzeme adlarını (Aluminum, Copper, Epoxy, PCB, DeskWood…) bu bankaya bağlar.
+  Blender `finalize()` her statik modele çakışmasız `UVMap2` ekler (LightmapGI UV2). Ortam: HDRI ortam + yansıma ışığı,
+  AgX, parlama eşiği 1.15 (`StudioLighting`). Fırınlanmış sahneler: `-- --bakegen=1-10,assembly` statik geometriyi
+  `scenes/baked_levels/level_XXX.tscn` ve `scenes/baked/assembly_workshop.tscn` olarak yazar; `tools/bake_lightmaps.sh
+  <aralık|all>` editörü (Vulkan; GPU yoksa lavapipe + xvfb) `addons/kk_lightmap_baker` ile sürüp `.lmbake` fırınlar.
+  Oyun fırınlanmış sahne varsa (imza seviye tanımıyla eşleşirse) onu yükler ve hücreleri yerinde sahiplenir; yoksa JSON
+  kurucusuna döner. Hareketli nesneler `GI_MODE_DYNAMIC` (ışık problarından dolaylı ışık).
 * **Okunabilirlik ve tasarım denetimi (`docs/TASARIM_DENETIMI.md`):** arayüz ölçeği ekran yoğunluğundan hesaplanır
   (telefonda 1 mantıksal px ≈ 1 dp; önce ≈ 0.57 dp idi). Dokunma hedefi ≥ 48 dp, yazı ≥ 12 sp, ikincil metin kontrastı
   5:1, dar ekranda pencereler sığdırılır. Ölçüm: `-- --uiaudit=1080x2400@2.625` (CI'da). Masaüstünde telefon ölçeğini

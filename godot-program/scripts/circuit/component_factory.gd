@@ -49,6 +49,35 @@ static func build(type: int, dir := 0, delay := 1) -> Node3D:
 			# model akım yönü -Z; oyunda yön 0 = +X
 			glb.rotation.y = [0.0, -PI / 2, PI, PI / 2][dir % 4] - PI / 2
 		n.add_child(glb)
+		_decorate_glb(n, glb, type, delay)
+		return n
+	return _procedural(n, type, dir, delay)
+
+## Fırınlama sahnesi için yalnızca model (süsleme yok): generator kaydeder, oyun adopt() ile süsler
+static func bare(type: int, dir := 0) -> Node3D:
+	var n := Node3D.new()
+	var glb: Node3D = AssetLoader.component_model(GLB_NAMES[type])
+	if glb == null:
+		return null
+	glb.name = "model"
+	glb.position.y -= 0.5
+	if type == ComponentType.DIODE:
+		glb.rotation.y = [0.0, -PI / 2, PI, PI / 2][dir % 4] - PI / 2
+	n.add_child(glb)
+	return n
+
+## Fırınlanmış seviye sahnesindeki hazır hücreyi sahiplenir: modelin kendisi sahnede kalır (ışık haritası
+## düğüm yoluna bağlıdır), üstüne parlayan pin malzemeleri, direnç bantları ve röle LED'i eklenir.
+static func adopt(n: Node3D, type: int, delay := 1) -> void:
+	n.set_meta("type", type)
+	if n.get_child_count() == 0:
+		return
+	var glb: Node3D = n.get_child(0)
+	AssetLoader.enhance_materials(glb)
+	_decorate_glb(n, glb, type, delay)
+
+static func _decorate_glb(n: Node3D, glb: Node3D, type: int, delay: int) -> void:
+	if true:
 		var ms := PartBuilder._meshes_in(glb)
 		n.set_meta("body", ms[0] if not ms.is_empty() else MeshInstance3D.new())
 		# bastıkça parlayan bacaklar ve kondansatör şarj halkası: örneğe özel malzeme kopyaları
@@ -68,7 +97,8 @@ static func build(type: int, dir := 0, delay := 1) -> Node3D:
 						(m as StandardMaterial3D).albedo_color = Color(cols[k])
 		if type == ComponentType.RELAY:
 			_relay_extras(n, false)   # modelin kendi pirinç kontak kolu var; yalnızca durum LED'i
-		return n
+
+static func _procedural(n: Node3D, type: int, dir: int, delay: int) -> Node3D:
 	var mi := MeshInstance3D.new()
 	mi.mesh = mesh_for(type, clampi(delay, 1, 2))
 	var pbr := AssetLoader.pbr_material(GLB_NAMES[type])

@@ -37,8 +37,8 @@ func prepare(next: ChapterTheme) -> void:
 		sun.rotation_degrees = theme.light_rotation_deg
 	var env: Environment = _game.env
 	if env != null:
-		env.tonemap_mode = Environment.TONE_MAPPER_LINEAR
-		env.tonemap_exposure = clampf(lerpf(1.0, 0.94 + theme.light_energy * 0.08, 0.65), 0.92, 1.08)
+		env.tonemap_mode = Environment.TONE_MAPPER_AGX
+		env.tonemap_exposure = clampf(lerpf(1.0, 0.94 + theme.light_energy * 0.08, 0.65), 0.92, 1.08) * StudioLighting.AGX_EXPOSURE
 		env.fog_light_color = theme.bg_bottom_color
 	var fill: DirectionalLight3D = _game.fill
 	if fill != null:

@@ -80,8 +80,13 @@ func _run() -> void:
 						w.emit_signal("file_selected", lmb_path)
 						w.hide()
 						answered = true
-					elif w is AcceptDialog and waited % 300 == 0:
+					elif w is AcceptDialog:
 						print("KK_BAKE pencere: ", w.title, " | ", (w as AcceptDialog).dialog_text)
+			if answered and waited % 60 == 0:
+				for w in _visible_windows(EditorInterface.get_base_control().get_tree().root):
+					if w is AcceptDialog and not (w is FileDialog) and w.get_class() != "EditorFileDialog":
+						print("KK_BAKE pencere: ", w.title, " | ", (w as AcceptDialog).dialog_text)
+						waited = 20000      # hata penceresi: bu sahne başarısız, sıradakine geç
 		var ok := lm.light_data != null
 		if ok:
 			EditorInterface.save_scene()
