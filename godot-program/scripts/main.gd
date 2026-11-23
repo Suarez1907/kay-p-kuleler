@@ -114,6 +114,7 @@ var rows_box: VBoxContainer
 var rows_scroll: ScrollContainer
 var sel_bar: HBoxContainer
 var btn_cond: Button
+var cond_row: HFlowContainer
 var btn_rep: Button
 var btn_run: Button
 var btn_step: Button
@@ -3122,8 +3123,13 @@ func _build_panel() -> void:
 	btn_cond.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	btn_cond.clip_text = true
 	btn_cond.custom_minimum_size = Vector2(80, 44)
-	(btn_cond.get_meta("label") as Label).clip_text = true
-	(btn_cond.get_meta("label") as Label).text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	# clip_text etiketin en küçük genişliğini 0 yapar: genişlemezse kutuda görünmez kalır
+	var cl: Label = btn_cond.get_meta("label")
+	cl.clip_text = true
+	cl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	cl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	UIKit.set_text(btn_cond, "Her zaman")
 	sel_bar.add_child(btn_cond)
 	var fwd := UIKit.round_button("back", func(): _move_sel(1), 44)
 	var fic: Control = fwd.get_meta("icon")
@@ -3137,6 +3143,13 @@ func _build_panel() -> void:
 	sel_bar.add_child(UIKit.round_button("trash", _delete_sel, 44, UIKit.CORAL))
 	sel_bar.visible = false
 	pv.add_child(sel_bar)
+	# koşul seçenekleri: hepsi yazılı çipler halinde görünür, dokunulan seçilir
+	cond_row = HFlowContainer.new()
+	cond_row.alignment = FlowContainer.ALIGNMENT_CENTER
+	cond_row.add_theme_constant_override("h_separation", 6)
+	cond_row.add_theme_constant_override("v_separation", 6)
+	cond_row.visible = false
+	pv.add_child(cond_row)
 	pv.add_child(palette_scroll)
 	panel_sep = ColorRect.new()
 	panel_sep.color = Color(BP.BORDER_STEEL, 0.55)
@@ -4872,6 +4885,7 @@ func _render_rows() -> void:
 		sel_bar.visible = show_sel
 		if show_sel:
 			UIKit.pop_in(sel_bar, 0.0, 0.8)
+	cond_row.visible = false
 	if sel != null and sel["idx"] < prog[sel["row"]].size():
 		var ins: Dictionary = prog[sel["row"]][sel["idx"]]
 		var cname: String = COND_NAME[ins["k"]]
@@ -4881,10 +4895,11 @@ func _render_rows() -> void:
 		UIKit.set_text(btn_rep, "×%d" % int(ins.get("n", 1)))
 		btn_rep.disabled = ins["c"] in ["W", "C"]
 		if btn_cond.disabled:
-			caption = "Koşul yok"
+			caption = "Bu seviyede koşul yok"
 		# Button.text ayrıca çizilir; etiketle üst üste binmesin.
 		btn_cond.text = ""
 		UIKit.set_text(btn_cond, caption)
+		_render_cond_chips(ins, btn_cond.disabled or not show_sel)
 	if _exec["proc"] != "" and tile_nodes.has(_exec["proc"]) and _exec["idx"] < tile_nodes[_exec["proc"]].size():
 		var t: Button = tile_nodes[_exec["proc"]][_exec["idx"]]
 		(t.get_meta("ring") as Panel).visible = true
@@ -4980,13 +4995,51 @@ func _move_sel(d: int) -> void:
 	audio.play("tap")
 	_prog_changed()
 
+const COND_CHIP := {"": "HER ZAMAN", "o": "ÖNÜ AÇIKSA", "x": "ÖNÜ KAPALIYSA", "r": "AKIM VARSA"}
+
+func _cond_order() -> Array:
+	var order := ["", "o", "x"]
+	if L.relay_count > 0 or levels[level_idx].get("relay_cond", false):
+		order.append("r")
+	return order
+
+func _render_cond_chips(ins: Dictionary, off: bool) -> void:
+	for c in cond_row.get_children():
+		c.queue_free()
+	cond_row.visible = not off
+	if off:
+		return
+	for k in _cond_order():
+		var b := Button.new()
+		b.text = COND_CHIP[k]
+		b.focus_mode = Control.FOCUS_NONE
+		b.custom_minimum_size = Vector2(0, 40)
+		b.add_theme_font_override("font", UIKit.font_black)
+		b.add_theme_font_size_override("font_size", 13)
+		var on: bool = String(ins["k"]) == k
+		BP.style_button(b, BP.Variant.CYAN_OUTLINE if on else BP.Variant.DEFAULT, BP.R_SMALL)
+		if k != "":
+			# seçenek kendi koşul rengiyle yazılır (karodaki renkli işaretle aynı)
+			var col := Color(COND_COLOR[k])
+			for fc in ["font_color", "font_hover_color", "font_pressed_color", "font_hover_pressed_color"]:
+				b.add_theme_color_override(fc, col.lightened(0.25) if on else col)
+		var kk: String = k
+		b.pressed.connect(func():
+			if sel == null or not _editable():
+				return
+			var cur: Dictionary = prog[sel["row"]][sel["idx"]]
+			if String(cur["k"]) == kk:
+				return
+			cur["k"] = kk
+			audio.play("pop")
+			_prog_changed())
+		cond_row.add_child(b)
+
 func _cycle_cond() -> void:
 	if sel == null or not _editable():
 		return
 	var ins: Dictionary = prog[sel["row"]][sel["idx"]]
-	var order := ["", "o", "x"]
-	if L.relay_count > 0 or levels[level_idx].get("relay_cond", false):
-		order.append("r")
+	var order := _cond_order()
 	ins["k"] = order[(order.find(ins["k"]) + 1) % order.size()]
 	audio.play("pop")
 	_prog_changed()
@@ -5455,6 +5508,13 @@ func _shot(spec: String) -> void:
 			if fl.begins_with("v"):
 				for k in int(fl.substr(1)):
 					_rotate_view(1)
+		for fl in flags:
+			if fl.begins_with("sel="):
+				# sel=ROW.IDX: düzenleme seçimi (seçim çubuğu ekran görüntüsü)
+				var sp := fl.substr(4).split(".")
+				active_row = sp[0]
+				sel = {"row": sp[0], "idx": int(sp[1])}
+				_render_rows()
 		for fl in flags:
 			if fl.begins_with("photo="):
 				# photo=N[d]: fotoğraf modu, filtre N, d → alan derinliği, robota odak
