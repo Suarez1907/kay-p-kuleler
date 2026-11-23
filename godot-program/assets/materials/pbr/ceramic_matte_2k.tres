@@ -1,0 +1,23 @@
+[gd_resource type="StandardMaterial3D" format=3]
+
+[ext_resource type="Texture2D" path="res://assets/textures/pbr/ceramic_matte_2k/albedo.jpg" id="1_73a0i"]
+[ext_resource type="Texture2D" path="res://assets/textures/pbr/ceramic_matte_2k/ao.jpg" id="2_3ddrt"]
+[ext_resource type="Texture2D" path="res://assets/textures/pbr/ceramic_matte_2k/normal.jpg" id="3_c41un"]
+[ext_resource type="Texture2D" path="res://assets/textures/pbr/ceramic_matte_2k/roughness.jpg" id="4_84peg"]
+
+[resource]
+resource_name = "ceramic_matte_2k"
+albedo_texture = ExtResource("1_73a0i")
+roughness_texture = ExtResource("4_84peg")
+roughness_texture_channel = 4
+normal_enabled = true
+normal_scale = 0.85
+normal_texture = ExtResource("3_c41un")
+ao_enabled = true
+ao_light_affect = 0.65
+ao_texture = ExtResource("2_3ddrt")
+ao_texture_channel = 4
+uv1_scale = Vector3(1.4, 1.4, 1.4)
+uv1_triplanar = true
+uv1_triplanar_sharpness = 4.0
+texture_filter = 5

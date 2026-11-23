@@ -1,0 +1,27 @@
+[gd_resource type="StandardMaterial3D" format=3]
+
+[ext_resource type="Texture2D" path="res://assets/textures/pbr/brushed_aluminum_2k/albedo.jpg" id="1_k4cku"]
+[ext_resource type="Texture2D" path="res://assets/textures/pbr/brushed_aluminum_2k/ao.jpg" id="2_g4srr"]
+[ext_resource type="Texture2D" path="res://assets/textures/pbr/brushed_aluminum_2k/metallic.jpg" id="3_deh4w"]
+[ext_resource type="Texture2D" path="res://assets/textures/pbr/brushed_aluminum_2k/normal.jpg" id="4_oqsh0"]
+[ext_resource type="Texture2D" path="res://assets/textures/pbr/brushed_aluminum_2k/roughness.jpg" id="5_nao2j"]
+
+[resource]
+resource_name = "brushed_aluminum_2k"
+albedo_texture = ExtResource("1_k4cku")
+metallic = 1.0
+metallic_texture = ExtResource("3_deh4w")
+metallic_texture_channel = 4
+roughness_texture = ExtResource("5_nao2j")
+roughness_texture_channel = 4
+normal_enabled = true
+normal_scale = 0.85
+normal_texture = ExtResource("4_oqsh0")
+ao_enabled = true
+ao_light_affect = 0.65
+ao_texture = ExtResource("2_g4srr")
+ao_texture_channel = 4
+uv1_scale = Vector3(2, 2, 2)
+uv1_triplanar = true
+uv1_triplanar_sharpness = 4.0
+texture_filter = 5

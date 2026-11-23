@@ -201,6 +201,7 @@ func _next_name() -> String:
 
 func _spawn(id: int) -> Node3D:
 	var n := PartBuilder.build(PCPartLibrary.part(id))
+	AssetLoader.set_gi_dynamic(n)   # takılı parçalar oyuncuya göre değişir: fırınlanmaz, problardan ışık alır
 	parts_root.add_child(n)
 	nodes[id] = n
 	_style_node(id, n)

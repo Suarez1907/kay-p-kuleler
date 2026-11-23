@@ -1,0 +1,116 @@
+{
+ "sets": {
+  "brushed_aluminum_2k": {
+   "source": "ambientCG Metal012 (CC0)",
+   "maps": [
+    "albedo",
+    "ao",
+    "metallic",
+    "normal",
+    "roughness"
+   ],
+   "size": [
+    2048,
+    2048
+   ],
+   "bytes": 2045391
+  },
+  "copper_metal_2k": {
+   "source": "ambientCG Metal057A (CC0)",
+   "maps": [
+    "albedo",
+    "ao",
+    "metallic",
+    "normal",
+    "roughness"
+   ],
+   "size": [
+    2048,
+    2048
+   ],
+   "bytes": 908119
+  },
+  "epoxy_black_2k": {
+   "source": "ambientCG Plastic012A (CC0)",
+   "maps": [
+    "albedo",
+    "ao",
+    "normal",
+    "roughness"
+   ],
+   "size": [
+    2048,
+    2048
+   ],
+   "bytes": 7926063
+  },
+  "ceramic_matte_2k": {
+   "source": "ambientCG Porcelain001 (CC0)",
+   "maps": [
+    "albedo",
+    "ao",
+    "normal",
+    "roughness"
+   ],
+   "size": [
+    2048,
+    2048
+   ],
+   "bytes": 1746195
+  },
+  "workshop_desk_2k": {
+   "source": "Poly Haven dark_wood (CC0)",
+   "maps": [
+    "albedo",
+    "ao",
+    "normal",
+    "roughness"
+   ],
+   "size": [
+    2048,
+    2048
+   ],
+   "bytes": 3876650
+  },
+  "pcb_circuit_2k": {
+   "source": "procedural (PCB)",
+   "maps": [
+    "albedo",
+    "ao",
+    "metallic",
+    "normal",
+    "roughness"
+   ],
+   "size": [
+    2048,
+    2048
+   ],
+   "bytes": 6673991
+  },
+  "gold_contacts_2k": {
+   "source": "procedural (altın kontak)",
+   "maps": [
+    "albedo",
+    "ao",
+    "metallic",
+    "normal",
+    "roughness"
+   ],
+   "size": [
+    2048,
+    2048
+   ],
+   "bytes": 4645817
+  }
+ },
+ "hdri": {
+  "studio_softbox_2k": {
+   "source": "Poly Haven studio_small_08 (CC0)",
+   "bytes": 3766354
+  },
+  "workshop_warm_2k": {
+   "source": "Poly Haven photo_studio_loft_hall (CC0)",
+   "bytes": 5719241
+  }
+ }
+}

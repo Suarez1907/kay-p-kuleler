@@ -1,0 +1,27 @@
+[gd_resource type="StandardMaterial3D" format=3]
+
+[ext_resource type="Texture2D" path="res://assets/textures/pbr/gold_contacts_2k/albedo.jpg" id="1_gs6jw"]
+[ext_resource type="Texture2D" path="res://assets/textures/pbr/gold_contacts_2k/ao.jpg" id="2_k8p2k"]
+[ext_resource type="Texture2D" path="res://assets/textures/pbr/gold_contacts_2k/metallic.jpg" id="3_wqstx"]
+[ext_resource type="Texture2D" path="res://assets/textures/pbr/gold_contacts_2k/normal.jpg" id="4_4qbys"]
+[ext_resource type="Texture2D" path="res://assets/textures/pbr/gold_contacts_2k/roughness.jpg" id="5_v4sxd"]
+
+[resource]
+resource_name = "gold_contacts_2k"
+albedo_texture = ExtResource("1_gs6jw")
+metallic = 1.0
+metallic_texture = ExtResource("3_wqstx")
+metallic_texture_channel = 4
+roughness_texture = ExtResource("5_v4sxd")
+roughness_texture_channel = 4
+normal_enabled = true
+normal_scale = 0.85
+normal_texture = ExtResource("4_4qbys")
+ao_enabled = true
+ao_light_affect = 0.65
+ao_texture = ExtResource("2_k8p2k")
+ao_texture_channel = 4
+uv1_scale = Vector3(3, 3, 3)
+uv1_triplanar = true
+uv1_triplanar_sharpness = 4.0
+texture_filter = 5

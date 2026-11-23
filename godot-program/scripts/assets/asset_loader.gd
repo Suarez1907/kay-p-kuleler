@@ -139,6 +139,17 @@ static func triangle_count(root: Node) -> int:
 			n += (idx.size() if idx != null else (arr[Mesh.ARRAY_VERTEX] as PackedVector3Array).size()) / 3
 	return n
 
+## LightmapGI ayrımı: statik modeller (light_baking=Static) ışık haritasına fırınlanır; hareket eden her şey
+## (robot, klon, köprü, kayan blok, sandık, montajda inen parça) GI_MODE_DYNAMIC ile fırınlanmış ışık
+## problarından dolaylı ışık alır ve haritada sahte gölge izi bırakmaz.
+static func set_gi_dynamic(root: Node) -> void:
+	if root == null:
+		return
+	if root is GeometryInstance3D:
+		(root as GeometryInstance3D).gi_mode = GeometryInstance3D.GI_MODE_DYNAMIC
+	for c in root.find_children("*", "GeometryInstance3D", true, false):
+		(c as GeometryInstance3D).gi_mode = GeometryInstance3D.GI_MODE_DYNAMIC
+
 ## Bilgisayar parçası: parçanın montaj kutusuna sığar, merkezi orijinde
 static func part_model(id: int, size: Vector3, extra_path := "") -> Node3D:
 	for path in [MODELS + "pc_parts/part_%03d.glb" % id, extra_path]:
@@ -203,13 +214,16 @@ static func enhance_materials(root: Node) -> void:
 			continue
 		for i in m.mesh.get_surface_count():
 			var src := m.mesh.surface_get_material(i)
-			if not (src is StandardMaterial3D) or not PBR_MAP.has(src.resource_name):
+			if not (src is StandardMaterial3D) or not (PBR_MAP.has(src.resource_name) or PBRMaterialBank.SLOTS.has(src.resource_name)):
 				continue
 			if m.get_surface_override_material(i) != null:
 				continue
 			var id := src.get_instance_id()
 			if not _pbr_mats.has(id):
-				var e := _enhanced(src as StandardMaterial3D, PBR_MAP[src.resource_name])
+				# önce 2K malzeme bankası (assets/materials/pbr/*.tres), yoksa eski 1K triplanar setler
+				var e: StandardMaterial3D = PBRMaterialBank.for_source(src as StandardMaterial3D)
+				if e == null:
+					e = _enhanced(src as StandardMaterial3D, PBR_MAP[src.resource_name])
 				_pbr_mats[id] = e
 			if _pbr_mats[id] != null:
 				m.set_surface_override_material(i, _pbr_mats[id])

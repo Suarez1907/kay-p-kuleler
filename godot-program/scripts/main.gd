@@ -1176,6 +1176,17 @@ func build_level(i: int, as_preview := false) -> void:
 	level_root.add_child(holo)
 	objs["clone"] = holo
 	_build_relay_traces()
+	# hareketli nesneler ışık haritasına fırınlanmaz; problardan dolaylı ışık alır
+	for k in ["bridges", "sliders", "crumbles", "levers", "cranks", "crates", "balls"]:
+		for o in objs.get(k, []):
+			for x in (o if o is Array else [o]):
+				if x is Node:
+					AssetLoader.set_gi_dynamic(x)
+				elif x is Dictionary and x.get("n") is Node:
+					AssetLoader.set_gi_dynamic(x["n"])
+	for k in ["player", "clone"]:
+		if objs.has(k):
+			AssetLoader.set_gi_dynamic(objs[k])
 	_build_shadow_proxy()
 	_build_walk_caps()
 	_build_visual_fx(bb["box"])

@@ -1,0 +1,27 @@
+[gd_resource type="StandardMaterial3D" format=3]
+
+[ext_resource type="Texture2D" path="res://assets/textures/pbr/copper_metal_2k/albedo.jpg" id="1_j54by"]
+[ext_resource type="Texture2D" path="res://assets/textures/pbr/copper_metal_2k/ao.jpg" id="2_fksud"]
+[ext_resource type="Texture2D" path="res://assets/textures/pbr/copper_metal_2k/metallic.jpg" id="3_3lhti"]
+[ext_resource type="Texture2D" path="res://assets/textures/pbr/copper_metal_2k/normal.jpg" id="4_wo83b"]
+[ext_resource type="Texture2D" path="res://assets/textures/pbr/copper_metal_2k/roughness.jpg" id="5_6np6b"]
+
+[resource]
+resource_name = "copper_metal_2k"
+albedo_texture = ExtResource("1_j54by")
+metallic = 1.0
+metallic_texture = ExtResource("3_3lhti")
+metallic_texture_channel = 4
+roughness_texture = ExtResource("5_6np6b")
+roughness_texture_channel = 4
+normal_enabled = true
+normal_scale = 0.85
+normal_texture = ExtResource("4_wo83b")
+ao_enabled = true
+ao_light_affect = 0.65
+ao_texture = ExtResource("2_fksud")
+ao_texture_channel = 4
+uv1_scale = Vector3(2, 2, 2)
+uv1_triplanar = true
+uv1_triplanar_sharpness = 4.0
+texture_filter = 5

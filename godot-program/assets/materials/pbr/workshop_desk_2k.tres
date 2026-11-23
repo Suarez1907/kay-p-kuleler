@@ -1,0 +1,23 @@
+[gd_resource type="StandardMaterial3D" format=3]
+
+[ext_resource type="Texture2D" path="res://assets/textures/pbr/workshop_desk_2k/albedo.jpg" id="1_10yjd"]
+[ext_resource type="Texture2D" path="res://assets/textures/pbr/workshop_desk_2k/ao.jpg" id="2_id8b8"]
+[ext_resource type="Texture2D" path="res://assets/textures/pbr/workshop_desk_2k/normal.jpg" id="3_u445b"]
+[ext_resource type="Texture2D" path="res://assets/textures/pbr/workshop_desk_2k/roughness.jpg" id="4_jugr5"]
+
+[resource]
+resource_name = "workshop_desk_2k"
+albedo_texture = ExtResource("1_10yjd")
+roughness_texture = ExtResource("4_jugr5")
+roughness_texture_channel = 4
+normal_enabled = true
+normal_scale = 0.85
+normal_texture = ExtResource("3_u445b")
+ao_enabled = true
+ao_light_affect = 0.65
+ao_texture = ExtResource("2_id8b8")
+ao_texture_channel = 4
+uv1_scale = Vector3(0.45, 0.45, 0.45)
+uv1_triplanar = true
+uv1_triplanar_sharpness = 4.0
+texture_filter = 5
