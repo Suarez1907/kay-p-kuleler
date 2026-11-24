@@ -34,7 +34,8 @@ set_cfg 'export/android/debug_keystore' "\"$KS\""
 set_cfg 'export/android/debug_keystore_user' '"androiddebugkey"'
 set_cfg 'export/android/debug_keystore_pass' '"android"'
 cd "$ROOT/$PROJECT"
-timeout 300 "$GODOT" --headless --import >/dev/null 2>&1 || true
+# 2K dokuların ETC2/ASTC sıkıştırması ilk içe aktarmada birkaç dakika sürer
+timeout 5400 "$GODOT" --headless --import >/dev/null 2>&1 || true
 if [ "$MODE" = release ]; then
   # Sürüm APK'sı da hata ayıklama anahtarıyla imzalanır (Play Store için kendi anahtarınızı kullanın)
   export GODOT_ANDROID_KEYSTORE_RELEASE_PATH="${RELEASE_KEYSTORE:-$KS}" \

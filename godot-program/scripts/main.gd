@@ -209,6 +209,7 @@ func _ready() -> void:
 	perf.name = "PerfGovernor"
 	add_child(perf)
 	perf.setup(get_viewport())
+	perf.set_fps_cap(120 if bool(progress.get("fps120", false)) else 60)
 	rbox_mesh = _rounded_box(Vector3.ONE, 0.03, 0)
 	crate_mesh = _rounded_box(Vector3(0.84, 0.84, 0.84), 0.04, 0)
 	_setup_world()
@@ -237,6 +238,9 @@ func _ready() -> void:
 			return
 		if a == "--perftest":
 			_perftest.call_deferred()
+			return
+		if a == "--fpscheck":
+			_fpscheck.call_deferred()
 			return
 		if a.begins_with("--perfquick"):
 			_perfquick.call_deferred(int(a.get_slice("=", 1)) if a.contains("=") else 12)
@@ -3008,6 +3012,10 @@ func _process(dt: float) -> void:
 	weather.set_view(deg_to_rad(cam_az_cur), vsz.x / maxf(vsz.y, 1.0), Vector2(get_viewport().size))
 	var want_size := cam_size / cam_zoom * (1.02 if portrait else 1.0)
 	cam.size = lerpf(cam.size, want_size, minf(1.0, dt * 8.0))
+	# kare hızı yöneticisine "sahne hareketli mi": değilse 2 sn sonra 30 FPS (görüntü aynı, GPU yükü yarı)
+	if perf != null:
+		perf.busy = mode == "running" or anim != null or not queue.is_empty() or cam_spin or _film != null \
+			or assembly != null or absf(cam_az - cam_az_cur) > 0.05 or absf(cam.size - want_size) > 0.01 or _shake_amp > 0.001
 	_update_offset()
 	if hud != null and hud.visible:
 		var safe_now := _safe_margins()
@@ -3057,6 +3065,12 @@ func _on_resize() -> void:
 	portrait = vs.x < vs.y * 0.95
 	if ui_root != null:
 		_layout()
+
+## her dokunuş/tuş kare hızını hemen tam hıza döndürür (boşta 30 FPS'ten çıkış)
+func _input(ev: InputEvent) -> void:
+	if perf != null and (ev is InputEventScreenTouch or ev is InputEventScreenDrag or ev is InputEventMouseButton \
+			or ev is InputEventMouseMotion or ev is InputEventKey or ev is InputEventMagnifyGesture):
+		perf.touch()
 
 func _unhandled_input(ev: InputEvent) -> void:
 	if _current == "photo":
@@ -3987,6 +4001,24 @@ func _build_screens() -> void:
 			_toggle_perf_label())
 	pf_row.add_child(pf)
 	svb.add_child(pf_row)
+	# kare hızı: varsayılan 60 (bulmaca için akıcı, telefon serin kalır); 120 Hz ekranlarda isteğe bağlı 120
+	var hz_row := HBoxContainer.new()
+	var hz_l := UIKit.label("120 FPS (daha akıcı, telefon daha çok ısınır)", 16, BP.TEXT_PRIMARY, UIKit.font_bold)
+	hz_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hz_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hz_row.add_child(hz_l)
+	var hz_cb := CheckButton.new()
+	hz_cb.focus_mode = Control.FOCUS_NONE
+	hz_cb.custom_minimum_size = Vector2(64, 44)
+	BP.style_switch(hz_cb)
+	hz_cb.button_pressed = bool(progress.get("fps120", false))
+	hz_cb.toggled.connect(func(on: bool):
+		progress["fps120"] = on
+		_save_progress()
+		perf.set_fps_cap(120 if on else 60)
+		audio.play("tap"))
+	hz_row.add_child(hz_cb)
+	svb.add_child(hz_row)
 	# erişilebilirlik
 	svb.add_child(BP.tag("ERİŞİLEBİLİRLİK", 12))
 	for opt in [["cb", "Renk körü modu"], ["big", "Büyük yazı"], ["tts", "Komutları sesli oku"]]:
@@ -4151,6 +4183,8 @@ func _show(which: String) -> void:
 				tw2.tween_callback(func(): if _current != k: sc.visible = false)
 	if screens.has(which) and screens[which] is Control:
 		_fit_widths(screens[which], get_viewport().get_visible_rect().size.x)
+	if perf != null:
+		perf.touch()
 	Sfx.asmr().set_focus(which != "" and which != "editor")
 	hud.visible = which == "" or which in overlays and prev in ["", "pause", "intro", "settings", "backup", "story"] and L != null and not preview
 	cam_spin = which == "title"
@@ -7764,6 +7798,39 @@ func _perfquick(lvl: int) -> void:
 	var r := await _perf_measure(60)
 	print("perfquick: seviye %d %s %s" % [lvl, tag if tag != "" else "temel", JSON.stringify(r)])
 	get_tree().quit()
+
+## Kare hızı yöneticisi testi: varsayılan 60, boşta 30, dokununca 60, Robo çalışırken 60, 120 seçeneği
+func _fpscheck() -> void:
+	var fails := []
+	progress["seen"]["0"] = 1
+	_start_level(0)
+	await get_tree().create_timer(0.5).timeout
+	if Engine.max_fps != mini(60, int(round(perf.hz))):
+		fails.append("başlangıç sınırı %d" % Engine.max_fps)
+	# giriş kamera uçuşu bitsin (yavaş ortamda kareler uzun sürer)
+	var w := 0
+	while perf.busy and w < 600:
+		await get_tree().process_frame
+		w += 1
+	await get_tree().create_timer(2.6).timeout
+	if Engine.max_fps != 30:
+		fails.append("boşta 30 değil: %d" % Engine.max_fps)
+	perf.touch()
+	await get_tree().process_frame
+	if Engine.max_fps < 55:
+		fails.append("dokununca dönmedi: %d" % Engine.max_fps)
+	cam_spin = true          # sahne hareketli (kamera dönüyor) → boşta sayılmaz
+	await get_tree().create_timer(2.6).timeout
+	if Engine.max_fps < 55:
+		fails.append("sahne hareketliyken 30'a indi")
+	cam_spin = false
+	perf.set_fps_cap(120)
+	perf.touch()
+	await get_tree().process_frame
+	if Engine.max_fps != mini(120, int(round(perf.hz))):
+		fails.append("120 seçeneği: %d" % Engine.max_fps)
+	print("fpscheck: ", "TAMAM" if fails.is_empty() else "HATA " + str(fails), " (ekran %d Hz)" % int(perf.hz))
+	get_tree().quit(0 if fails.is_empty() else 1)
 
 func _perftest() -> void:
 	var report := {"renderer": RenderingServer.get_current_rendering_method(), "gfx": gfx, "scenes": {}}
