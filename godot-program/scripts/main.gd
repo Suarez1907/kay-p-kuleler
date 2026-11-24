@@ -3973,6 +3973,20 @@ func _build_screens() -> void:
 	btn_vib.set_meta("label", vl)
 	btn_vib.set_meta("check", vib)
 	svb.add_child(btn_vib)
+	# performans göstergesi (yayın sürümünde de): FPS, GPU/CPU çizim süresi, çizim çağrısı, üçgen
+	var pf_row := HBoxContainer.new()
+	var pf_l := UIKit.label("Performans göstergesi", 18, BP.TEXT_PRIMARY, UIKit.font_bold)
+	pf_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	pf_row.add_child(pf_l)
+	var pf := CheckButton.new()
+	pf.focus_mode = Control.FOCUS_NONE
+	pf.custom_minimum_size = Vector2(64, 44)
+	BP.style_switch(pf)
+	pf.toggled.connect(func(on: bool):
+		if (perf_label != null and perf_label.visible) != on:
+			_toggle_perf_label())
+	pf_row.add_child(pf)
+	svb.add_child(pf_row)
 	# erişilebilirlik
 	svb.add_child(BP.tag("ERİŞİLEBİLİRLİK", 12))
 	for opt in [["cb", "Renk körü modu"], ["big", "Büyük yazı"], ["tts", "Komutları sesli oku"]]:
@@ -4820,7 +4834,7 @@ func _toggle_perf_label() -> void:
 		perf_label = BP.tag("", 13, BP.ACCENT_CYAN)
 		perf_label.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 		perf_label.position = Vector2(-260, 70)
-		perf_label.size = Vector2(250, 20)
+		perf_label.size = Vector2(250, 60)
 		perf_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		fx_layer.get_child(0).add_child(perf_label)
 		perf_label.visible = false
@@ -4829,8 +4843,13 @@ func _toggle_perf_label() -> void:
 func _update_perf_label() -> void:
 	if perf_label == null or not perf_label.visible or perf == null:
 		return
-	perf_label.text = "%d FPS · %.1f ms · %d çizim · 3D %%%d" % [roundi(perf.fps()), perf.frame_ms(),
-		RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME), roundi(get_viewport().scaling_3d_scale * 100.0)]
+	var vrid := get_viewport().get_viewport_rid()
+	RenderingServer.viewport_set_measure_render_time(vrid, true)
+	perf_label.text = "%d FPS · %.1f ms\nGPU %.1f ms · CPU %.1f ms\n%d çizim · %dk üçgen · 3D %%%d" % [roundi(perf.fps()), perf.frame_ms(),
+		RenderingServer.viewport_get_measured_render_time_gpu(vrid), RenderingServer.viewport_get_measured_render_time_cpu(vrid),
+		RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME),
+		RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_PRIMITIVES_IN_FRAME) / 1000,
+		roundi(get_viewport().scaling_3d_scale * 100.0)]
 
 func _apply_gfx() -> void:
 	var vp := get_viewport()
