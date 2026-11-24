@@ -7737,6 +7737,9 @@ func _perfquick(lvl: int) -> void:
 				if lmn != null:
 					lmn.light_data = null
 		"half": get_viewport().scaling_3d_scale = 0.5
+		"lod0": get_viewport().mesh_lod_threshold = 0.0
+		"lod2": get_viewport().mesh_lod_threshold = 2.0
+		"lod4": get_viewport().mesh_lod_threshold = 4.0
 	for k in 30:
 		await get_tree().process_frame
 	var r := await _perf_measure(60)
