@@ -1,0 +1,113 @@
+# coder-cloud-tool: android v4 (Coder tarafından oluşturuldu; Ayarlar > Yetenekler'den güncellenir)
+name: Coder Android Screens
+
+on:
+  workflow_dispatch:
+    inputs:
+      script_path:
+        description: Ekran adımları (her satır bir adb shell komutu)
+        required: false
+        default: .coder/screens.txt
+      output_dir:
+        description: Çıktı klasörü
+        required: false
+        default: coder-out
+      api_level:
+        description: Emülatör API seviyesi
+        required: false
+        default: "34"
+      flows:
+        description: Maestro akış klasörü (kabul ölçütleri; boş = yok)
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coder-android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  shots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SCRIPT: ${{ inputs.script_path }}
+      CODER_OUTPUT_DIR: ${{ inputs.output_dir }}
+      API_LEVEL: ${{ inputs.api_level }}
+      FLOWS: ${{ inputs.flows }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: APK
+        run: chmod +x gradlew && ./gradlew assembleDebug --console=plain
+
+      - name: Maestro
+        if: env.FLOWS != ''
+        run: curl -fsSL "https://get.maestro.mobile.dev" | bash
+
+      - name: KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Ekran betiği
+        run: |
+          cat > "$RUNNER_TEMP/shots.sh" <<'SH'
+          set -e
+          OUT="$GITHUB_WORKSPACE/$CODER_OUTPUT_DIR"; mkdir -p "$OUT"
+          APK=$(find . -path '*build/outputs/apk/debug/*.apk' | head -1)
+          test -n "$APK" || { echo "Debug APK bulunamadı"; exit 1; }
+          adb install -r "$APK"
+          AAPT=$(ls "$ANDROID_HOME"/build-tools/*/aapt 2>/dev/null | tail -1)
+          PKG=$("$AAPT" dump badging "$APK" | sed -n "s/package: name='\([^']*\)'.*/\1/p")
+          echo "Paket: $PKG"
+          adb logcat -c || true
+          adb shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 > /dev/null
+          sleep 10
+          adb exec-out screencap -p > "$OUT/preview.png"
+          i=1
+          if [ -f "$SCRIPT" ]; then
+            while IFS= read -r line || [ -n "$line" ]; do
+              case "$line" in ''|'#'*) continue ;; esac
+              adb shell "$line" < /dev/null || true
+              sleep 3
+              adb exec-out screencap -p > "$OUT/shot_$i.png" < /dev/null
+              i=$((i+1))
+            done < "$SCRIPT"
+          fi
+          if [ -n "$FLOWS" ] && [ -d "$GITHUB_WORKSPACE/$FLOWS" ]; then
+            export PATH="$PATH:$HOME/.maestro/bin"
+            ( cd "$OUT" && maestro test "$GITHUB_WORKSPACE/$FLOWS" --format junit --output "$OUT/maestro-report.xml" ) > "$OUT/maestro.log" 2>&1 < /dev/null || echo "MAESTRO_FAILED" >> "$OUT/maestro.log"
+            echo "---- Maestro ----"; tail -n 40 "$OUT/maestro.log"
+          fi
+          adb logcat -d -b crash > "$OUT/crash.txt" < /dev/null || true
+          if [ -s "$OUT/crash.txt" ]; then echo "UYGULAMA ÇÖKTÜ:"; cat "$OUT/crash.txt"; exit 1; fi
+          SH
+
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ env.API_LEVEL }}
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
+          script: bash "$RUNNER_TEMP/shots.sh"
+
+      - name: Çıktıları yükle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coder-android-output
+          if-no-files-found: warn
+          retention-days: 7
+          path: ${{ env.CODER_OUTPUT_DIR }}/
