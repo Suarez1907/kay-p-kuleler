@@ -3,7 +3,9 @@
 // sapma, sinematik vinyet ve hareketli ince film greni. Arayüz bu katmanın üstünde çizildiği için etkilenmez.
 shader_type canvas_item;
 
-uniform sampler2D screen_tex : hint_screen_texture, filter_linear_mipmap;
+// mipmap'siz örnekleme: ekran kopyası tam çözünürlükte okunur; filter_linear_mipmap her karede ekran
+// kopyasının mip zincirini ürettiriyordu (mobilde boşa giden bir tam ekran geçişi), görüntü aynı kalır
+uniform sampler2D screen_tex : hint_screen_texture, filter_linear;
 uniform vec3 lift = vec3(0.0);
 uniform vec3 gamma = vec3(1.0);
 uniform vec3 gain = vec3(1.0);
