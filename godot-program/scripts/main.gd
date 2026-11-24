@@ -669,11 +669,27 @@ func _baked_warm_list() -> Array:
 			out.append(p)
 	return out
 
+## Arka plan iş parçacığında önden yükleme: oyuncu bir seviyeyi oynarken bir sonraki seviyenin fırınlanmış
+## sahnesi (+ ışık haritası) ve montaj atölyesi diskten okunur; geçişte ana iş parçacığı beklemez
+var _preloading := {}
+
+func _preload_async(path: String) -> void:
+	if path == "" or _preloading.has(path) or not ResourceLoader.exists(path):
+		return
+	if ResourceLoader.load_threaded_request(path, "", true) == OK:
+		_preloading[path] = true
+
+func _preload_next(i: int) -> void:
+	if i + 1 < LEVEL_CUSTOM:
+		_preload_async(BAKED_DIR + "level_%03d.tscn" % (i + 2))
+	_preload_async("res://scenes/baked/assembly_workshop.tscn")
+
 func _load_baked_level(i: int) -> Node3D:
 	var path := BAKED_DIR + "level_%03d.tscn" % (i + 1)
 	if not ComponentFactory.use_models or not ResourceLoader.exists(path) or OS.has_environment("KK_NO_BAKED"):
 		return null
-	var ps = load(path)
+	var ps = ResourceLoader.load_threaded_get(path) if _preloading.has(path) else load(path)
+	_preloading.erase(path)
 	if not (ps is PackedScene):
 		return null
 	var root: Node3D = (ps as PackedScene).instantiate()
@@ -1109,6 +1125,8 @@ func build_level(i: int, as_preview := false) -> void:
 	if baked != null:
 		level_root.add_child(baked)
 		objs["baked"] = baked
+	if not as_preview and i < LEVEL_CUSTOM:
+		_preload_next(i)
 	# Not: GDScript lambdaları yerel değişkenleri kopyalar; sınır kutusu bir sözlükte tutulur.
 	var bb := {"box": AABB(Vector3(L.start), Vector3.ZERO)}
 	var grow := func(p: Vector3i): bb["box"] = bb["box"].expand(Vector3(p))
@@ -1436,6 +1454,10 @@ func build_level(i: int, as_preview := false) -> void:
 			AssetLoader.set_gi_dynamic(objs[k])
 	_build_shadow_proxy()
 	_build_walk_caps()
+	# gölge kapsaması seviyeye oturtulur: kamera hedefe 60 birim uzakta; adanın en uzak köşesi + pay.
+	# Aynı gölge haritası daha küçük alana yayılır → daha keskin gölge, ek maliyet yok
+	var sb: AABB = bb["box"]
+	sun.directional_shadow_max_distance = clampf(60.0 + sb.size.length() * 0.75 + 8.0, 70.0, 120.0)
 	_build_visual_fx(bb["box"])
 	var aabb: AABB = bb["box"]
 	_build_goal_sparkles(Vector3(L.goal))
@@ -4397,6 +4419,7 @@ func _title_diorama() -> void:
 	d.position = Vector3(cam_target.x, float(L.min_y) - 0.5, cam_target.z)
 	world.add_child(d)
 	title_dio = d
+	sun.directional_shadow_max_distance = 120.0
 	var spot := d.find_child("RobotSpot", true, false) as Node3D
 	var rb := AssetLoader.robot_model()
 	if rb != null:
@@ -7656,12 +7679,18 @@ func _perf_measure(frames: int) -> Dictionary:
 	var dc := 0
 	var objs_n := 0
 	var prims := 0
+	var vrid := get_viewport().get_viewport_rid()
+	RenderingServer.viewport_set_measure_render_time(vrid, true)
+	var gpu := 0.0
+	var cpu := 0.0
 	var last := Time.get_ticks_usec()
 	for f in frames:
 		await get_tree().process_frame
 		var now := Time.get_ticks_usec()
 		times.append((now - last) / 1000.0)
 		last = now
+		gpu += RenderingServer.viewport_get_measured_render_time_gpu(vrid)
+		cpu += RenderingServer.viewport_get_measured_render_time_cpu(vrid)
 		dc = maxi(dc, RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME))
 		objs_n = maxi(objs_n, RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_OBJECTS_IN_FRAME))
 		prims = maxi(prims, RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_PRIMITIVES_IN_FRAME))
@@ -7674,7 +7703,8 @@ func _perf_measure(frames: int) -> Dictionary:
 		sum += t
 		if t > 33.4:
 			hitches += 1
-	return {"avg": snappedf(sum / times.size(), 0.01), "p95": snappedf(sorted[int(sorted.size() * 0.95)], 0.01),
+	return {"gpu_ms": snappedf(gpu / frames, 0.01), "cpu_render_ms": snappedf(cpu / frames, 0.01),
+		"avg": snappedf(sum / times.size(), 0.01), "p95": snappedf(sorted[int(sorted.size() * 0.95)], 0.01),
 		"worst": snappedf(sorted.back(), 0.01), "hitches": hitches, "draw_calls": dc, "objects": objs_n, "primitives": prims}
 
 func _perftest() -> void:

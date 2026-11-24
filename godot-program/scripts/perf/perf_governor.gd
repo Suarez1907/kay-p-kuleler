@@ -39,6 +39,9 @@ func setup(viewport: Viewport) -> void:
 	hz = clampf(hz, 30.0, 144.0)
 	target_ms = 1000.0 / hz
 	Engine.max_fps = int(round(hz))
+	# çözünürlük kararları 60 FPS'e göre: 90/120 Hz ekranda oyun 60'ın üstüne çıkabilir (max_fps = yenileme hızı),
+	# ama 120'yi kovalamak için 3B çözünürlük düşürülmez (görüntü kalitesi korunur)
+	res_target_ms = maxf(target_ms, 1000.0 / 60.0)
 
 func set_base_scale(s: float) -> void:
 	base_scale = s
@@ -46,9 +49,15 @@ func set_base_scale(s: float) -> void:
 	_ft.clear()
 	_apply()
 
+var res_target_ms := 1000.0 / 60.0
+
 func _apply() -> void:
 	if vp != null:
 		vp.scaling_3d_scale = clampf(dyn_scale, 0.5, 2.0)
+		# ölçek 1'in altına inmek zorunda kalırsa FSR 1.0 (kenar duyarlı keskinleştirmeli büyütme): aynı maliyette
+		# bilinear'dan çok daha net; tam çözünürlükte ölçekleme yapılmaz
+		vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_FSR if vp.scaling_3d_scale < 0.999 else Viewport.SCALING_3D_MODE_BILINEAR
+		vp.fsr_sharpness = 0.2
 
 # ---------------------------------------------------------------------------
 # varlık önbelleği + shader ısıtma
@@ -88,8 +97,8 @@ func start_warmup(extra: Array = []) -> void:
 	sun.rotation = Vector3(-0.9, 0.6, 0)
 	var we := WorldEnvironment.new()
 	var env := Environment.new()
-	env.glow_enabled = true
-	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	# oyunun gerçek ortamı (HDRI ortam/yansıma ışığı, AgX, parlama): aynı shader/pipeline varyantları ısınır
+	StudioLighting.apply(env, StudioLighting.STUDIO, 1.0, 0.65, 1.0)
 	we.environment = env
 	_warm_vp.add_child(we)
 
@@ -154,9 +163,9 @@ func _track(dt: float) -> void:
 		if int(_bench["n"]) >= 120:
 			var avg := float(_bench["sum"]) / float(_bench["n"])
 			var lvl := 2
-			if avg > target_ms * 2.0:
+			if avg > res_target_ms * 2.0:
 				lvl = 0
-			elif avg > target_ms * 1.35:
+			elif avg > res_target_ms * 1.35:
 				lvl = 1
 			_bench = {}
 			quality_picked.emit(lvl)
@@ -166,10 +175,10 @@ func _track(dt: float) -> void:
 	for v in _ft:
 		avg2 += v
 	avg2 /= _ft.size()
-	if avg2 > target_ms * 1.18:
+	if avg2 > res_target_ms * 1.18:
 		_over += dt
 		_under = 0.0
-	elif avg2 < target_ms * 0.85:
+	elif avg2 < res_target_ms * 0.85:
 		_under += dt
 		_over = 0.0
 	else:

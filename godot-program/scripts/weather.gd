@@ -117,7 +117,8 @@ func setup(bg_layer: CanvasLayer, world: Node3D, e: Environment, s: DirectionalL
 	vp = SubViewport.new()
 	vp.disable_3d = true
 	vp.transparent_bg = false
-	vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	# çizim _process'te yönetilir (sky_rate): durgun havada iki karede bir, hareketli durumlarda her kare
+	vp.render_target_update_mode = SubViewport.UPDATE_ONCE
 	vp.size = Vector2i(64, 64)
 	add_child(vp)
 	sky = ColorRect.new()
@@ -144,6 +145,7 @@ static func for_chapter(ch: int) -> String:
 	return BY_CHAPTER[ch % BY_CHAPTER.size()]
 
 func apply(k: String, seed: float) -> void:
+	_sky_dirty = true
 	kind = k
 	preset = PRESETS[k]
 	var P := preset
@@ -257,15 +259,37 @@ func place(center: Vector3, size: Vector3) -> void:
 	rain_p.restart()
 	snow_p.restart()
 
+## Gökyüzü çizim hızı: bulutlar saniyede birkaç piksel kayar; durgun havada 2 karede bir çizmek gözle ayırt
+## edilmez ve tam ekran gökyüzü shader'ının maliyetini yarıya indirir. Kamera dönerken, şimşek/yıldırımda ve
+## hızlı katmanlarda (yağmur, kar, hortum) her kare çizilir.
+var sky_every := 2
+var _sky_frame := 0
+var _sky_dirty := true
+var _last_yaw := 999.0
+
 func set_view(yaw_rad: float, aspect: float, screen := Vector2.ZERO) -> void:
 	var want := Vector2i((screen * RES_SCALE[quality]).round())
 	if screen != Vector2.ZERO and want != _screen:
 		_screen = want
 		vp.size = Vector2i(maxi(want.x, 16), maxi(want.y, 16))
 		sky.size = Vector2(vp.size)
+		_sky_dirty = true
+	if absf(yaw_rad - _last_yaw) > 0.0005:
+		_last_yaw = yaw_rad
+		_sky_dirty = true
 	if mat:
 		mat.set_shader_parameter("yaw", yaw_rad)
 		mat.set_shader_parameter("aspect", aspect)
+
+func _sky_fast() -> bool:
+	return flash > 0.0 or _bolt_age < 1.0 or float(preset.get("rain", 0.0)) > 0.0 or float(preset.get("snow", 0.0)) > 0.0 \
+		or float(preset.get("tornado", 0.0)) > 0.0
+
+func _update_sky_rate() -> void:
+	_sky_frame += 1
+	if _sky_dirty or _sky_fast() or sky_every <= 1 or _sky_frame % sky_every == 0:
+		vp.render_target_update_mode = SubViewport.UPDATE_ONCE
+		_sky_dirty = false
 
 func _rand_gap() -> float:
 	var r: Array = preset.get("flash_every", [5.0, 9.0])
@@ -288,6 +312,7 @@ func strike(ground := -1.0) -> void:
 func _process(dt: float) -> void:
 	if mat == null:
 		return
+	_update_sky_rate()
 	if preset.has("flash_every") and enabled:
 		_next_flash -= dt
 		if _next_flash <= 0.0:
