@@ -1,0 +1,134 @@
+# coder-cloud-tool: mutate v4 (Coder tarafından oluşturuldu; Ayarlar > Yetenekler'den güncellenir)
+name: Coder Mutate
+
+on:
+  workflow_dispatch:
+    inputs:
+      script_path:
+        description: Mutant listesi (JSON)
+        required: true
+      output_dir:
+        description: Çıktı klasörü
+        required: false
+        default: coder-out
+      test_module:
+        description: Gradle modülü
+        required: false
+        default: ""
+      test_classes:
+        description: Test sınıfları (boşlukla)
+        required: false
+        default: ""
+      test_files:
+        description: Test dosyaları (JS/Python, boşlukla)
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  mutate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      SCRIPT: ${{ inputs.script_path }}
+      CODER_OUTPUT_DIR: ${{ inputs.output_dir }}
+      TEST_MODULE: ${{ inputs.test_module }}
+      TEST_CLASSES: ${{ inputs.test_classes }}
+      TEST_FILES: ${{ inputs.test_files }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Proje türü
+        id: kind
+        run: |
+          if [ -f gradlew ]; then k=gradle; elif [ -f package.json ]; then k=node; else k=python; fi
+          echo "kind=$k" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-java@v4
+        if: steps.kind.outputs.kind == 'gradle'
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        if: steps.kind.outputs.kind == 'gradle'
+
+      - uses: actions/setup-node@v4
+        if: steps.kind.outputs.kind == 'node'
+        with:
+          node-version: "20"
+
+      - uses: actions/setup-python@v5
+        if: steps.kind.outputs.kind == 'python'
+        with:
+          python-version: "3.12"
+
+      - name: Mutantlar
+        env:
+          KIND: ${{ steps.kind.outputs.kind }}
+        run: |
+          mkdir -p "$CODER_OUTPUT_DIR"
+          set -f
+          ARGS=""; for c in $TEST_CLASSES; do c=$(printf '%s' "$c" | tr -cd 'A-Za-z0-9_.*'); if [ -n "$c" ]; then ARGS="$ARGS --tests $c"; fi; done
+          FILES=""; for f in $TEST_FILES; do f=$(printf '%s' "$f" | tr -cd 'A-Za-z0-9_./@-'); if [ -n "$f" ]; then FILES="$FILES $f"; fi; done
+          MOD=$(printf '%s' "$TEST_MODULE" | tr -cd 'A-Za-z0-9_:-')
+          set +f
+          case "$KIND" in
+            gradle)
+              chmod +x gradlew
+              P=""; if [ -n "$MOD" ]; then P=":$MOD:"; fi
+              T="${P}testDebugUnitTest"
+              ./gradlew tasks --all -q 2>/dev/null | grep -q "testDebugUnitTest" || T="${P}test"
+              export TEST_CMD="./gradlew $T $ARGS --console=plain -q" ;;
+            node)
+              if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
+              if grep -q '"vitest"' package.json; then export TEST_CMD="npx --no-install vitest run $FILES"; else export TEST_CMD="npx --no-install jest $FILES"; fi ;;
+            python)
+              pip install -q pytest; for r in requirements*.txt; do if [ -f "$r" ]; then pip install -q -r "$r"; fi; done
+              export TEST_CMD="python -m pytest -q -x $FILES" ;;
+          esac
+          cat > "$RUNNER_TEMP/mutate.py" <<'PY'
+          import json, os, re, subprocess, sys, time
+          muts = json.load(open(sys.argv[1])); out = sys.argv[2]; cmd = os.environ["TEST_CMD"]
+          # Every write gets a new, later mtime and Python keeps no bytecode: a cached .pyc of the previous
+          # mutant (same size, same second) must never be what the tests run.
+          os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
+          stamp = [int(time.time())]
+          def write(path, text):
+              open(path, "w", encoding="utf-8").write(text)
+              stamp[0] += 2; os.utime(path, (stamp[0], stamp[0]))
+          # A mutant that does not even compile says nothing about the tests: it is not counted as caught.
+          BROKEN = re.compile(r"(?m)^e: |Compilation error|Compilation failed|SyntaxError|IndentationError|TS[0-9]{4}:")
+          def run():
+              try:
+                  p = subprocess.run(cmd, shell=True, timeout=600, capture_output=True, text=True, errors="replace")
+                  return p.returncode, p.stdout + p.stderr
+              except subprocess.TimeoutExpired: return 124, "zaman aşımı"
+          rc, log = run()
+          if rc != 0:
+              print(log[-4000:])
+              json.dump({"error": "Testler değişiklik olmadan da başarısız; mutasyon ölçülemez.\n" + log[-1500:]}, open(out, "w")); sys.exit(0)
+          res = []
+          for m in muts[:8]:
+              p = m["path"]; text = open(p, encoding="utf-8").read()
+              if text.count(m["search"]) != 1:
+                  res.append({"id": m["id"], "status": "skipped"}); continue
+              write(p, text.replace(m["search"], m["replace"], 1))
+              rc, log = run()
+              write(p, text)
+              res.append({"id": m["id"], "status": "survived" if rc == 0 else ("invalid" if BROKEN.search(log) else "killed")})
+          json.dump({"results": res}, open(out, "w"))
+          print(res)
+          PY
+          python3 "$RUNNER_TEMP/mutate.py" "$SCRIPT" "$CODER_OUTPUT_DIR/results.json"
+
+      - name: Çıktıları yükle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coder-mutate-output
+          if-no-files-found: warn
+          retention-days: 1
+          path: ${{ env.CODER_OUTPUT_DIR }}/
