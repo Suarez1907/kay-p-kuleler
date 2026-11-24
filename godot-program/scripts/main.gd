@@ -238,6 +238,9 @@ func _ready() -> void:
 		if a == "--perftest":
 			_perftest.call_deferred()
 			return
+		if a.begins_with("--perfquick"):
+			_perfquick.call_deferred(int(a.get_slice("=", 1)) if a.contains("=") else 12)
+			return
 		if a == "--perfcheck":
 			_perfcheck.call_deferred()
 			return
@@ -7706,6 +7709,25 @@ func _perf_measure(frames: int) -> Dictionary:
 	return {"gpu_ms": snappedf(gpu / frames, 0.01), "cpu_render_ms": snappedf(cpu / frames, 0.01),
 		"avg": snappedf(sum / times.size(), 0.01), "p95": snappedf(sorted[int(sorted.size() * 0.95)], 0.01),
 		"worst": snappedf(sorted.back(), 0.01), "hitches": hitches, "draw_calls": dc, "objects": objs_n, "primitives": prims}
+
+## Kısa karşılaştırmalı ölçüm (yazılımsal Vulkan'da bile birkaç dakika): ısıtma → seviye → 80 kare
+##   godot --path godot-program --rendering-method mobile -- --perfquick=12   (KK_SKY_EVERY=1: eski davranış)
+func _perfquick(lvl: int) -> void:
+	if OS.has_environment("KK_SKY_EVERY"):
+		weather.sky_every = int(OS.get_environment("KK_SKY_EVERY"))
+	_show_title()
+	perf.start_warmup(_baked_warm_list())
+	var g := 0
+	while not perf.warm_done and g < 900:
+		await get_tree().process_frame
+		g += 1
+	progress["seen"][str(lvl - 1)] = 1
+	_start_level(lvl - 1)
+	for k in 30:
+		await get_tree().process_frame
+	var r := await _perf_measure(80)
+	print("perfquick: seviye %d sky_every=%d %s" % [lvl, weather.sky_every, JSON.stringify(r)])
+	get_tree().quit()
 
 func _perftest() -> void:
 	var report := {"renderer": RenderingServer.get_current_rendering_method(), "gfx": gfx, "scenes": {}}
