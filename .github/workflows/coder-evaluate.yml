@@ -1,0 +1,77 @@
+# coder-cloud-tool: evaluate v4 (Coder tarafından oluşturuldu; Ayarlar > Yetenekler'den güncellenir)
+name: Coder Evaluate
+
+on:
+  workflow_dispatch:
+    inputs:
+      script_path:
+        description: Playwright değerlendirme betiği (.mjs)
+        required: true
+      output_dir:
+        description: Çıktı klasörü
+        required: false
+        default: coder-out
+      app_dir:
+        description: Statik web kökü (start_command boşsa)
+        required: false
+        default: "."
+      start_command:
+        description: Uygulamayı başlatan komut (ör. npm run dev -- --port 8080); boş = statik sunucu
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coder-evaluate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      SCRIPT: ${{ inputs.script_path }}
+      CODER_OUTPUT_DIR: ${{ inputs.output_dir }}
+      APP_DIR: ${{ inputs.app_dir }}
+      START_COMMAND: ${{ inputs.start_command }}
+      BASE_URL: http://127.0.0.1:8080
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Playwright
+        run: |
+          mkdir -p "$RUNNER_TEMP/pw" && cd "$RUNNER_TEMP/pw" && npm init -y > /dev/null && npm i -s playwright@1.47.2
+          npx playwright install --with-deps chromium > /dev/null
+          echo "NODE_PATH=$RUNNER_TEMP/pw/node_modules" >> "$GITHUB_ENV"
+
+      - name: Uygulamayı başlat
+        run: |
+          mkdir -p "$CODER_OUTPUT_DIR"
+          if [ -n "$START_COMMAND" ]; then
+            if [ -f package.json ]; then npm ci || npm install; fi
+            nohup bash -c "$START_COMMAND" > app.log 2>&1 &
+          else
+            nohup python3 -m http.server 8080 --directory "$APP_DIR" > app.log 2>&1 &
+          fi
+          for i in $(seq 1 60); do curl -fs "$BASE_URL" > /dev/null && exit 0; sleep 2; done
+          echo "Uygulama 2 dakikada açılmadı"; tail -n 50 app.log; exit 1
+
+      - name: Değerlendir
+        run: |
+          cp "$SCRIPT" "$RUNNER_TEMP/pw/eval.mjs"
+          node "$RUNNER_TEMP/pw/eval.mjs"
+
+      - name: Çıktıları yükle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coder-evaluate-output
+          if-no-files-found: warn
+          retention-days: 7
+          path: ${{ env.CODER_OUTPUT_DIR }}/
