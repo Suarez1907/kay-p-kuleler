@@ -7723,10 +7723,24 @@ func _perfquick(lvl: int) -> void:
 		g += 1
 	progress["seen"][str(lvl - 1)] = 1
 	_start_level(lvl - 1)
+	# teşhis anahtarları (yalnızca ölçüm; oyunda kullanılmaz): hangi kalem ne kadar tutuyor
+	var tag := OS.get_environment("KK_DIAG")
+	match tag:
+		"msaa0": get_viewport().msaa_3d = Viewport.MSAA_DISABLED
+		"noshadow": sun.shadow_enabled = false
+		"noglow": env.glow_enabled = false
+		"nopost": post_fx.visible = false
+		"nosky": weather.sky_every = 100000
+		"nolightmap":
+			if objs.has("baked"):
+				var lmn = (objs["baked"] as Node).get_node_or_null("LightmapGI")
+				if lmn != null:
+					lmn.light_data = null
+		"half": get_viewport().scaling_3d_scale = 0.5
 	for k in 30:
 		await get_tree().process_frame
-	var r := await _perf_measure(80)
-	print("perfquick: seviye %d sky_every=%d %s" % [lvl, weather.sky_every, JSON.stringify(r)])
+	var r := await _perf_measure(60)
+	print("perfquick: seviye %d %s %s" % [lvl, tag if tag != "" else "temel", JSON.stringify(r)])
 	get_tree().quit()
 
 func _perftest() -> void:
