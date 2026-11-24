@@ -6,7 +6,9 @@
 ##     Yüksek seçilir.
 ##  3) Dinamik çözünürlük: kare süresi hedefi (ekran yenileme hızı) aşılırsa 3D çözünürlük ölçeği kademeli düşer,
 ##     rahatlayınca geri çıkar. Arayüz her zaman tam çözünürlükte kalır.
-##  4) Kare hızı ekranın yenileme hızını izler (60/90/120 Hz).
+##  4) Kare hızı: varsayılan 60 FPS sınırı (Ayarlar'dan 120). Sahne durağanken (dokunma yok, Robo çalışmıyor,
+##     kamera/animasyon yok) 30 FPS: görüntü aynı, GPU yükü ve ısı yarıya iner. Telefon ısınıp kareler uzun süre
+##     hedefin altında kalırsa sınır geçici olarak 45'e iner (termal kısma → donma döngüsü kırılır).
 class_name PerfGovernor
 extends Node
 
@@ -31,17 +33,49 @@ var _queue: Array = []
 var _warm_vp: SubViewport
 var _warm_frames := 0
 
+var hz := 60.0
+var fps_cap := 60                    # Ayarlar: 60 (varsayılan) ya da 120
+var busy := false                    # main her kare bildirir: Robo çalışıyor, kamera/animasyon hareketli…
+var _idle_t := 0.0
+var _hot_t := 0.0
+var _thermal_t := 0.0                # > 0 iken ısınma koruması: sınır 45
+const IDLE_AFTER := 2.0
+const IDLE_FPS := 30
+const THERMAL_FPS := 45
+
 func setup(viewport: Viewport) -> void:
 	vp = viewport
-	var hz := DisplayServer.screen_get_refresh_rate()
-	if hz <= 1.0:
+	hz = DisplayServer.screen_get_refresh_rate()
+	if is_nan(hz) or is_inf(hz) or hz <= 1.0:   # bazı sürücüler -1 ya da NaN döndürür
 		hz = 60.0
 	hz = clampf(hz, 30.0, 144.0)
 	target_ms = 1000.0 / hz
-	Engine.max_fps = int(round(hz))
-	# çözünürlük kararları 60 FPS'e göre: 90/120 Hz ekranda oyun 60'ın üstüne çıkabilir (max_fps = yenileme hızı),
-	# ama 120'yi kovalamak için 3B çözünürlük düşürülmez (görüntü kalitesi korunur)
-	res_target_ms = maxf(target_ms, 1000.0 / 60.0)
+	set_fps_cap(fps_cap)
+
+func set_fps_cap(cap: int) -> void:
+	fps_cap = cap
+	res_target_ms = 1000.0 / float(mini(fps_cap, int(round(hz))))
+	_apply_fps()
+
+## Kullanıcı dokundu / bir şey değişti: hemen tam kare hızına dön
+func touch() -> void:
+	_idle_t = 0.0
+	if Engine.max_fps != current_cap():
+		_apply_fps()
+
+func current_cap() -> int:
+	var c := mini(fps_cap, int(round(hz)))
+	if _thermal_t > 0.0:
+		c = mini(c, THERMAL_FPS)
+	if _idle_t > IDLE_AFTER and not busy:
+		c = mini(c, IDLE_FPS)
+	return c
+
+func _apply_fps() -> void:
+	var c := current_cap()
+	if Engine.max_fps != c:
+		Engine.max_fps = c
+		_ft.clear()
 
 func set_base_scale(s: float) -> void:
 	base_scale = s
@@ -116,6 +150,10 @@ func _add_textures(d: String) -> void:
 func _process(dt: float) -> void:
 	if not warm_done and _warm_vp != null:
 		_warm_step()
+	_idle_t = 0.0 if busy else _idle_t + dt
+	if _thermal_t > 0.0:
+		_thermal_t = maxf(0.0, _thermal_t - dt)
+	_apply_fps()
 	_track(dt)
 
 func _warm_step() -> void:
@@ -175,10 +213,19 @@ func _track(dt: float) -> void:
 	for v in _ft:
 		avg2 += v
 	avg2 /= _ft.size()
-	if avg2 > res_target_ms * 1.18:
+	var goal_ms := 1000.0 / float(maxi(1, Engine.max_fps if Engine.max_fps > 0 else 60))
+	# ısınma: tam hızda kareler 8 sn boyunca hedefin belirgin altında → 90 sn boyunca 45 FPS sınırı
+	if Engine.max_fps >= 55 and avg2 > goal_ms * 1.3:
+		_hot_t += dt
+		if _hot_t > 8.0 and _thermal_t <= 0.0:
+			_thermal_t = 90.0
+			_hot_t = 0.0
+	else:
+		_hot_t = maxf(0.0, _hot_t - dt)
+	if avg2 > goal_ms * 1.18:
 		_over += dt
 		_under = 0.0
-	elif avg2 < res_target_ms * 0.85:
+	elif avg2 < goal_ms * 0.85:
 		_under += dt
 		_over = 0.0
 	else:
