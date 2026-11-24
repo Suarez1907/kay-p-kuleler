@@ -41,8 +41,8 @@ static func parts_in_phase(phase_idx: int, unlocked_parts: Array) -> int:
 			n += 1
 	return n
 
-## İpucu: oyuncunun programını kayıtlı çözümle karşılaştırıp sıradaki tek adımı döndürür.
-## Dönüş: {row, idx, ins, text} ya da program çözümle aynıysa boş sözlük.
+## İpucu: oyuncunun programını kayıtlı çözümle karşılaştırıp ilk sapmayı veya sıradaki adımı döndürür.
+## Tekrar sayısı (F*3) da karşılaştırılır. Dönüş: {row, idx, ins, text} ya da aynıysa boş sözlük.
 static func next_hint_step(level: Dictionary, prog: Dictionary) -> Dictionary:
 	var sol: Dictionary = level.get("hint_solution", level.get("solution", {}))
 	var names := {"main": "Ana", "p1": "F1", "p2": "F2"}
@@ -51,10 +51,44 @@ static func next_hint_step(level: Dictionary, prog: Dictionary) -> Dictionary:
 		var have: Array = prog.get(row, [])
 		for i in want.size():
 			var w := Program.parse_ins(want[i])
-			var ok: bool = i < have.size() and have[i]["c"] == w["c"] and have[i]["k"] == w["k"]
-			if not ok:
-				var cond: String = {"o": " (yeşil: önü açıksa)", "x": " (turuncu: önü kapalıysa)"}.get(w["k"], "")
-				return {"row": row, "idx": i, "ins": w, "text": "%s satırının %d. bloğu: %s%s" % [names[row], i + 1, Program.COMMANDS[w["c"]]["name"], cond]}
+			if i >= have.size():
+				return {"row": row, "idx": i, "ins": w, "text": "Sıradaki adım: %s satırının %d. bloğu — %s." % [names[row], i + 1, _cmd_label(w)]}
+			var got: Dictionary = have[i]
+			if not _same_ins(got, w):
+				return {"row": row, "idx": i, "ins": w, "text": "İlk sapma: %s satırının %d. bloğu. Olması gereken: %s. Sende: %s." % [names[row], i + 1, _cmd_label(w), _cmd_label(got)]}
 		if have.size() > want.size():
-			return {"row": row, "idx": want.size(), "ins": null, "text": "%s satırında %d. bloktan sonrasını sil" % [names[row], want.size()]}
+			return {"row": row, "idx": want.size(), "ins": null, "text": "İlk sapma: %s satırında %d. bloktan sonrası fazla — sil." % [names[row], want.size()]}
 	return {}
+
+static func _same_ins(a: Dictionary, b: Dictionary) -> bool:
+	return String(a.get("c", "")) == String(b.get("c", "")) and String(a.get("k", "")) == String(b.get("k", "")) and int(a.get("n", 1)) == int(b.get("n", 1))
+
+static func _cmd_label(ins: Dictionary) -> String:
+	var c := String(ins.get("c", ""))
+	var name := c
+	if Program.COMMANDS.has(c):
+		name = String(Program.COMMANDS[c]["name"])
+	if int(ins.get("n", 1)) > 1:
+		name += " ×%d" % int(ins["n"])
+	var cond: String = {"o": " (önü açıksa)", "x": " (önü kapalıysa)", "r": " (röle açıksa)"}.get(String(ins.get("k", "")), "")
+	return name + cond
+
+## Bölüm sonu: kullanılan blok ile par_commands / par farkı.
+static func efficiency_text(blocks: int, par: int) -> String:
+	if par <= 0:
+		return "%d blok kullandın." % blocks
+	var d := blocks - par
+	if d < 0:
+		return "Verimlilik: %d blok, par %d — hedefin %d altında." % [blocks, par, -d]
+	if d == 0:
+		return "Verimlilik: %d blok — par tutturuldu." % blocks
+	return "Verimlilik: %d blok, par %d — %d blok fazla. 3 yıldız için parı yakala." % [blocks, par, d]
+
+## Engel anındaki komut yuvası. first_bump varsa o, yoksa son işlenen komut.
+static func failing_slot(run_log: Dictionary) -> Dictionary:
+	var fb = run_log.get("first_bump", null)
+	if fb == null:
+		fb = run_log.get("last", null)
+	if fb == null or not (fb is Dictionary):
+		return {}
+	return {"row": String(fb.get("proc", "main")), "idx": int(fb.get("idx", 0))}

@@ -45,6 +45,7 @@ var from_showcase := false       # test montajı bitince vitrine dönülür
 var director: CinematicDirector = null   # Blender sinematiği (yoksa Tween akışı)
 var duration := DURATION
 var _whooshed := false
+var _focus_ph := -1
 
 var vp: SubViewport
 var world: Node3D
@@ -191,7 +192,15 @@ func _phase_summary() -> String:
 	for n in per:
 		if n == 10:
 			done += 1
-	return "Tamamlanan faz: %d/10   ·   Sıradaki parça: %s" % [done, _next_name()]
+	return "Tamamlanan faz: %d/10   ·   Son: %s   ·   Sıradaki: %s" % [done, _last_name(), _next_name()]
+
+func _last_name() -> String:
+	var best := 0
+	for id in unlocked:
+		best = maxi(best, int(id))
+	if best <= 0:
+		return "—"
+	return PCPartLibrary.part(best).part_name
 
 func _next_name() -> String:
 	for i in range(1, PCPartLibrary.COUNT + 1):
@@ -506,6 +515,8 @@ func _build_ui() -> void:
 	_sys_lbl = BP.tag("", 13, BP.ACCENT_AMBER)
 	_sys_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	sh.add_child(_sys_lbl)
+	var last := UIKit.button("SON PARÇA", UIKit.GOLD, _focus_newest, 14, "", UIKit.INK, 40)
+	sh.add_child(last)
 	_bottom.add_child(sh)
 	_sys_bar = BP.Bar.new(0.0, 4.0)
 	_bottom.add_child(_sys_bar)
@@ -542,7 +553,6 @@ func _render_bottom() -> void:
 				n += 1
 		var p := PanelContainer.new()
 		var full := n == 10
-		p.add_theme_stylebox_override("panel", BP.chamfer(BP.SURFACE_PANEL, BP.R_STD, BP.ACCENT_CYAN if full else (BP.BORDER_STEEL if n > 0 else Color(BP.TEXT_MUTED, 0.4)), BP.BORDER_W, 8))
 		p.custom_minimum_size = Vector2(118, 0)
 		var v := VBoxContainer.new()
 		v.add_theme_constant_override("separation", 2)
@@ -551,7 +561,55 @@ func _render_bottom() -> void:
 		var bar := BP.Bar.new(n / 10.0, 3.0)
 		v.add_child(bar)
 		p.add_child(v)
+		_ignore_mouse(v)
+		var ph_i := ph
+		var border := BP.ACCENT_AMBER if ph == _focus_ph else (BP.ACCENT_CYAN if full else (BP.BORDER_STEEL if n > 0 else Color(BP.TEXT_MUTED, 0.4)))
+		p.add_theme_stylebox_override("panel", BP.chamfer(BP.SURFACE_PANEL, BP.R_STD, border, BP.BORDER_W, 8))
+		p.gui_input.connect(func(ev: InputEvent) -> void:
+			if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT:
+				_focus_phase(ph_i))
 		_phase_cards.add_child(p)
+
+func _ignore_mouse(n: Node) -> void:
+	if n is Control:
+		(n as Control).mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for c in n.get_children():
+		_ignore_mouse(c)
+
+func _focus_phase(ph: int) -> void:
+	var ids: Array = []
+	for id in unlocked:
+		if (int(id) - 1) / 10 == ph:
+			ids.append(int(id))
+	_focus_ph = ph
+	_idle = 0.0
+	if ids.is_empty():
+		lbl_caption.text = "Faz %d henüz boş" % (ph + 1)
+		lbl_sub.text = _phase_summary()
+		_render_bottom.call_deferred()
+		return
+	var f := _frame(PCPartLibrary.bounds(ids), 1.25)
+	cam_target = f["target"]
+	dist = f["dist"]
+	var names: PackedStringArray = PackedStringArray()
+	for id in ids:
+		names.append(PCPartLibrary.part(int(id)).part_name)
+	lbl_caption.text = "Faz %02d · %d/10 parça" % [ph + 1, ids.size()]
+	lbl_sub.text = ", ".join(names)
+	_render_bottom.call_deferred()
+
+func _focus_newest() -> void:
+	var best := 0
+	for id in unlocked:
+		best = maxi(best, int(id))
+	if best <= 0:
+		return
+	_focus_phase((best - 1) / 10)
+	var f := _frame(PCPartLibrary.bounds([best]), 1.4)
+	cam_target = f["target"]
+	dist = f["dist"]
+	lbl_caption.text = "Parça %d · %s" % [best, PCPartLibrary.part(best).part_name]
+	lbl_sub.text = "Faz %d · %s" % [(best - 1) / 10 + 1, PCPartLibrary.part(best).phase_name]
 
 func _toggle_style() -> void:
 	_style_panel.visible = not _style_panel.visible
@@ -655,6 +713,7 @@ func _on_cue(kind: String, pos: Vector3) -> void:
 			Sfx.asmr().play_part_whoosh()
 		"snap":
 			_snapped = true
+			_shake = 1.0
 			sparks.global_position = pos
 			sparks.restart()
 			sparks.emitting = true
@@ -674,6 +733,9 @@ func advance(dt: float) -> void:
 		return
 	if director != null:
 		_advance_cinematic()
+		if _shake > 0.0 and cam != null:
+			cam.position += Vector3(randf_range(-1, 1), randf_range(-1, 1), randf_range(-1, 1)) * 0.02 * _shake * _shake
+			_shake = maxf(0.0, _shake - dt * 2.4)
 		return
 	if t >= 0.4 and not _whooshed:
 		_whooshed = true
