@@ -1,5 +1,9 @@
 # Sürüm Notları
 
+## v3.5.0
+- 100 devre seviyesi baştan kurgulandı: faz faz hareket/F1, diyot, kondansatör, röle OR, röle AND+klon, direnç zamanlaması ve birleşik final. Parça sırası ve kayıt anahtarları aynı.
+- `par_commands` artık yuva sınırına sığan en kısa çözüm. Doğrulayıcı başlangıç/hedef, röle→köprü bağı, ipucu çözümü ve parı denetler; tutmazsa CI durur.
+
 ## v3.3.1
 - Isınma/donma düzeltmesi: varsayılan 60 FPS sınırı, boşta 30 FPS, termal kısma koruması (45 FPS), Ayarlar'dan isteğe bağlı 120 FPS.
 - VRAM sıkıştırma telefona ulaştı: `.import` dosyaları depoya eklendi (2K dokular ETC2/ASTC + mipmap, ışık haritaları ASTC HDR).
