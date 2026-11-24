@@ -1,0 +1,85 @@
+# coder-cloud-tool: blender v4 (Coder tarafından oluşturuldu; Ayarlar > Yetenekler'den güncellenir)
+name: Coder Blender
+
+on:
+  workflow_dispatch:
+    inputs:
+      script_path:
+        description: Blender Python betiği (repo içi yol)
+        required: true
+      output_dir:
+        description: Çıktı klasörü
+        required: false
+        default: coder-out
+      blender_version:
+        description: Blender sürümü (major.minor)
+        required: false
+        default: "4.2"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coder-blender-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  blender:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SCRIPT: ${{ inputs.script_path }}
+      CODER_OUTPUT_DIR: ${{ inputs.output_dir }}
+      BLENDER_VERSION: ${{ inputs.blender_version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Blender sürümünü bul
+        id: bl
+        run: |
+          file=$(curl -fsSL "https://download.blender.org/release/Blender${BLENDER_VERSION}/" | grep -o "blender-${BLENDER_VERSION}\.[0-9]*-linux-x64\.tar\.xz" | sort -uV | tail -1)
+          test -n "$file" || { echo "Blender $BLENDER_VERSION bulunamadı"; exit 1; }
+          echo "file=$file" >> "$GITHUB_OUTPUT"
+
+      - name: Blender önbelleği
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: ~/blender
+          key: ${{ steps.bl.outputs.file }}
+
+      - name: Blender indir
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/blender
+          curl -fsSL "https://download.blender.org/release/Blender${BLENDER_VERSION}/${{ steps.bl.outputs.file }}" | tar -xJ -C ~/blender --strip-components=1
+
+      - name: Sistem kütüphaneleri
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libxi6 libxxf86vm1 libxfixes3 libxrender1 libxkbcommon0 libsm6 libgl1 libegl1 > /dev/null
+
+      - name: Betiği çalıştır
+        run: |
+          mkdir -p "$CODER_OUTPUT_DIR"
+          set -o pipefail
+          ~/blender/blender --background --factory-startup --python-exit-code 1 --python "$SCRIPT" 2>&1 | tee blender.log
+          test -s "$CODER_OUTPUT_DIR/preview.png" || echo "Uyarı: preview.png üretilmedi"
+
+      - name: Hata özeti
+        if: failure()
+        run: |
+          echo "::group::Python traceback"
+          grep -n -A30 "Traceback (most recent call last)" blender.log || tail -n 60 blender.log || true
+          echo "::endgroup::"
+
+      - name: Çıktıları yükle
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coder-blender-output
+          if-no-files-found: warn
+          retention-days: 7
+          path: |
+            ${{ env.CODER_OUTPUT_DIR }}/preview.png
+            ${{ env.CODER_OUTPUT_DIR }}/*.glb
+            ${{ env.CODER_OUTPUT_DIR }}/*.blend
+            ${{ env.CODER_OUTPUT_DIR }}/*.png
