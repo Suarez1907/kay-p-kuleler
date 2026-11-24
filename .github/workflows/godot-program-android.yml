@@ -51,6 +51,15 @@ jobs:
             ~/.local/share/godot/export_templates/${{ env.GODOT_VERSION }}.${{ env.GODOT_STATUS }}
           key: godot-${{ env.GODOT_VERSION }}-${{ env.GODOT_STATUS }}-android-v2
 
+      # İçe aktarma önbelleği: 2K dokuların ETC2/ASTC ve 100 HDR ışık haritasının ASTC sıkıştırması temiz
+      # içe aktarmada ~1 saat sürer; sonraki derlemeler yalnızca değişen dosyaları yeniden içe aktarır
+      - name: Godot içe aktarma önbelleği (VRAM sıkıştırılmış dokular, ışık haritaları)
+        uses: actions/cache@v4
+        with:
+          path: godot-program/.godot/imported
+          key: godot-import-v1-${{ hashFiles('godot-program/**/*.import', 'godot-program/project.godot') }}
+          restore-keys: godot-import-v1-
+
       - name: Godot + Android şablonlarını indir
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
