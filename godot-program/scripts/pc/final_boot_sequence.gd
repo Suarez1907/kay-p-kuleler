@@ -38,6 +38,7 @@ var cine := {}
 var T := {"power": 3.0, "fans": 5.0, "screen": 12.0, "lines": 12.4, "step": 0.55, "logo": 22.0, "desk": 24.0, "caption": 25.0, "btns": 26.5}
 const T_CINE := {"power": 130.0 / 30.0, "fans": 185.0 / 30.0, "screen": 14.0, "lines": 450.0 / 30.0, "step": 0.42, "logo": 21.6, "desk": 670.0 / 30.0, "caption": 24.0, "btns": 26.0}
 var _fan_started := false
+var _bios_script: Array = []
 
 func begin(owner_scene: Control) -> void:
 	asm = owner_scene
@@ -58,6 +59,7 @@ func begin(owner_scene: Control) -> void:
 	_build_robot()
 	_build_screen()
 	_build_buttons()
+	_bios_script = _make_bios_script()
 	var pw: Node3D = asm.nodes.get(POWER_ID)
 	if pw != null:
 		_press_y = pw.position.y
@@ -206,6 +208,16 @@ func _build_buttons() -> void:
 	_btns.visible = false
 	asm.add_child(_btns)
 
+func _make_bios_script() -> Array:
+	var l0: float = T["lines"]
+	var st: float = T["step"]
+	var lines: Array = [[l0, "BIOS v4.8 — ROBOTIC CORE SYSTEMS", Color("#7fd6ff"), 30], [l0 + st, "Copyright (C) Kayıp Kuleler Labs · Robo POST rev.100", Color("#8899aa"), 18],
+		[l0 + st * 2.0, "CPU: ROBO-CORE 100 @ 4.80 GHz    MEMORY: 64 GB DDR5 ...... OK", Color("#c8d6e5"), 22], [l0 + st * 3.0, "CHECKING HARDWARE MODULES...", Color("#ffd36e"), 24]]
+	for i in 10:
+		lines.append([l0 + st * (4.0 + i), "  [%02d] %s %s [ OK ]" % [i + 1, PHASE_SHORT[i], ".".repeat(22 - PHASE_SHORT[i].length())], Color("#3cf08a"), 22])
+	lines.append([l0 + st * 14.5, "TOTAL PARTS VERIFIED: 100 / 100 — ALL SYSTEMS NOMINAL.", Color("#ffffff"), 24])
+	return lines
+
 func _line(text: String, col := Color("#c8d6e5"), size := 24) -> Label:
 	var l := Label.new()
 	l.text = text
@@ -345,6 +357,11 @@ func advance(dt: float) -> void:
 				g = maxf(g, 1.0 - absf(t - 20.8) / 0.4)
 		PartBuilder.set_glow(asm.nodes[id], g * 1.3)
 	# --- C: BIOS / POST ---
+	if screen_vp != null:
+		var live: bool = t >= float(T["screen"])
+		var want := SubViewport.UPDATE_ALWAYS if live else SubViewport.UPDATE_DISABLED
+		if screen_vp.render_target_update_mode != want:
+			screen_vp.render_target_update_mode = want
 	if _glb_screen_node != null:
 		screen_quad.visible = false
 		if (t >= T["screen"]) != _glb_screen_on:
@@ -355,18 +372,13 @@ func advance(dt: float) -> void:
 				AssetLoader.unique_surfaces(_glb_screen_node, "MonitorScreen")
 	else:
 		screen_quad.visible = t >= T["screen"]
-	var l0: float = T["lines"]
-	var st: float = T["step"]
-	var lines := [[l0, "BIOS v4.8 — ROBOTIC CORE SYSTEMS", Color("#7fd6ff"), 30], [l0 + st, "Copyright (C) Kayıp Kuleler Labs · Robo POST rev.100", Color("#8899aa"), 18],
-		[l0 + st * 2.0, "CPU: ROBO-CORE 100 @ 4.80 GHz    MEMORY: 64 GB DDR5 ...... OK", Color("#c8d6e5"), 22], [l0 + st * 3.0, "CHECKING HARDWARE MODULES...", Color("#ffd36e"), 24]]
-	for i in 10:
-		lines.append([l0 + st * (4.0 + i), "  [%02d] %s %s [ OK ]" % [i + 1, PHASE_SHORT[i], ".".repeat(22 - PHASE_SHORT[i].length())], Color("#3cf08a"), 22])
-	lines.append([l0 + st * 14.5, "TOTAL PARTS VERIFIED: 100 / 100 — ALL SYSTEMS NOMINAL.", Color("#ffffff"), 24])
-	while _lines_shown < lines.size() and t >= lines[_lines_shown][0]:
-		var row: Array = lines[_lines_shown]
+	if _bios_script.is_empty():
+		_bios_script = _make_bios_script()
+	while _lines_shown < _bios_script.size() and t >= float(_bios_script[_lines_shown][0]):
+		var row: Array = _bios_script[_lines_shown]
 		_line(row[1], row[2], row[3])
 		_lines_shown += 1
-		if _lines_shown == 1 or _lines_shown == lines.size():
+		if _lines_shown == 1 or _lines_shown == _bios_script.size():
 			Sfx.call_ah("post_beep")
 		elif _lines_shown > 4:
 			Sfx.call_ah("ui_thock")

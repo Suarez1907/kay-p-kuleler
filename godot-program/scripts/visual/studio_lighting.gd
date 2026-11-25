@@ -45,7 +45,7 @@ static func apply(env: Environment, path := STUDIO, energy := 1.0, sky_mix := 0.
 	env.tonemap_exposure = exposure
 	env.tonemap_agx_contrast = 1.18
 	env.glow_enabled = true
-	env.glow_hdr_threshold = 1.15
+	env.glow_hdr_threshold = 1.55
 	# ince temas gölgesi (SSAO yalnızca Forward+ renderer'da çalışır; Mobile renderer'da yok sayılır)
 	env.ssao_enabled = true
 	env.ssao_intensity = 0.8

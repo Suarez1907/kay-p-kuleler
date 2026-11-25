@@ -38,6 +38,10 @@ func has_sound(n: String) -> bool:
 func play(n: String, pitch := 1.0, vol_db := 0.0) -> void:
 	if not sound_on or not _sounds.has(n):
 		return
+	var now := Time.get_ticks_msec()
+	if n in ["snap", "relay", "cap", "power", "post", "chord"] and now - int(_last_play.get(n, -1000)) < 80:
+		return
+	_last_play[n] = now
 	var p := _pool[_next]
 	_next = (_next + 1) % _pool.size()
 	p.stream = _sounds[n]
@@ -51,6 +55,7 @@ func _asmr() -> Node:
 	return a if a != null and a.available and sound_on else null
 
 var _fan_prev := 0.0
+var _last_play := {}
 
 # ---------- oynanış ----------
 ## Adım: pentatonik dizide yürür, yükseldikçe nota da yükselir
@@ -64,9 +69,9 @@ func step(height: int, pitch := 1.0) -> void:
 
 func cap_launch() -> void:
 	var a := _asmr()
-	if a != null and a.play_component("capacitor"):
-		return
-	play("cap")
+	if a == null or not a.play_component("capacitor"):
+		play("cap")
+	vibrate(35)
 
 func error() -> void:
 	var a := _asmr()
@@ -76,9 +81,9 @@ func error() -> void:
 
 func relay() -> void:
 	var a := _asmr()
-	if a != null and a.play_component("relay"):
-		return
-	play("relay")
+	if a == null or not a.play_component("relay"):
+		play("relay")
+	vibrate(28)
 
 func ui_thock() -> void:
 	var a := _asmr()
@@ -100,15 +105,15 @@ func power_press() -> void:
 
 func post_beep() -> void:
 	var a := _asmr()
-	if a != null and a.play_bios_beep():
-		return
-	play("post")
+	if a == null or not a.play_bios_beep():
+		play("post")
+	vibrate(16)
 
 func desktop_chord() -> void:
 	var a := _asmr()
-	if a != null and a.play_boot_chord():
-		return
-	play("chord")
+	if a == null or not a.play_boot_chord():
+		play("chord")
+	vibrate(40)
 
 ## Fan sesi: 0 (sessiz) … 1 (tam devir). Devir arttıkça perde ve ses yükselir.
 func fan(level: float) -> void:
