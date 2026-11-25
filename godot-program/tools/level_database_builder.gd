@@ -1137,6 +1137,71 @@ func _summary(levels: Array) -> void:
 	print("par: min %d  max %d  ortalama %.1f  |  F1 seviye %d  klon seviye %d" % [mn, mx, float(par_sum) / 100.0, fn, clone])
 
 
+## Komut listesini tekrar desenlerine göre sıkıştırır (tools/gen-extra.mjs içindeki compress ile aynı davranış).
+## F1 için en fazla 6, F2 için en fazla 5 uzunlukta desen aranır; tekrarlar sırasıyla '1' ve '2' sembolleriyle
+## değiştirilir. Dönüş: {"main": Array, "p1": Array, "p2": Array} — use_p2=false iken p2 boş kalır.
+## daily_generator.gd ve diğer çağıranlar bu imzayı bekler; kök tools/ kopyasındaki bayt sıkıştırıcıdan farklıdır.
+static func compress(cmds: Array, use_p1 := true, use_p2 := true) -> Dictionary:
+	var main: Array = cmds.duplicate()
+	var p1: Array = []
+	var p2: Array = []
+	if use_p1:
+		var b1 := _best_repeat(main, 6)
+		if not b1.is_empty():
+			p1 = b1["pat"]
+			main = _replace_seq(main, p1, "1")
+	if use_p2:
+		var b2 := _best_repeat(main, 5)
+		if not b2.is_empty():
+			p2 = b2["pat"]
+			main = _replace_seq(main, p2, "2")
+	return {"main": main, "p1": p1, "p2": p2}
+
+
+## En kazançlı tekrar desenini bulur: save = occ * (uzunluk-1) - uzunluk; eşitse daha uzun desen kazanır.
+static func _best_repeat(seq: Array, max_len: int) -> Dictionary:
+	var best := {}
+	for plen in range(2, max_len + 1):
+		for i in range(0, seq.size() - plen + 1):
+			var pat: Array = seq.slice(i, i + plen)
+			var occ := 0
+			var j := 0
+			while j + plen <= seq.size():
+				var eq := true
+				for t in plen:
+					if seq[j + t] != pat[t]:
+						eq = false
+						break
+				if eq:
+					occ += 1
+					j += plen
+				else:
+					j += 1
+			var save := occ * (plen - 1) - plen
+			if occ >= 2 and save > 0 and (best.is_empty() or save > int(best["save"]) or (save == int(best["save"]) and plen > (best["pat"] as Array).size())):
+				best = {"pat": pat, "save": save}
+	return best
+
+
+static func _replace_seq(seq: Array, pat: Array, sym: String) -> Array:
+	var out: Array = []
+	var j := 0
+	while j < seq.size():
+		var eq := j + pat.size() <= seq.size()
+		if eq:
+			for t in pat.size():
+				if seq[j + t] != pat[t]:
+					eq = false
+					break
+		if eq:
+			out.append(sym)
+			j += pat.size()
+		else:
+			out.append(seq[j])
+			j += 1
+	return out
+
+
 func _generate() -> void:
 	var specs := _specs()
 	if specs.size() != 100:

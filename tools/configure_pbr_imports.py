@@ -60,10 +60,12 @@ def main():
         p["compress/normal_map"] = "1" if "normal" in os.path.basename(imp) or "nor_gl" in imp else "0"
         n_tex += patch(imp, p)
     for imp in glob.glob(os.path.join(ROOT, "assets/hdri/*.exr.import")):
-        n_hdr += patch(imp, {"compress/mode": "0", "mipmaps/generate": "false", "detect_3d/compress_to": "0"})
+        n_hdr += patch(imp, {"compress/mode": "0", "mipmaps/generate": "false", "detect_3d/compress_to": "0",
+                             "compress/high_quality": "false"})
     # Baked lightmap EXR dosyaları: BPTC/ASTC sıkıştırmasını devre dışı bırak (VRAM %6 donmasını önler)
     for imp in glob.glob(os.path.join(ROOT, BAKED_LEVELS_EXR)):
-        n_hdr += patch(imp, {"compress/mode": "0", "mipmaps/generate": "false", "detect_3d/compress_to": "0"})
+        n_hdr += patch(imp, {"compress/mode": "0", "mipmaps/generate": "false", "detect_3d/compress_to": "0",
+                             "compress/high_quality": "false"})
     for pat, texel in STATIC_GLB.items():
         for imp in glob.glob(os.path.join(ROOT, pat + ".import")):
             n_glb += patch(imp, {"meshes/light_baking": "2", "meshes/lightmap_texel_size": texel})

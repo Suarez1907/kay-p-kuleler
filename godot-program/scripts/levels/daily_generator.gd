@@ -87,7 +87,7 @@ static func _has_comp(d: Dictionary, c: Vector3i) -> bool:
 
 ## Ardışık aynı komutları "F*3" sayacına, sonra en iyi tekrar desenini F1'e sıkıştırır
 static func _compress(cmds: Array) -> Dictionary:
-	var c := LDB.compress(cmds, true, false)
+	var c: Dictionary = LDB.compress(cmds, true, false)
 	var main := _runs(c["main"])
 	var p1 := _runs(c["p1"])
 	var out := {"main": main}

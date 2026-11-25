@@ -53,9 +53,9 @@ jobs:
       - name: GDScript motorunda tüm çözümler
         run: |
           /tmp/godot-bin --headless --path godot --import >/dev/null 2>&1 || true
-          /tmp/godot-bin --headless --path godot --script res://tests/run_solutions.gd
+          timeout 600 /tmp/godot-bin --headless --path godot --script res://tests/run_solutions.gd
       - name: Tam sahne otomatik testi
-        run: /tmp/godot-bin --headless --path godot -- --autotest 2>&1 | grep -E "autotest|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
+        run: timeout 180 /tmp/godot-bin --headless --path godot -- --autotest 2>&1 | grep -E "autotest|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
         shell: bash
 
   # Tam proje içe aktarması (2K doku) saat sürebilir. Doğrulayıcı yalnızca mantık betiklerine
