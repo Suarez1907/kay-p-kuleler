@@ -20,6 +20,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: PBR içe aktarma ayarlarını uygula
+        working-directory: .
+        run: python3 tools/configure_pbr_imports.py
+
       - name: Godot import önbelleği
         uses: actions/cache@v4
         with:
