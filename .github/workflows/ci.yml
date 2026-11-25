@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  test-export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      G: godot
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Import assets
+        run: |
+          echo "::group::ADIM: import"
+          echo "ADIM import başladı"
+          set +e
+          timeout 900 "$G" --headless --import
+          rc=$?
+          if [ $rc -eq 124 ]; then echo "::error::Zaman aşımı: import"; exit 1; fi
+          exit $rc
+
+      - name: Perf check
+        run: |
+          echo "::group::ADIM: perfcheck"
+          echo "ADIM perfcheck başladı"
+          set +e
+          timeout 180 "$G" --headless --perfcheck
+          rc=$?
+          if [ $rc -eq 124 ]; then echo "::error::Zaman aşımı: perfcheck"; exit 1; fi
+          exit $rc
+
+      - name: Check
+        run: |
+          echo "::group::ADIM: check"
+          echo "ADIM check başladı"
+          set +e
+          timeout 180 "$G" --headless --check
+          rc=$?
+          if [ $rc -eq 124 ]; then echo "::error::Zaman aşımı: check"; exit 1; fi
+          exit $rc
+
+      - name: Layout test
+        run: |
+          echo "::group::ADIM: layouttest"
+          echo "ADIM layouttest başladı"
+          set +e
+          timeout 180 "$G" --headless --layouttest
+          rc=$?
+          if [ $rc -eq 124 ]; then echo "::error::Zaman aşımı: layouttest"; exit 1; fi
+          exit $rc
+
+      - name: UI audit
+        run: |
+          echo "::group::ADIM: uiaudit"
+          echo "ADIM uiaudit başladı"
+          set +e
+          timeout 180 "$G" --headless --uiaudit
+          rc=$?
+          if [ $rc -eq 124 ]; then echo "::error::Zaman aşımı: uiaudit"; exit 1; fi
+          exit $rc
+
+      - name: Autotest
+        run: |
+          echo "::group::ADIM: autotest"
+          echo "ADIM autotest başladı"
+          set +e
+          timeout 180 "$G" --headless --autotest
+          rc=$?
+          if [ $rc -eq 124 ]; then echo "::error::Zaman aşımı: autotest"; exit 1; fi
+          exit $rc
