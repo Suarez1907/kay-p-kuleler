@@ -28,6 +28,7 @@ env:
 jobs:
   test-export:
     runs-on: ubuntu-latest
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v4
 
@@ -78,7 +79,7 @@ jobs:
         run: |
           G="$HOME/godot48/godot"; chmod +x "$G"; "$G" --headless --version
           cd godot-program
-          "$G" --headless --import >/dev/null 2>&1 || true
+          timeout 5400 "$G" --headless --import >/dev/null 2>&1 || true
           "$G" --headless --script res://tests/run_programs.gd 2>&1 | grep -E "seviye|HATA|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
           "$G" --headless --script res://tests/run_themes.gd 2>&1 | grep -E "themes|HATA|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
           "$G" --headless -- --autotest 2>&1 | grep -E "autotest|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
