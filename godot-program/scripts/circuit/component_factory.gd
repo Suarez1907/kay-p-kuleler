@@ -239,7 +239,19 @@ static func _cover_material() -> StandardMaterial3D:
 		_cover_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	return _cover_mat
 
-## Röle durum ışığı
+## Röle durum ışığı (aç/kapa röleleri)
 static func set_relay(n: Node3D, on: bool) -> void:
 	if n != null and n.has_meta("led"):
 		(n.get_meta("led") as StandardMaterial3D).albedo_color = Color("#3cf08a") if on else Color("#ff4d5e")
+
+## AND/OR/XOR girişi: devre kapalıyken basılı giriş amber, boş giriş sönük, devre yeşil.
+static func set_relay_state(n: Node3D, circuit_on: bool, input_on: bool) -> void:
+	if n == null or not n.has_meta("led"):
+		return
+	var led := n.get_meta("led") as StandardMaterial3D
+	if circuit_on:
+		led.albedo_color = Color("#3cf08a")
+	elif input_on:
+		led.albedo_color = Color("#ffd36e")
+	else:
+		led.albedo_color = Color("#5c3038")

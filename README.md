@@ -20,7 +20,7 @@ asansörleri kaldırır, kamerayı çevirip imkânsız geçitleri birleştirirsi
 
 | Sürüm | Klasör | Teknoloji |
 |---|---|---|
-| **Android uygulaması (ana sürüm, v2.4.2)** | `godot-program/` | **Godot 4.8 beta 4**, Mobile (Vulkan) renderer, doğrusal ton eşleme, GDScript; modern mobil arayüz, ses ve müzik |
+| **Android uygulaması (ana sürüm, v3.5.0)** | `godot-program/` | **Godot 4.8 beta 4**, Mobile (Vulkan) renderer, doğrusal ton eşleme, GDScript; modern mobil arayüz, ses ve müzik |
 | Tarayıcı | `web/` | Three.js r170 + cannon-es (yerel olarak paketlendi, CDN yok) |
 | Eski Android (v1.x, WebView) | `android/` | Kotlin + WebView; `web/` klasörünü paketler. Artık sürüm olarak yayınlanmaz |
 | Godot (klasik mod) | `godot/` | Godot 4.3, GDScript — programlama öncesi "dokun-yürü" sürümü ve 15 klasik seviyesi |
@@ -165,8 +165,9 @@ Tüm referans çözümler `SOLUTIONS.md` dosyasındadır.
   çentiği / güvenli alanı kadar içeriden durur. Sırası yukarıdan aşağıya fonksiyon sekmeleri (Ana, F1, F2) → kod
   satırları → komut butonları → menü, ipucu, kamera ve tema (başparmak hizası) → aksiyon barı. Başlık üstte, çentiğin
   altında kalır. Sahne her zaman boş alana ortalanır.
-* Kamera: 3B alanda parmakla yatay sürükleyerek kule etrafında döner, bırakınca en yakın 90°'ye oturur (göz yanılması
-  geçitleri bu açılara bağlıdır). İpucu ve kamerayı sıfırla alt paneldeki araç şeridindedir; "Dünyayı başa al" duraklatma menüsünde.
+* Kamera: parmakla veya fareyle kule etrafında 360°'nin herhangi bir açısına döner, bırakınca ataletle süzülüp durur.
+  Tekerlek, izleme dörtgeni ve iki parmak sıkıştırma yakınlaştırır. Göz yanılması ve hayalet bloklar en yakın yasal 90°
+  bakışta çözülür; Q/E hâlâ bir dilim çevirir. Kamerayı sıfırla varsayılan kadraja döner.
 * Görüntü: ferah soğuk gökyüzü gradyanı (#B8D4E8 → #EBF3F8), mimari taş/krem bloklar (#EAE4DC, #E2DACF, #D8CFC2,
   #C4D3DF; seviyenin paletinden yalnızca hafif ton), keskin ince pahlar (0,03) ve düz yüzler, yürünebilir üst yüzlerde
   karo plakası, mat malzeme (pürüzlülük 0,9). Doğrusal ton eşleme: renkler ekrana olduğu gibi gider (AgX/ACES açık pastel

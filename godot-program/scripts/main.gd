@@ -89,6 +89,15 @@ var cam_az := 45.0
 var cam_az_cur := 45.0
 var cam_zoom := 1.0
 var cam_target := Vector3.ZERO
+## Serbest yörünge (360°, atalet, zoom). cam_az hedef, cam_az_cur görünen açı.
+var orbit := CameraOrbit.new()
+var _fingers := {}
+var _pinch_d := 0.0
+var _gesture_block := false
+var _view_blocked := false
+var _reject_view := -1
+var _life := 0
+var _error_tile: Button = null
 ## Başlık ekranı dioraması (Blender: devre adasındaki kayıp kule); seviye yüklenince kaldırılır
 var title_dio: Node3D = null
 var cam_size := 12.0
@@ -441,6 +450,10 @@ func _setup_world() -> void:
 	env.adjustment_contrast = 1.05
 	# ADIM 7: 2K stüdyo HDRI ortam + yansıma ışığı, AgX ton eşleme (görünen arka plan oyunun gökyüzü shader'ı kalır)
 	StudioLighting.apply(env, StudioLighting.STUDIO, 1.0, 0.65, 1.0)
+	# Parlama yalnızca LED / kıvılcım gibi eşiği aşan noktalarda kalsın; güneşli yüzler beyaza boğulmasın.
+	env.glow_hdr_threshold = 1.55
+	env.glow_intensity = 0.28
+	env.glow_bloom = 0.04
 	we.environment = env
 	add_child(we)
 
@@ -687,6 +700,8 @@ func _preload_async(path: String) -> void:
 		_preloading[path] = true
 
 func _preload_next(i: int) -> void:
+	if OS.has_environment("KK_NO_BAKED"):
+		return
 	if i + 1 < LEVEL_CUSTOM:
 		_preload_async(BAKED_DIR + "level_%03d.tscn" % (i + 2))
 	_preload_async("res://scenes/baked/assembly_workshop.tscn")
@@ -1107,7 +1122,7 @@ func build_level(i: int, as_preview := false) -> void:
 	weather.apply(Weather.for_chapter(_chapter_of(i)), float(i) * 7.31 + 1.0)
 	# bölüm teması havanın üstüne biner; (bölüm - 1) % 15 + 1
 	theme_app.prepare(ThemeLibrary.theme(ThemeLibrary.id_for_chapter(_chapter_of(i) + 1)))
-	_kill_all_tweens()
+	_invalidate_motion()
 	if level_root:
 		level_root.queue_free()
 	if title_dio != null:
@@ -1448,6 +1463,7 @@ func build_level(i: int, as_preview := false) -> void:
 	level_root.add_child(holo)
 	objs["clone"] = holo
 	_build_relay_traces()
+	_build_readability_markers()
 	# hareketli nesneler ışık haritasına fırınlanmaz; problardan dolaylı ışık alır
 	for k in ["bridges", "sliders", "crumbles", "levers", "cranks", "crates", "balls"]:
 		for o in objs.get(k, []):
@@ -1481,6 +1497,7 @@ func build_level(i: int, as_preview := false) -> void:
 	cam_az = 45.0 + 90.0 * state["view"]
 	cam_az_cur = cam_az + (75.0 if not preview and not instant else 30.0)
 	cam_zoom = 1.0
+	_cam_adopt()
 	if not preview and not instant and cam != null:
 		# açılış uçuşu: geniş ve dönük başlar, kuleye süzülür
 		cam.size = cam_size * 1.9
@@ -1541,6 +1558,116 @@ func _build_relay_traces() -> void:
 				m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 				level_root.add_child(m)
 		objs["traces"].append({"cid": cid, "mat": mat})
+
+## Kondansatör fırlatma oku, direnç bekleme yazısı, röle AND/OR sayacı.
+func _build_readability_markers() -> void:
+	objs["marks"] = []
+	if L == null:
+		return
+	for p in L.comps:
+		var c: Dictionary = L.comps[p]
+		var host: Node = cell_nodes.get(p)
+		if host == null or not (host is Node3D):
+			continue
+		var kind := String(c.get("t", ""))
+		if kind == "cap":
+			var arrow := _launch_arrow(maxi(1, int(c.get("boost", 1))))
+			(host as Node3D).add_child(arrow)
+			objs["marks"].append({"t": "cap", "p": p, "n": arrow})
+		elif kind == "res":
+			var lab := _world_label("bekle %d" % maxi(1, int(c.get("delay", 1))), Color("#ffd36e"))
+			(host as Node3D).add_child(lab)
+			objs["marks"].append({"t": "res", "p": p, "n": lab, "delay": maxi(1, int(c.get("delay", 1)))})
+		elif kind == "relay" and String(c.get("mode", "")) != "":
+			var lab2 := _world_label(String(c["mode"]), Color("#9aa4b2"))
+			(host as Node3D).add_child(lab2)
+			objs["marks"].append({"t": "relay", "p": p, "n": lab2, "cid": String(c.get("id", ""))})
+
+func _world_label(text: String, col: Color) -> Label3D:
+	var lab := Label3D.new()
+	lab.text = text
+	lab.font_size = 64
+	lab.pixel_size = 0.008
+	lab.position = Vector3(0, 1.22, 0)
+	lab.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	lab.modulate = col
+	lab.outline_modulate = Color(0, 0, 0, 1)
+	lab.outline_size = 12
+	lab.no_depth_test = true
+	lab.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	return lab
+
+func _launch_arrow(boost: int) -> Node3D:
+	var n := Node3D.new()
+	n.position = Vector3(0, 1.05, 0)
+	var shaft := MeshInstance3D.new()
+	var cm := CylinderMesh.new()
+	cm.top_radius = 0.035
+	cm.bottom_radius = 0.035
+	cm.height = 0.22 + 0.1 * float(boost)
+	shaft.mesh = cm
+	shaft.rotation.z = -PI / 2.0
+	shaft.position.x = cm.height * 0.5
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color = Color("#59e1ff")
+	shaft.material_override = mat
+	shaft.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	n.add_child(shaft)
+	var head := MeshInstance3D.new()
+	var cone := CylinderMesh.new()
+	cone.top_radius = 0.0
+	cone.bottom_radius = 0.09
+	cone.height = 0.16
+	head.mesh = cone
+	head.rotation.z = -PI / 2.0
+	head.position.x = cm.height + 0.06
+	head.material_override = mat
+	head.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	n.add_child(head)
+	var lab := _world_label("+%d" % boost, Color("#59e1ff"))
+	lab.position = Vector3(0, 0.42, 0)
+	n.add_child(lab)
+	return n
+
+func _refresh_markers(sB: Dictionary) -> void:
+	if L == null or not objs.has("marks"):
+		return
+	var W: Dictionary = {}
+	var built := false
+	for o in objs["marks"]:
+		var kind := String(o["t"])
+		var p: Vector3i = o["p"]
+		if kind == "res":
+			var lab: Label3D = o["n"]
+			var waiting: bool = int(sB.get("wait", 0)) > 0 and not bool(sB.get("dead", false)) and sB["p"] == p + Vector3i.UP
+			if waiting:
+				lab.text = str(int(sB["wait"]))
+				lab.modulate = Color("#ffe08a")
+			else:
+				lab.text = "bekle %d" % int(o["delay"])
+				lab.modulate = Color("#c9b48a")
+		elif kind == "cap":
+			var arrow: Node3D = o["n"]
+			var on: bool = not bool(sB.get("dead", false)) and sB["p"] == p + Vector3i.UP
+			var face := int(sB["f"]) if on else 0
+			arrow.rotation.y = [0.0, PI / 2.0, PI, -PI / 2.0][face % 4]
+			arrow.rotation.x = -0.35 if on else -0.9
+		elif kind == "relay":
+			if not built:
+				W = L.build_world(sB)
+				built = true
+			var cid := String(o["cid"])
+			var cells: Array = L.circuits.get(cid, {}).get("cells", [])
+			var pressed := 0
+			for cell in cells:
+				if L.relay_pressed(sB, W, cell):
+					pressed += 1
+			var mode := String(L.circuits.get(cid, {}).get("mode", ""))
+			var on_c := bool(sB.get("circuits", {}).get(cid, false))
+			var lab2: Label3D = o["n"]
+			lab2.text = "%s %d/%d" % [mode, pressed, cells.size()]
+			lab2.modulate = Color("#3cf08a") if on_c else (Color("#ffd36e") if pressed > 0 else Color("#8b93a0"))
 
 ## Kulenin altındaki baskı devre kartı (PCB) tabanı
 func _build_pcb(aabb: AABB) -> void:
@@ -1960,10 +2087,16 @@ func _apply_circuit_visual(sA: Dictionary, sB: Dictionary, te: float) -> void:
 		var m: StandardMaterial3D = t["mat"]
 		m.emission_energy_multiplier = 1.8 if on else 0.0
 		m.albedo_color = Color("#3cf08a") if on else Color("#6b3c1c")
+	var world_built := false
+	var WB: Dictionary = {}
 	for r in objs.get("crelays", []):
-		var pressed: bool = (not sB["dead"] and sB["p"] == r["cell"]) or (not sB.get("clone", {}).is_empty() and sB["clone"]["p"] == r["cell"])
-		ComponentFactory.set_relay(r["n"], pressed or circ.get(r["cid"], false))
+		if not world_built:
+			WB = L.build_world(sB)
+			world_built = true
+		var pressed: bool = L.relay_pressed(sB, WB, r["cell"])
+		ComponentFactory.set_relay_state(r["n"], bool(circ.get(r["cid"], false)), pressed)
 		ComponentFactory.set_contact(r["n"], pressed)
+	_refresh_markers(sB)
 
 func _plate_down(s: Dictionary, p: Vector3i) -> bool:
 	if not s["dead"] and s["p"] == p:
@@ -2045,10 +2178,14 @@ func _slow_mo(scale: float, real_sec: float) -> void:
 		return
 	Engine.time_scale = scale
 	var z0 := cam_zoom
-	cam_zoom = z0 * 1.25
-	get_tree().create_timer(real_sec, true, false, true).timeout.connect(func():
+	orbit.zoom_by(1.25)
+	cam_zoom = orbit.zoom
+	_after(real_sec, func() -> void:
 		Engine.time_scale = 1.0
-		cam_zoom = z0)
+		orbit.zoom = clampf(z0, CameraOrbit.ZOOM_MIN, CameraOrbit.ZOOM_MAX)
+		orbit.zoom_vel = 0.0
+		cam_zoom = orbit.zoom
+	, true)
 
 ## Arayüz: seviye kartı büyüyerek ekranı kaplar, sonra seviye açılır (bağlamı koruyan geçiş)
 func _card_zoom(card: Control, then: Callable) -> void:
@@ -2127,6 +2264,7 @@ func _comp_events(a: Dictionary) -> void:
 		Sfx.call_ah("relay")
 		if not sb["dead"]:
 			_shockwave(Vector3(sb["p"]) + Vector3(0, -0.45, 0), BP.ACCENT_AMBER, 1.3)
+			_cam_shake(0.07)
 	if String(a.get("kind", "")) == "wait" and not sb["dead"]:
 		_comp_flash(Vector3i(sb["p"]) + Vector3i.DOWN, "glow", 0.8)
 	if a.get("first", false) or sa["dead"] or sb["dead"]:
@@ -2225,6 +2363,7 @@ func _tick() -> bool:
 		_bump_fx(pre, n["ins"]["c"])
 		_enqueue([state], "bump", true)
 		_cam_shake(0.08)
+		_flash_error_slot(String(n["proc"]), int(n["idx"]))
 		return true
 	if n["ins"]["c"] in ["F", "J"] and not instant:
 		var dot := _mesh(_cyl(0.11, 0.11, 0.01), _mat(pal["accent"], {"unshaded": true}), Vector3(pre["p"]) + Vector3(0, -0.47, 0), objs["trail"])
@@ -2277,6 +2416,7 @@ func _start_run(step := false) -> void:
 	setup_state = PuzzleLogic.clone(state)
 	var pp := Program.parse_program(Program.program_to_src(prog))
 	run_ctx = {"prog": pp, "main": Program.Runner.new(pp), "clone": null, "gen": -1}
+	_clear_error_slot()
 	runner = run_ctx["main"]
 	for c in objs["trail"].get_children():
 		c.queue_free()
@@ -2313,6 +2453,8 @@ func _step_btn() -> void:
 func _reset_to_setup() -> void:
 	if setup_state == null:
 		return
+	_invalidate_motion()
+	_clear_error_slot()
 	queue = []
 	anim = null
 	state = setup_state
@@ -2334,6 +2476,11 @@ func _end_run(reason: String) -> void:
 	_set_mode("ended")
 	if reason != "dead":
 		_robot_shake()
+	var slot := LevelProgressionManager.failing_slot(run_log)
+	if not slot.is_empty():
+		_flash_error_slot(String(slot["row"]), int(slot["idx"]))
+		if reason != "bump":
+			Sfx.call_ah("vibrate", [36])
 	_nova_analyze(reason)
 
 ## Nova başarısız çalıştırmayı analiz eder, açıklar ve sorunlu bloğu seçip vurgular.
@@ -2350,7 +2497,7 @@ func _nova_analyze(reason: String) -> void:
 		active_row = f["row"]
 		_render_rows()
 	hint_card.visible = false
-	get_tree().create_timer(0.45).timeout.connect(func():
+	_after(0.45, func() -> void:
 		if mode == "ended" and _current == "":
 			nova_card.visible = true
 			_layout()
@@ -2414,8 +2561,10 @@ func _rotate_view(s: int) -> bool:
 		_toast("Program çalışırken bakış açısı kilitli — Mola ver")
 		return false
 	if _world_op({"t": "view", "s": s}):
-		cam_az += 90.0 * s
+		_aim_camera_to_view(int(state["view"]))
 		audio.play("whoosh")
+		_view_blocked = false
+		_reject_view = -1
 		return true
 	if not L.phantoms.is_empty() and _can_edit_world():
 		_toast("Bu açıda bir hayalet blok Robo'nun ya da kutunun içinde belirirdi")
@@ -2423,8 +2572,132 @@ func _rotate_view(s: int) -> bool:
 	return false
 
 func _sync_view() -> void:
-	var want: float = 45.0 + 90.0 * state["view"]
-	cam_az += wrapf(want - cam_az, -180.0, 180.0)
+	if state == null or not (state is Dictionary):
+		return
+	_aim_camera_to_view(int(state["view"]))
+	_view_blocked = false
+	_reject_view = -1
+
+func _aim_camera_to_view(view: int) -> void:
+	orbit.aim(view)
+	cam_az = orbit.yaw
+	_view_blocked = false
+
+func _cam_adopt() -> void:
+	orbit.adopt(cam_az, cam_az_cur, cam_zoom)
+	_view_blocked = false
+	_reject_view = -1
+
+func _pull_legal_yaw(dt: float) -> void:
+	if state == null or not (state is Dictionary):
+		_view_blocked = false
+		return
+	var dest := CameraOrbit.approach(orbit.yaw, CameraOrbit.yaw_for_view(int(state["view"])))
+	var diff := dest - orbit.yaw
+	orbit.vel = 0.0
+	orbit.zoom_vel = 0.0
+	if absf(diff) <= 0.45:
+		orbit.yaw = dest
+	else:
+		orbit.yaw += diff * minf(1.0, dt * 2.6)
+	orbit.yaw_visual += (orbit.yaw - orbit.yaw_visual) * minf(1.0, dt * CameraOrbit.FOLLOW)
+	if absf(orbit.yaw - orbit.yaw_visual) < CameraOrbit.SETTLE:
+		orbit.yaw_visual = orbit.yaw
+
+func _follow_logical_view() -> void:
+	if L == null or preview or win_shown or state == null or not (state is Dictionary):
+		return
+	if mode != "edit" and mode != "paused":
+		return
+	if custom_kind == "editor" or _current in ["photo", "editor", "title"]:
+		return
+	var nearest := orbit.canonical_view()
+	var cur := int(state["view"])
+	if nearest == cur:
+		if not orbit.dragging:
+			_view_blocked = false
+			_reject_view = -1
+		return
+	for _guard in 4:
+		cur = int(state["view"])
+		if cur == nearest:
+			_view_blocked = false
+			_reject_view = -1
+			return
+		var step := _view_step_toward(cur, nearest)
+		if step == 0 or not _apply_view_step(step):
+			_view_blocked = true
+			if _reject_view != nearest and not L.phantoms.is_empty():
+				_reject_view = nearest
+				_toast("Bu açıda bir hayalet blok Robo'nun ya da kutunun içinde belirirdi")
+				if view_dots != null:
+					UIKit.shake(view_dots.get_meta("pill"))
+			return
+
+func _view_step_toward(cur: int, nearest: int) -> int:
+	var d := posmod(nearest - cur, 4)
+	if d == 0:
+		return 0
+	return 1 if d <= 2 else -1
+
+func _apply_view_step(step: int) -> bool:
+	if L.phantoms.is_empty() and L.links.is_empty():
+		state["view"] = posmod(int(state["view"]) + step, 4)
+		if displayed is Dictionary:
+			displayed["view"] = int(state["view"])
+		return true
+	var r := Program.world_op(L, state, {"t": "view", "s": step})
+	if not r["ok"]:
+		return false
+	state = r["state"]
+	var frames: Array = r["frames"]
+	frames[frames.size() - 1] = state
+	_enqueue(frames, "view")
+	return true
+
+func _invalidate_motion() -> void:
+	_life += 1
+	_kill_all_tweens()
+	if Engine.time_scale != 1.0:
+		Engine.time_scale = 1.0
+
+func _after(sec: float, cb: Callable, ignore_scale := false) -> void:
+	var token := _life
+	get_tree().create_timer(sec, true, false, ignore_scale).timeout.connect(func() -> void:
+		if token != _life or not is_instance_valid(self):
+			return
+		cb.call())
+
+func _flash_error_slot(proc: String, idx: int) -> void:
+	if instant or not tile_nodes.has(proc):
+		return
+	var tiles: Array = tile_nodes[proc]
+	if idx < 0 or idx >= tiles.size():
+		return
+	_clear_error_slot()
+	var t: Button = tiles[idx]
+	t.modulate = Color("#ffb4bc")
+	var ring: Panel = t.get_meta("ring")
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(BP.DANGER_CORAL, 0.18)
+	sb.border_color = BP.DANGER_CORAL
+	sb.set_border_width_all(3)
+	sb.set_corner_radius_all(10)
+	sb.shadow_color = Color(BP.DANGER_CORAL, 0.7)
+	sb.shadow_size = 8
+	ring.add_theme_stylebox_override("panel", sb)
+	ring.visible = true
+	UIKit.shake(t)
+	_error_tile = t
+	rows_scroll.ensure_control_visible(t)
+
+func _clear_error_slot() -> void:
+	if _error_tile != null and is_instance_valid(_error_tile):
+		_error_tile.modulate = Color.WHITE
+		var ring: Panel = _error_tile.get_meta("ring")
+		if ring != null:
+			ring.visible = false
+	_error_tile = null
 
 func _reset_world() -> void:
 	if preview or L == null:
@@ -2898,7 +3171,7 @@ func _on_win() -> void:
 	mode = "won"
 	_mark_exec(null, [])
 	var blocks := Program.block_count(prog)
-	var par := int(levels[level_idx]["par"])
+	var par := int(levels[level_idx].get("par_commands", levels[level_idx].get("par", 0)))
 	var stars := _stars_for(blocks, par)
 	var used_rep := false
 	for row in prog:
@@ -2913,7 +3186,7 @@ func _on_win() -> void:
 		_slow_mo(0.38, 0.65)
 	if replaying:
 		replaying = false
-		get_tree().create_timer(1.2).timeout.connect(func(): if win_shown: _show("win"))
+		_after(1.2, func() -> void: if win_shown: _show("win"))
 		return
 	if level_idx >= LEVEL_CUSTOM:
 		if custom_kind == "bug":
@@ -2925,7 +3198,7 @@ func _on_win() -> void:
 		if instant:
 			_show("win")
 		else:
-			get_tree().create_timer(1.2).timeout.connect(func(): if win_shown: _show("win"))
+			_after(1.2, func() -> void: if win_shown: _show("win"))
 		return
 	var key := str(level_idx)
 	var prev = progress["best"].get(key)
@@ -2958,9 +3231,9 @@ func _on_win() -> void:
 		_show("win")
 	elif new_part:
 		# yeni parça kazanıldı: zafer anından sonra 8 saniyelik montaj sahnesi
-		get_tree().create_timer(1.4).timeout.connect(func(): if win_shown: _open_assembly("assembly", part_id))
+		_after(1.4, func() -> void: if win_shown: _open_assembly("assembly", part_id))
 	else:
-		get_tree().create_timer(1.2).timeout.connect(func(): if win_shown: _show("win"))
+		_after(1.2, func() -> void: if win_shown: _show("win"))
 
 func _confetti(at: Vector3) -> void:
 	var cols := [pal["accent"], pal["mech"], pal["slide"], pal["bridge"], "#ffffff"]
@@ -2981,7 +3254,9 @@ func _confetti(at: Vector3) -> void:
 		var sp := 2.0 + randf() * 3.0
 		rb.linear_velocity = Vector3(cos(a) * sp, 6.0 + randf() * 5.0, sin(a) * sp)
 		rb.angular_velocity = Vector3(randf() * 6 - 3, randf() * 6 - 3, randf() * 6 - 3)
-		get_tree().create_timer(3.5).timeout.connect(rb.queue_free)
+		get_tree().create_timer(3.5).timeout.connect(func() -> void:
+			if is_instance_valid(rb):
+				rb.queue_free())
 
 
 # =====================================================================
@@ -2995,9 +3270,26 @@ func _process(dt: float) -> void:
 	time += dt
 	if theme_app:
 		theme_app.tick(dt)
-	if cam_spin:
-		cam_az += dt * 7.0
-	cam_az_cur += (cam_az - cam_az_cur) * minf(1.0, dt * 8.0)
+	if _film != null or _current == "photo":
+		orbit.vel = 0.0
+		orbit.zoom_vel = 0.0
+		orbit.dragging = false
+		orbit.yaw = cam_az
+		orbit.zoom = cam_zoom
+		cam_az_cur += (cam_az - cam_az_cur) * minf(1.0, dt * 8.0)
+		orbit.yaw_visual = cam_az_cur
+	else:
+		if cam_spin:
+			orbit.yaw += dt * 7.0
+			orbit.vel = 0.0
+		if _view_blocked and not orbit.dragging and not cam_spin:
+			_pull_legal_yaw(dt)
+		else:
+			orbit.tick(dt)
+		cam_az = orbit.yaw
+		cam_az_cur = orbit.yaw_visual
+		cam_zoom = orbit.zoom
+		_follow_logical_view()
 	var a := deg_to_rad(cam_az_cur)
 	var el := EL
 	if _current == "photo":
@@ -3015,7 +3307,7 @@ func _process(dt: float) -> void:
 	# kare hızı yöneticisine "sahne hareketli mi": değilse 2 sn sonra 30 FPS (görüntü aynı, GPU yükü yarı)
 	if perf != null:
 		perf.busy = mode == "running" or anim != null or not queue.is_empty() or cam_spin or _film != null \
-			or assembly != null or absf(cam_az - cam_az_cur) > 0.05 or absf(cam.size - want_size) > 0.01 or _shake_amp > 0.001
+			or assembly != null or orbit.busy() or absf(cam.size - want_size) > 0.02 or _shake_amp > 0.001
 	_update_offset()
 	if hud != null and hud.visible:
 		var safe_now := _safe_margins()
@@ -3047,7 +3339,7 @@ func _update_offset() -> void:
 		return
 	if portrait:
 		cam.keep_aspect = Camera3D.KEEP_WIDTH
-		var ph := (vs.y - panel.position.y) if hud.visible and panel != null else 0.0
+		var ph := (vs.y - panel.position.y + 12.0) if hud.visible and panel != null else 0.0
 		var top_h := (top_bar.position.y + top_bar.size.y + 12.0) if hud.visible and top_bar != null else 0.0
 		cam.h_offset = 0.0
 		cam.v_offset = -(ph - top_h) * 0.5 * cam.size / vs.x
@@ -3081,37 +3373,9 @@ func _unhandled_input(ev: InputEvent) -> void:
 		return
 	if preview or L == null or not hud.visible:
 		return
-	if ev is InputEventMouseButton:
-		if ev.button_index == MOUSE_BUTTON_WHEEL_UP:
-			cam_zoom = clampf(cam_zoom * 1.1, 0.5, 2.5)
-		elif ev.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			cam_zoom = clampf(cam_zoom / 1.1, 0.5, 2.5)
-		elif ev.button_index == MOUSE_BUTTON_LEFT:
-			if ev.pressed:
-				ptr = {"pos": ev.position, "moved": false, "drag": 0.0}
-			elif ptr != null:
-				if not ptr["moved"]:
-					if time - _last_tap["t"] < 0.32 and ev.position.distance_to(_last_tap["pos"]) < 40.0:
-						_last_tap["t"] = -10.0
-						_reset_camera()
-					else:
-						_last_tap = {"t": time, "pos": ev.position}
-						_click(ev.position)
-				else:
-					var steps := roundi(ptr["drag"] / 90.0)
-					cam_az -= ptr["drag"]
-					if steps != 0 and not _rotate_view(steps):
-						pass
-				ptr = null
-	elif ev is InputEventMouseMotion and ptr != null:
-		var d: Vector2 = ev.position - ptr["pos"]
-		if not ptr["moved"] and d.length() > 12:
-			ptr["moved"] = true
-		if ptr["moved"]:
-			var nd := d.x * 0.35
-			cam_az += nd - ptr["drag"]
-			ptr["drag"] = nd
-	elif ev is InputEventKey and ev.pressed and not ev.echo:
+	if _cam_pointer(ev, true):
+		return
+	if ev is InputEventKey and ev.pressed and not ev.echo:
 		match ev.keycode:
 			KEY_SPACE: _run_toggle()
 			KEY_N: _step_btn()
@@ -3137,27 +3401,122 @@ func _unhandled_input(ev: InputEvent) -> void:
 					_cycle_theme(1)
 
 func _editor_input(ev: InputEvent) -> void:
-	# editör: dokun = yerleştir, sürükle = kamerayı döndür, çift dokun = kamerayı sıfırla
-	if ev is InputEventMouseButton:
-		if ev.button_index == MOUSE_BUTTON_WHEEL_UP:
-			cam_zoom = clampf(cam_zoom * 1.1, 0.5, 2.5)
-		elif ev.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			cam_zoom = clampf(cam_zoom / 1.1, 0.5, 2.5)
-		elif ev.button_index == MOUSE_BUTTON_LEFT:
-			if ev.pressed:
-				ptr = {"pos": ev.position, "moved": false, "drag": 0.0}
-			elif ptr != null:
-				if not ptr["moved"]:
-					_editor_click(ev.position)
+	# editör: dokun = yerleştir, sürükle = serbest kamera
+	_cam_pointer(ev, false)
+
+func _cam_pointer(ev: InputEvent, play_click: bool) -> bool:
+	if ev is InputEventScreenTouch:
+		if ev.pressed:
+			_fingers[ev.index] = {"p": ev.position, "ui": _over_ui(ev.position)}
+		else:
+			_fingers.erase(ev.index)
+		_update_pinch(true)
+		if _world_fingers() >= 2:
+			_gesture_block = true
+			orbit.release()
+			ptr = null
+		elif not ev.pressed and _world_fingers() == 0:
+			_gesture_block = false
+		return _world_fingers() >= 2
+	if ev is InputEventScreenDrag:
+		if _fingers.has(ev.index):
+			_fingers[ev.index]["p"] = ev.position
+		if _world_fingers() >= 2:
+			_update_pinch(false)
+			return true
+		return false
+	if ev is InputEventMagnifyGesture:
+		orbit.zoom_by(ev.factor, _current == "photo")
+		cam_zoom = orbit.zoom
+		return true
+	if ev is InputEventPanGesture and absf(ev.delta.y) > 0.01 and _world_fingers() == 0:
+		orbit.zoom_by(exp(-ev.delta.y * 0.06))
+		cam_zoom = orbit.zoom
+		return true
+	if ev is InputEventMouseButton and (ev.button_index == MOUSE_BUTTON_WHEEL_UP or ev.button_index == MOUSE_BUTTON_WHEEL_DOWN):
+		if ev.pressed:
+			if ev.button_index == MOUSE_BUTTON_WHEEL_UP:
+				orbit.zoom_by(1.08)
+			else:
+				orbit.zoom_by(1.0 / 1.08)
+			cam_zoom = orbit.zoom
+		return true
+	if ev is InputEventMouseButton and ev.button_index == MOUSE_BUTTON_LEFT:
+		if _world_fingers() >= 2 or _gesture_block:
+			if not ev.pressed:
+				_gesture_block = _world_fingers() >= 2
 				ptr = null
-	elif ev is InputEventMouseMotion and ptr != null:
-		var d: Vector2 = ev.position - ptr["pos"]
-		if not ptr["moved"] and d.length() > 12:
+			return true
+		if ev.pressed:
+			if play_click and mode == "running":
+				_toast("Program çalışırken bakış açısı kilitli — Mola ver")
+				return true
+			ptr = {"pos": ev.position, "moved": false}
+			orbit.release()
+		elif ptr != null:
+			var moved: bool = ptr["moved"]
+			var pos: Vector2 = ev.position
+			orbit.release()
+			ptr = null
+			if not moved and play_click:
+				if time - _last_tap["t"] < 0.32 and pos.distance_to(_last_tap["pos"]) < 40.0:
+					_last_tap["t"] = -10.0
+					_reset_camera()
+				else:
+					_last_tap = {"t": time, "pos": pos}
+					_click(pos)
+			elif not moved and not play_click:
+				_editor_click(pos)
+		return true
+	if ev is InputEventMouseMotion and ptr != null and _world_fingers() < 2:
+		var rel: Vector2 = ev.relative
+		if not ptr["moved"] and ev.position.distance_to(ptr["pos"]) > 14.0:
 			ptr["moved"] = true
 		if ptr["moved"]:
-			var nd := d.x * 0.35
-			cam_az += nd - ptr["drag"]
-			ptr["drag"] = nd
+			orbit.add_drag_px(rel.x, maxf(get_process_delta_time(), 0.001))
+			cam_az = orbit.yaw
+		return true
+	return false
+
+func _world_fingers() -> int:
+	var n := 0
+	for k in _fingers:
+		if not bool(_fingers[k]["ui"]):
+			n += 1
+	return n
+
+func _update_pinch(reset_span: bool) -> void:
+	var span := _pinch_span()
+	if _world_fingers() < 2 or span < 8.0:
+		_pinch_d = 0.0
+		return
+	if reset_span or _pinch_d < 1.0:
+		_pinch_d = span
+		return
+	orbit.zoom_by(span / _pinch_d)
+	cam_zoom = orbit.zoom
+	_pinch_d = span
+
+func _pinch_span() -> float:
+	var a := Vector2.ZERO
+	var b := Vector2.ZERO
+	var seen := 0
+	for k in _fingers:
+		if bool(_fingers[k]["ui"]):
+			continue
+		if seen == 0:
+			a = _fingers[k]["p"]
+		elif seen == 1:
+			b = _fingers[k]["p"]
+		seen += 1
+	if seen < 2:
+		return 0.0
+	return a.distance_to(b)
+
+func _over_ui(pos: Vector2) -> bool:
+	if ui_root == null:
+		return false
+	return _top_control_at(pos) != null
 
 ## Android geri tuşu: açık kart / ipucu / seçim kapanır → oyun duraklatılır → seviyeler → başlık → çıkış
 func _notification(what: int) -> void:
@@ -4450,6 +4809,7 @@ func _show_title() -> void:
 	cam_az = 20.0
 	cam_az_cur = 20.0
 	cam_zoom = 0.85
+	_cam_adopt()
 	_title_diorama()
 	_count_to(lbl_title_stars, 0, _total_stars(), "%d / " + str(LEVEL_CUSTOM * 3), 1.1)
 	_update_pc_buttons()
@@ -4507,7 +4867,9 @@ func _open_levels() -> void:
 	if L == null or not preview:
 		build_level(5, true)
 		cam_az = 20.0
+		cam_az_cur = 20.0
 		cam_zoom = 0.85
+		_cam_adopt()
 	var cur := mini(int(progress["unlocked"]) - 1, LEVEL_CUSTOM - 1)
 	if _lv_phase < 0 or not screens["levels"].visible:
 		_lv_phase = LevelProgressionManager.phase_of(cur) if level_idx >= LEVEL_CUSTOM or _current == "title" or L == null else LevelProgressionManager.phase_of(mini(level_idx, LEVEL_CUSTOM - 1))
@@ -4933,8 +5295,11 @@ func _update_hud() -> void:
 ## Kamerayı sıfırla: yakınlaştırmayı ve (program çalışmıyorsa) seviyenin başlangıç bakış açısını geri getirir.
 func _reset_camera() -> void:
 	audio.play("whoosh")
+	orbit.zoom = 1.0
+	orbit.zoom_vel = 0.0
+	orbit.vel = 0.0
 	cam_zoom = 1.0
-	var want := int(levels[level_idx].get("view", 0))
+	var want := int(levels[level_idx].get("view", levels[level_idx].get("view0", 0)))
 	var d := ((want - int(state["view"])) % 4 + 4) % 4
 	if d != 0 and mode != "running":
 		var steps := d if d <= 2 else d - 4
@@ -4952,7 +5317,20 @@ func _toggle_hint() -> void:
 		_hint_used = true
 		var h := LevelProgressionManager.next_hint_step(levels[level_idx], prog)
 		var base: String = levels[level_idx].get("hint", "")
-		lbl_hint.text = base + ("\n\nSıradaki adım → " + String(h["text"]) if not h.is_empty() else "\n\nProgramın kayıtlı çözümle aynı — çalıştır!")
+		lbl_hint.text = base + ("\n\n" + String(h["text"]) if not h.is_empty() else "\n\nProgramın kayıtlı çözümle aynı — çalıştır!")
+		if not h.is_empty():
+			active_row = String(h["row"])
+			var hi := int(h["idx"])
+			if hi < (prog[active_row] as Array).size():
+				sel = {"row": active_row, "idx": hi}
+				_render_rows()
+				var tiles: Array = tile_nodes.get(active_row, [])
+				if hi < tiles.size():
+					var ring: Panel = tiles[hi].get_meta("ring")
+					ring.visible = true
+					UIKit.shake(tiles[hi])
+			else:
+				_render_rows()
 		hint_card.visible = true
 		_layout()
 		UIKit.pop_in(hint_card, 0.0, 0.7)
@@ -4982,11 +5360,11 @@ func _toast(msg: String) -> void:
 func _prepare_win(stars: int, blocks: int, par: int) -> void:
 	win_card.set_meta("stars", stars)
 	lbl_win_title.text = ["İYİ İŞ!", "GÜZEL!", "HARİKA!"][stars - 1]
-	var txt := "%d blokla çözdün · par %d" % [blocks, par]
+	var txt := "%d blokla çözdün · par %d\n%s" % [blocks, par, LevelProgressionManager.efficiency_text(blocks, par)]
 	if level_idx >= LEVEL_CUSTOM:
 		match custom_kind:
 			"daily":
-				txt = "Günlük bulmaca çözüldü · %d blok · par %d\nSeri: %d gün" % [blocks, par, int(progress.get("daily", {}).get("streak", 0))]
+				txt = "Günlük bulmaca çözüldü · %d blok · par %d\n%s\nSeri: %d gün" % [blocks, par, LevelProgressionManager.efficiency_text(blocks, par), int(progress.get("daily", {}).get("streak", 0))]
 			"bug":
 				txt = "Hata ayıklandı · %d düzenleme (%d hata vardı)\nToplam av: %d" % [_bug_edits, int(levels[level_idx].get("bugs", 1)), int(progress.get("stats", {}).get("bugs", 0))]
 			"editor":
@@ -5505,6 +5883,7 @@ func _undo() -> void:
 func _cycle_speed() -> void:
 	speed_idx = (speed_idx + 1) % SPEEDS.size()
 	UIKit.set_text(btn_speed, "%d×" % int(SPEEDS[speed_idx]))
+	_invalidate_motion()
 	audio.play("tap")
 
 func _prog_changed() -> void:
@@ -5911,6 +6290,14 @@ func _top_walk(n: Node, pos: Vector2, box: Dictionary) -> void:
 ## Ekran görüntüsü: godot --path godot-program -- --shot=<seviye>:<dosya>[:<kare>]
 ## seviye 0 = başlık, -1 = seviye haritası, -2 = kazanma ekranı (seviye 12), -3 = duraklatma menüsü
 func _shot(spec: String) -> void:
+	if spec.find("phone") >= 0:
+		var rootw := get_tree().root
+		rootw.content_scale_mode = Window.CONTENT_SCALE_MODE_CANVAS_ITEMS
+		rootw.content_scale_aspect = Window.CONTENT_SCALE_ASPECT_EXPAND
+		rootw.content_scale_size = Vector2i(720, 720)
+		rootw.size = Vector2i(1080, 2400)
+		for _pf in 2:
+			await get_tree().process_frame
 	var parts := spec.split(":")
 	# montaj/vitrin: --shot=asm,14,5.0:dosya.png  ya da  --shot=pc,60:dosya.png
 	# büyük final: --shot=fin,17.0:dosya.png
@@ -5993,7 +6380,10 @@ func _shot(spec: String) -> void:
 			for f in 30:
 				await get_tree().process_frame
 			win_shown = true
-			_prepare_win(3, 4, 4)
+			if "gap" in flags:
+				_prepare_win(2, 7, 4)
+			else:
+				_prepare_win(3, 4, 4)
 			_show("win")
 		else:
 			for f in 30:
@@ -6005,14 +6395,42 @@ func _shot(spec: String) -> void:
 			progress["seen"][str(i)] = 1
 		else:
 			progress["seen"].erase(str(i))
+		if "nostory" in flags:
+			var st: Dictionary = {}
+			for ph in 10:
+				st[str(ph)] = 1
+			progress["story"] = st
 		_start_level(i)
 		var sol: Dictionary = levels[i]["solution"]
 		prog = Program.parse_program(levels[i]["starter"] if "starter" in flags else sol)
 		_render_rows()
 		for fl in flags:
-			if fl.begins_with("v"):
+			if fl.begins_with("v") and not fl.begins_with("view"):
 				for k in int(fl.substr(1)):
 					_rotate_view(1)
+		for fl in flags:
+			if fl.begins_with("az="):
+				cam_az = float(fl.substr(3))
+				cam_az_cur = cam_az
+				_cam_adopt()
+			elif fl.begins_with("zm="):
+				orbit.zoom = float(fl.substr(3))
+				orbit.zoom_by(1.0)
+				cam_zoom = orbit.zoom
+		if "errslot" in flags:
+			_flash_error_slot("main", 0)
+		if "bump" in flags:
+			prog = Program.parse_program({"main": ["F", "F", "F", "F", "F", "F", "F", "F", "F"]})
+			_render_rows()
+			_start_run(false)
+		if "wait" in flags and L != null:
+			for cell in L.comps:
+				if String(L.comps[cell].get("t", "")) == "res":
+					state["p"] = cell + Vector3i.UP
+					state["wait"] = int(L.comps[cell].get("delay", 1))
+					displayed = state
+					_apply_visual(state, state, 1.0)
+					break
 		for fl in flags:
 			if fl.begins_with("sel="):
 				# sel=ROW.IDX: düzenleme seçimi (seçim çubuğu ekran görüntüsü)
@@ -6732,8 +7150,10 @@ func _photo_exit() -> void:
 	VisualFX.apply_grade(post_fx, LevelProgressionManager.phase_of(mini(level_idx, LEVEL_CUSTOM - 1)) if level_idx < LEVEL_CUSTOM else 9, gfx)
 	if not _photo_saved.is_empty():
 		cam_az = _photo_saved["az"]
-		cam_zoom = clampf(_photo_saved["zoom"], 0.5, 2.5)
+		cam_az_cur = cam_az
+		cam_zoom = clampf(_photo_saved["zoom"], CameraOrbit.ZOOM_MIN, CameraOrbit.ZOOM_MAX)
 		cam_target = _photo_saved["target"]
+		_cam_adopt()
 	_show("")
 
 func _photo_apply() -> void:
@@ -6999,7 +7419,9 @@ func _editor_rebuild(reset_cam := false) -> void:
 	preview = false
 	if not reset_cam:
 		cam_az = az
+		cam_az_cur = az
 		cam_zoom = zm
+		_cam_adopt()
 	_editor_grid()
 	_editor_update_info()
 

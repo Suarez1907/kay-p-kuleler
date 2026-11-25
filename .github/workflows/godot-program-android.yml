@@ -86,6 +86,7 @@ jobs:
           "$G" --headless --script res://tests/run_parts.gd 2>&1 | grep -E "parts:|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
           "$G" --headless --script res://tests/run_assets.gd 2>&1 | grep -E "assets:|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
           "$G" --headless --script res://tests/run_features.gd 2>&1 | grep -E "features:|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
+          "$G" --headless --script res://tests/run_clarity.gd 2>&1 | grep -E "clarity:|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
           "$G" --headless --script res://tests/run_cinematics.gd 2>&1 | grep -E "cinematics:|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
           "$G" --headless -- --perfcheck 2>&1 | grep -E "perfcheck|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
           "$G" --headless --script res://tools/level_database_builder.gd -- --check 2>&1 | grep -E "levels_100|ÇÖZÜMSÜZ|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
