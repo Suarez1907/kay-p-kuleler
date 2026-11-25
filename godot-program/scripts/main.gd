@@ -257,6 +257,9 @@ func _ready() -> void:
 		if a == "--perfcheck":
 			_perfcheck.call_deferred()
 			return
+		if a == "--check":
+			_check.call_deferred()
+			return
 		if a.begins_with("--themecycle="):
 			_themecycle.call_deferred(a.substr(13))
 			return
