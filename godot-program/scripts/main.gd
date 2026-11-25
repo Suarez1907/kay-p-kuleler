@@ -8352,8 +8352,8 @@ func _check() -> void:
 	var fails := []
 	if levels.is_empty():
 		fails.append("seviye listesi bos")
-	if world_root == null:
-		fails.append("world_root yok")
+	if world == null:
+		fails.append("world yok")
 	if screens.is_empty() or not screens.has("title"):
 		fails.append("title ekrani yok")
 	print("check: %s (seviye=%d)" % ["TAMAM" if fails.is_empty() else "HATA " + str(fails), levels.size()])
