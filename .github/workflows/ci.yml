@@ -50,7 +50,7 @@ jobs:
           echo "::group::ADIM: import"
           echo "ADIM import başladı"
           set +e
-          timeout 1800 "$GODOT_BIN" --headless --import
+          timeout 180 "$GODOT_BIN" --headless --import
           rc=$?
           set -e
           if [ $rc -eq 124 ]; then echo "::error::Zaman aşımı: import"; exit 1; fi

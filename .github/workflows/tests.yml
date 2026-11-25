@@ -52,10 +52,14 @@ jobs:
           chmod +x /tmp/godot-bin
       - name: GDScript motorunda tüm çözümler
         run: |
-          /tmp/godot-bin --headless --path godot --import >/dev/null 2>&1 || true
-          /tmp/godot-bin --headless --path godot --script res://tests/run_solutions.gd
+          set +e
+          timeout 180 /tmp/godot-bin --headless --path godot --import >/dev/null 2>&1
+          rc=$?
+          set -e
+          if [ "$rc" -eq 124 ]; then echo "::error::Zaman aşımı: import"; exit 1; fi
+          timeout 180 /tmp/godot-bin --headless --path godot --script res://tests/run_solutions.gd
       - name: Tam sahne otomatik testi
-        run: /tmp/godot-bin --headless --path godot -- --autotest 2>&1 | grep -E "autotest|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
+        run: timeout 180 /tmp/godot-bin --headless --path godot -- --autotest 2>&1 | grep -E "autotest|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
         shell: bash
 
   # Tam proje içe aktarması (2K doku) saat sürebilir. Doğrulayıcı yalnızca mantık betiklerine
@@ -88,9 +92,9 @@ jobs:
           cp "$PWD/godot-program/data/levels_100.json" "$SLIM/data/levels_100.json"
           printf '%s\n' 'config_version=5' '' '[application]' 'config/name="kk-logic"' 'config/features=PackedStringArray("4.8")' > "$SLIM/project.godot"
           G="$HOME/godot48/godot"
-          "$G" --headless --path "$SLIM" --import >/dev/null
+          timeout 180 "$G" --headless --path "$SLIM" --import >/dev/null
           set +e
-          "$G" --headless --path "$SLIM" --script res://tools/level_database_builder.gd -- --check > /tmp/levels-check.log 2>&1
+          timeout 180 "$G" --headless --path "$SLIM" --script res://tools/level_database_builder.gd -- --check > /tmp/levels-check.log 2>&1
           code=$?
           set -e
           grep -E "levels_100:|ÇÖZÜMSÜZ|ERROR:" /tmp/levels-check.log || true
