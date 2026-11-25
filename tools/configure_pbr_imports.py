@@ -8,6 +8,7 @@
 * assets/hdri/*.exr                   → kayıpsız (gökyüzü radyans haritası çalışma anında üretilir), mipmap yok
 * statik .glb modelleri               → meshes/light_baking=2 (Static: GI_MODE_STATIC, Blender'daki UV2 kullanılır),
   lightmap_texel_size modele göre (bileşen 0.08, sahne 0.15, arka plan 0.6)
+* assets/scenes/baked_levels/*.exr    → kayıpsız (ışık haritası 2D array texture), mipmap yok, sıkıştırma yok
 Değişen her dosyanın .godot/imported önbelleği silinir; Godot bir sonraki --import'ta yeniden içe aktarır.
 """
 import glob
@@ -20,6 +21,7 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "godot-prog
 STATIC_GLB = {"assets/models/components/*.glb": "0.08", "assets/models/pc_parts/*.glb": "0.08",
               "assets/models/backdrops/*.glb": "0.6", "assets/models/puzzle/stairs.glb": "0.08",
               "assets/models/scenes/*.glb": "0.15"}
+BAKED_LEVELS_EXR = "assets/scenes/baked_levels/*.exr.import"
 
 
 def setp(text, key, val):
@@ -32,7 +34,10 @@ def setp(text, key, val):
 def drop_cache(text):
     for p in re.findall(r'"res://(\.godot/imported/[^"]+)"', text):
         for f in glob.glob(os.path.join(ROOT, p.rsplit(".", 1)[0] + ".*")):
-            os.remove(f)
+            try:
+                os.remove(f)
+            except OSError:
+                pass
 
 
 def patch(path, params):
@@ -56,10 +61,13 @@ def main():
         n_tex += patch(imp, p)
     for imp in glob.glob(os.path.join(ROOT, "assets/hdri/*.exr.import")):
         n_hdr += patch(imp, {"compress/mode": "0", "mipmaps/generate": "false", "detect_3d/compress_to": "0"})
+    # Baked lightmap EXR dosyaları: BPTC/ASTC sıkıştırmasını devre dışı bırak (VRAM %6 donmasını önler)
+    for imp in glob.glob(os.path.join(ROOT, BAKED_LEVELS_EXR)):
+        n_hdr += patch(imp, {"compress/mode": "0", "mipmaps/generate": "false", "detect_3d/compress_to": "0"})
     for pat, texel in STATIC_GLB.items():
         for imp in glob.glob(os.path.join(ROOT, pat + ".import")):
             n_glb += patch(imp, {"meshes/light_baking": "2", "meshes/lightmap_texel_size": texel})
-    print("içe aktarma ayarları: %d doku, %d HDRI, %d statik model güncellendi" % (n_tex, n_hdr, n_glb))
+    print("içe aktarma ayarları: %d doku, %d HDRI/baked, %d statik model güncellendi" % (n_tex, n_hdr, n_glb))
 
 
 if __name__ == "__main__":
