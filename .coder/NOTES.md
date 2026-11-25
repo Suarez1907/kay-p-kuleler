@@ -5,4 +5,5 @@
 - Sürüm kaynağı: `godot-program/project.godot` → `config/version`; workflow bu değeri okuyup `vX.Y.Z` etiketiyle release açar. `export_presets.cfg` içindeki `version/code` CI'da 2000+run no ile ezilir.
 - Sürüm notları: kök `CHANGELOG.md`.
 - Build/test: CI'da Godot headless testleri (seviye, tema, parça, varlık, sinematik, perf, layout, uiaudit) + APK/AAB dışa aktarımı; aynı iş akışı `ci_wait` ile izlenir.
+- CI iş akışı: `.github/workflows/ci.yml` (zaman aşımı korumalı). Headless test komutları: `godot --headless --script res://tests/run_features.gd`, `godot --headless --script res://tests/run_clarity.gd`, `godot --headless --script res://tests/run_cinematics.gd`, `godot --headless --script res://tests/run_assets.gd`, `godot --headless --script res://tools/level_database_builder.gd -- --check` ve `godot --headless -- --autotest`.
 - Tuzaklar: `*.import` dosyaları depoda tutulmalı (VRAM sıkıştırma ayarları CI'ya gitmezse bozulur); temiz içe aktarma ~1 saat sürer, önbellek şart; ışık haritaları ASTC, masaüstü biçimleri kapalı.
