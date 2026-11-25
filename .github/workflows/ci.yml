@@ -16,7 +16,7 @@ jobs:
         # Asıl Godot projesi godot-program/ altında; adımlar orada çalışır.
         working-directory: godot-program
     env:
-      GODOT_BIN: ${{ runner.temp }}/godot48/godot
+      GODOT_BIN: /tmp/godot48/godot
     steps:
       - uses: actions/checkout@v4
 
