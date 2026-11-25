@@ -20,6 +20,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Godot import önbelleği
+        uses: actions/cache@v4
+        with:
+          path: godot-program/.godot
+          key: godot-import-${{ runner.os }}-${{ hashFiles('godot-program/**/*.import') }}
+          restore-keys: |
+            godot-import-${{ runner.os }}-
+
       - name: Godot 4.8 beta 4 kur
         working-directory: .
         run: |
@@ -38,7 +46,7 @@ jobs:
           echo "::group::ADIM: import"
           echo "ADIM import başladı"
           set +e
-          timeout 900 "$GODOT_BIN" --headless --import
+          timeout 1800 "$GODOT_BIN" --headless --import
           rc=$?
           set -e
           if [ $rc -eq 124 ]; then echo "::error::Zaman aşımı: import"; exit 1; fi

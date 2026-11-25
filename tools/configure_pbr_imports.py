@@ -21,7 +21,7 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "godot-prog
 STATIC_GLB = {"assets/models/components/*.glb": "0.08", "assets/models/pc_parts/*.glb": "0.08",
               "assets/models/backdrops/*.glb": "0.6", "assets/models/puzzle/stairs.glb": "0.08",
               "assets/models/scenes/*.glb": "0.15"}
-BAKED_LEVELS_EXR = "assets/scenes/baked_levels/*.exr.import"
+BAKED_LEVELS_EXR = "scenes/baked_levels/*.exr.import"
 
 
 def setp(text, key, val):
