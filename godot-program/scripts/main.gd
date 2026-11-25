@@ -257,6 +257,9 @@ func _ready() -> void:
 		if a == "--perfcheck":
 			_perfcheck.call_deferred()
 			return
+		if a == "--check":
+			_check.call_deferred()
+			return
 		if a.begins_with("--themecycle="):
 			_themecycle.call_deferred(a.substr(13))
 			return
@@ -8340,6 +8343,20 @@ func _perfcheck() -> void:
 	if not perf.warm_done or perf.cache.size() < 20:
 		fails.append("varlık ısıtması tamamlanmadı (%d kaynak, %d kare)" % [perf.cache.size(), guard])
 	print("perfcheck: %s %s" % ["TAMAM" if fails.is_empty() else "HATA " + str(fails), JSON.stringify(info)])
+	get_tree().quit(0 if fails.is_empty() else 1)
+
+## Başsız açılış denetimi (CI): sahne + dünya kurulduysa TAMAM yazıp temiz çık
+func _check() -> void:
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var fails := []
+	if levels.is_empty():
+		fails.append("seviye listesi bos")
+	if world == null:
+		fails.append("world yok")
+	if screens.is_empty() or not screens.has("title"):
+		fails.append("title ekrani yok")
+	print("check: %s (seviye=%d)" % ["TAMAM" if fails.is_empty() else "HATA " + str(fails), levels.size()])
 	get_tree().quit(0 if fails.is_empty() else 1)
 
 

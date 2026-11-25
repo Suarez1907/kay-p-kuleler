@@ -74,26 +74,29 @@ jobs:
             -d ~/.local/share/godot/export_templates/$T/
           rm t.tpz
 
+      - name: PBR içe aktarma ayarlarını uygula (idempotent)
+        run: python3 tools/configure_pbr_imports.py
+
       - name: Yorumlayıcı, sahne, animasyon ve 100 seviyelik devre kampanyası testleri
         shell: bash
         run: |
           G="$HOME/godot48/godot"; chmod +x "$G"; "$G" --headless --version
           cd godot-program
           timeout 5400 "$G" --headless --import >/dev/null 2>&1 || true
-          "$G" --headless --script res://tests/run_programs.gd 2>&1 | grep -E "seviye|HATA|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
-          "$G" --headless --script res://tests/run_themes.gd 2>&1 | grep -E "themes|HATA|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
-          "$G" --headless -- --autotest 2>&1 | grep -E "autotest|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
-          "$G" --headless -- --feeltest 2>&1 | grep -E "feeltest|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
-          "$G" --headless --script res://tests/run_parts.gd 2>&1 | grep -E "parts:|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
-          "$G" --headless --script res://tests/run_assets.gd 2>&1 | grep -E "assets:|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
-          "$G" --headless --script res://tests/run_features.gd 2>&1 | grep -E "features:|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
-          "$G" --headless --script res://tests/run_clarity.gd 2>&1 | grep -E "clarity:|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
-          "$G" --headless --script res://tests/run_cinematics.gd 2>&1 | grep -E "cinematics:|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
-          "$G" --headless -- --perfcheck 2>&1 | grep -E "perfcheck|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
-          "$G" --headless --script res://tools/level_database_builder.gd -- --check 2>&1 | grep -E "levels_100|ÇÖZÜMSÜZ|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
-          "$G" --headless -- --layouttest 2>&1 | grep -E "layouttest|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
+          timeout 180 "$G" --headless --script res://tests/run_programs.gd 2>&1 | grep -E "seviye|HATA|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
+          timeout 180 "$G" --headless --script res://tests/run_themes.gd 2>&1 | grep -E "themes|HATA|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
+          timeout 180 "$G" --headless -- --autotest 2>&1 | grep -E "autotest|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
+          timeout 180 "$G" --headless -- --feeltest 2>&1 | grep -E "feeltest|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
+          timeout 180 "$G" --headless --script res://tests/run_parts.gd 2>&1 | grep -E "parts:|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
+          timeout 180 "$G" --headless --script res://tests/run_assets.gd 2>&1 | grep -E "assets:|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
+          timeout 180 "$G" --headless --script res://tests/run_features.gd 2>&1 | grep -E "features:|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
+          timeout 180 "$G" --headless --script res://tests/run_clarity.gd 2>&1 | grep -E "clarity:|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
+          timeout 180 "$G" --headless --script res://tests/run_cinematics.gd 2>&1 | grep -E "cinematics:|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
+          timeout 180 "$G" --headless -- --perfcheck 2>&1 | grep -E "perfcheck|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
+          timeout 600 "$G" --headless --script res://tools/level_database_builder.gd -- --check 2>&1 | grep -E "levels_100|ÇÖZÜMSÜZ|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
+          timeout 180 "$G" --headless -- --layouttest 2>&1 | grep -E "layouttest|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
           # arayüz denetimi: tipik telefonda (1080×2400, 420 dpi) dokunma ≥ 48 dp, yazı ≥ 12 sp, taşma yok
-          "$G" --headless -- --uiaudit=1080x2400@2.625 2>&1 | grep -E "uiaudit|^  |SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
+          timeout 180 "$G" --headless -- --uiaudit=1080x2400@2.625 2>&1 | grep -E "uiaudit|^  |SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
 
       - name: Android APK dışa aktar
         shell: bash
