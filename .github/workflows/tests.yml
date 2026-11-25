@@ -57,3 +57,41 @@ jobs:
       - name: Tam sahne otomatik testi
         run: /tmp/godot-bin --headless --path godot -- --autotest 2>&1 | grep -E "autotest|SCRIPT ERROR"; test "${PIPESTATUS[0]}" -eq 0
         shell: bash
+
+  # Tam proje içe aktarması (2K doku) saat sürebilir. Doğrulayıcı yalnızca mantık betiklerine
+  # bakar; burada ince bir proje kurulur, 100 seviye çözülür ve par/bağlantı tutmazsa iş kırmızıya döner.
+  circuit-campaign:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Godot 4.8 beta 4
+        run: |
+          mkdir -p "$HOME/godot48"
+          curl -fsSL -o /tmp/g.zip https://github.com/godotengine/godot-builds/releases/download/4.8-beta4/Godot_v4.8-beta4_linux.x86_64.zip
+          unzip -q /tmp/g.zip -d "$HOME/godot48"
+          mv "$HOME/godot48"/Godot_v4.8-beta4_linux.x86_64 "$HOME/godot48/godot"
+          chmod +x "$HOME/godot48/godot"
+          "$HOME/godot48/godot" --version
+      - name: 100 devre seviyesi çözülür, par ve röle bağları tutarlı
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          SLIM=/tmp/kk-logic
+          rm -rf "$SLIM"
+          mkdir -p "$SLIM/scripts/pc" "$SLIM/tools" "$SLIM/data"
+          ln -s "$PWD/godot-program/scripts/logic.gd" "$SLIM/scripts/logic.gd"
+          ln -s "$PWD/godot-program/scripts/program.gd" "$SLIM/scripts/program.gd"
+          ln -s "$PWD/godot-program/scripts/pc/pc_part_data.gd" "$SLIM/scripts/pc/pc_part_data.gd"
+          ln -s "$PWD/godot-program/scripts/pc/pc_part_library.gd" "$SLIM/scripts/pc/pc_part_library.gd"
+          ln -s "$PWD/godot-program/tools/level_database_builder.gd" "$SLIM/tools/level_database_builder.gd"
+          cp "$PWD/godot-program/data/levels_100.json" "$SLIM/data/levels_100.json"
+          printf '%s\n' 'config_version=5' '' '[application]' 'config/name="kk-logic"' 'config/features=PackedStringArray("4.8")' > "$SLIM/project.godot"
+          G="$HOME/godot48/godot"
+          "$G" --headless --path "$SLIM" --import >/dev/null
+          set +e
+          "$G" --headless --path "$SLIM" --script res://tools/level_database_builder.gd -- --check > /tmp/levels-check.log 2>&1
+          code=$?
+          set -e
+          grep -E "levels_100:|ÇÖZÜMSÜZ|ERROR:" /tmp/levels-check.log || true
+          exit "$code"

@@ -20,7 +20,7 @@ asansörleri kaldırır, kamerayı çevirip imkânsız geçitleri birleştirirsi
 
 | Sürüm | Klasör | Teknoloji |
 |---|---|---|
-| **Android uygulaması (ana sürüm, v3.4.0)** | `godot-program/` | **Godot 4.8 beta 4**, Mobile (Vulkan) renderer, doğrusal ton eşleme, GDScript; modern mobil arayüz, ses ve müzik |
+| **Android uygulaması (ana sürüm, v3.5.0)** | `godot-program/` | **Godot 4.8 beta 4**, Mobile (Vulkan) renderer, doğrusal ton eşleme, GDScript; modern mobil arayüz, ses ve müzik |
 | Tarayıcı | `web/` | Three.js r170 + cannon-es (yerel olarak paketlendi, CDN yok) |
 | Eski Android (v1.x, WebView) | `android/` | Kotlin + WebView; `web/` klasörünü paketler. Artık sürüm olarak yayınlanmaz |
 | Godot (klasik mod) | `godot/` | Godot 4.3, GDScript — programlama öncesi "dokun-yürü" sürümü ve 15 klasik seviyesi |
@@ -237,8 +237,9 @@ Mobile (Vulkan) renderer, AgX ton eşleme, parıltı, sis, yumuşak gölgeler; V
 * **Devre kampanyası (`data/levels_100.json`, Godot ana sürüm):** 10 donanım fazı × 10 seviye; N. seviye N. parçayı
   kazandırır. `tools/level_database_builder.gd` seviyeleri oyunun kendi tur tabanlı motoruyla üretir ve doğrular
   (`--check`: `levels_100: 100/100 solvable`), her seviyeye `par_commands` ve `hint_solution` yazar. Mekanik eğrisi:
-  Faz 1–2 SMD + hareket/F1/F2, Faz 3–4 diyot (diyotlu labirentler), Faz 5–6 kondansatör (2 kat fırlatan dahil),
-  Faz 7 röle OR, Faz 8 röle AND + klon, Faz 9 direnç (1–2 tur), Faz 10 hepsi (klon + direnç senkronizasyonu).
+  Faz 1–2 SMD + hareket/yükseklik/F1, Faz 3–4 diyot (ters ve sahte yollar), Faz 5–6 kondansatör (2 kat fırlatan dahil),
+  Faz 7 röle OR, Faz 8 röle AND + klon, Faz 9 direnç (1–2 tur, sonra AND senkronu), Faz 10 hepsi. F2 yok.
+  `par_commands` yuva sınırındaki en kısa programdır (`--check` 100/100 çözülür ve par tutarlı değilse çıkar).
   Bileşen şeması: `comps: [{p, component_type, direction, circuit_id | target_relay_id, logic_mode: OR|AND,
   delay_turns, boost_height}]`, köprü `on: "C:<circuit_id>"`, `enable_clone`. Yürütme tur tabanlıdır
   (`Program.tick`): her turda önce klon F1'den, sonra Robo kendi satırından bir komut çalıştırır; direnç turları

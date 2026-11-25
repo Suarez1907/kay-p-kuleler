@@ -1,5 +1,9 @@
 # Sürüm Notları
 
+## v3.5.0
+- 100 devre seviyesi baştan kurgulandı: faz faz hareket/F1, diyot, kondansatör, röle OR, röle AND+klon, direnç zamanlaması ve birleşik final. Parça sırası ve kayıt anahtarları aynı.
+- `par_commands` artık yuva sınırına sığan en kısa çözüm. Doğrulayıcı başlangıç/hedef, röle→köprü bağı, ipucu çözümü ve parı denetler; tutmazsa CI durur.
+
 ## v3.4.0
 - Kamera artık 90° kilitlenmez: parmak veya fare ile 360°'nin herhangi bir açısına serbest yörünge, bırakınca sönen atalet, tekerlek / izleme dörtgeni / iki parmak yakınlaştırma. Sıfırlama düğmesi varsayılan kadraja döner.
 - Hayalet blok ve göz yanılması geçitleri en yakın yasal 90° bakışta değerlendirilir. Çakışan hayalet açısında kamera yavaşça son yasal açıya döner; diğer seviyelerde açı serbest kalır. Yükseliş sabit izometriktir.
