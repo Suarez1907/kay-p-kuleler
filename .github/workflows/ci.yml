@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  test-export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        # Asıl Godot projesi godot-program/ altında; adımlar orada çalışır.
+        working-directory: godot-program
+    env:
+      GODOT_BIN: ${{ runner.temp }}/godot48/godot
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Godot 4.8 beta 4 kur
+        working-directory: .
+        run: |
+          echo "::group::ADIM: godot-kurulum"
+          set -euo pipefail
+          mkdir -p "$(dirname "$GODOT_BIN")"
+          curl -fsSL -o /tmp/godot.zip https://github.com/godotengine/godot-builds/releases/download/4.8-beta4/Godot_v4.8-beta4_linux.x86_64.zip
+          unzip -q /tmp/godot.zip -d "$(dirname "$GODOT_BIN")"
+          mv "$(dirname "$GODOT_BIN")"/Godot_v4.8-beta4_linux.x86_64 "$GODOT_BIN"
+          chmod +x "$GODOT_BIN"
+          "$GODOT_BIN" --version
+          echo "::endgroup::"
+
+      - name: Import assets
+        run: |
+          echo "::group::ADIM: import"
+          echo "ADIM import başladı"
+          set +e
+          timeout 900 "$GODOT_BIN" --headless --import
+          rc=$?
+          set -e
+          if [ $rc -eq 124 ]; then echo "::error::Zaman aşımı: import"; exit 1; fi
+          # Godot import sıfır olmayan kodla bitebilir (doku/uyarı); derleme hataları
+          # sonraki --check adımında yakalanır.
+          if [ $rc -ne 0 ]; then echo "::warning::import çıkış kodu $rc, devam ediliyor"; fi
+          echo "::endgroup::"
+
+      - name: Perf check
+        run: |
+          echo "::group::ADIM: perfcheck"
+          echo "ADIM perfcheck başladı"
+          set +e
+          timeout 180 "$GODOT_BIN" --headless -- --perfcheck
+          rc=$?
+          if [ $rc -eq 124 ]; then echo "::error::Zaman aşımı: perfcheck"; exit 1; fi
+          exit $rc
+
+      - name: Check
+        run: |
+          echo "::group::ADIM: check"
+          echo "ADIM check başladı"
+          set +e
+          timeout 180 "$GODOT_BIN" --headless -- --check
+          rc=$?
+          if [ $rc -eq 124 ]; then echo "::error::Zaman aşımı: check"; exit 1; fi
+          exit $rc
+
+      - name: Layout test
+        run: |
+          echo "::group::ADIM: layouttest"
+          echo "ADIM layouttest başladı"
+          set +e
+          timeout 180 "$GODOT_BIN" --headless -- --layouttest
+          rc=$?
+          if [ $rc -eq 124 ]; then echo "::error::Zaman aşımı: layouttest"; exit 1; fi
+          exit $rc
+
+      - name: UI audit
+        run: |
+          echo "::group::ADIM: uiaudit"
+          echo "ADIM uiaudit başladı"
+          set +e
+          timeout 180 "$GODOT_BIN" --headless -- --uiaudit
+          rc=$?
+          if [ $rc -eq 124 ]; then echo "::error::Zaman aşımı: uiaudit"; exit 1; fi
+          exit $rc
+
+      - name: Autotest
+        run: |
+          echo "::group::ADIM: autotest"
+          echo "ADIM autotest başladı"
+          set +e
+          timeout 180 "$GODOT_BIN" --headless -- --autotest
+          rc=$?
+          if [ $rc -eq 124 ]; then echo "::error::Zaman aşımı: autotest"; exit 1; fi
+          exit $rc
