@@ -8345,6 +8345,20 @@ func _perfcheck() -> void:
 	print("perfcheck: %s %s" % ["TAMAM" if fails.is_empty() else "HATA " + str(fails), JSON.stringify(info)])
 	get_tree().quit(0 if fails.is_empty() else 1)
 
+## Başsız açılış denetimi (CI): sahne + dünya kurulduysa TAMAM yazıp temiz çık
+func _check() -> void:
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var fails := []
+	if levels.is_empty():
+		fails.append("seviye listesi bos")
+	if world_root == null:
+		fails.append("world_root yok")
+	if screens.is_empty() or not screens.has("title"):
+		fails.append("title ekrani yok")
+	print("check: %s (seviye=%d)" % ["TAMAM" if fails.is_empty() else "HATA " + str(fails), levels.size()])
+	get_tree().quit(0 if fails.is_empty() else 1)
+
 
 # ---------- açılış filmi (motor içinde, başlık dioraması üzerinde) ----------
 var _film: Control = null
