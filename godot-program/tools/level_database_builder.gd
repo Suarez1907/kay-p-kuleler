@@ -460,6 +460,83 @@ func _eq_at(seq: Array, i: int, pat: Array) -> bool:
 	return true
 
 
+const COMPRESS_MAX_F1 := 6
+const COMPRESS_MAX_F2 := 5
+
+
+static func _seq_eq(seq: Array, i: int, pat: Array) -> bool:
+	for k in pat.size():
+		if String(seq[i + k]) != String(pat[k]):
+			return false
+	return true
+
+
+## En kazançlı tekrar deseni: gain = count * (len - 1) - 1. Eşitlikte uzun desen seçilir.
+static func _best_repeat(cmds: Array, max_len: int) -> Dictionary:
+	var best := {"pat": [], "gain": 0, "count": 0, "len": 0}
+	var n := cmds.size()
+	var lp := 2
+	while lp <= mini(max_len, n):
+		var seen := {}
+		var i := 0
+		while i + lp <= n:
+			var pat: Array = cmds.slice(i, i + lp)
+			var pk := "|".join(PackedStringArray(pat))
+			i += 1
+			if seen.has(pk):
+				continue
+			seen[pk] = true
+			var count := 0
+			var k := 0
+			while k + lp <= n:
+				if _seq_eq(cmds, k, pat):
+					count += 1
+					k += lp
+				else:
+					k += 1
+			if count < 2:
+				continue
+			var gain := count * (lp - 1) - 1
+			if gain > int(best["gain"]) or (gain == int(best["gain"]) and lp > int(best["len"])):
+				best = {"pat": pat.duplicate(), "gain": gain, "count": count, "len": lp}
+		lp += 1
+	return best
+
+
+static func _replace_pat(cmds: Array, pat: Array, sym: String) -> Array:
+	var out: Array = []
+	var n := cmds.size()
+	var lp := pat.size()
+	var i := 0
+	while i < n:
+		if i + lp <= n and _seq_eq(cmds, i, pat):
+			out.append(sym)
+			i += lp
+		else:
+			out.append(cmds[i])
+			i += 1
+	return out
+
+
+## Komut listesini F1 (en fazla 6) ve F2 (en fazla 5) tekrarlarıyla sıkıştırır.
+## Dönüş: {"main": Array, "p1": Array, "p2": Array}; use_p1/use_p2 false ise ilgili satır boş Array.
+static func compress(cmds: Array, use_p1: bool, use_p2: bool) -> Dictionary:
+	var main: Array = cmds.duplicate()
+	var p1: Array = []
+	var p2: Array = []
+	if use_p1:
+		var r1 := _best_repeat(main, COMPRESS_MAX_F1)
+		if not (r1["pat"] as Array).is_empty():
+			p1 = (r1["pat"] as Array).duplicate()
+			main = _replace_pat(main, p1, "1")
+	if use_p2:
+		var r2 := _best_repeat(main, COMPRESS_MAX_F2)
+		if not (r2["pat"] as Array).is_empty():
+			p2 = (r2["pat"] as Array).duplicate()
+			main = _replace_pat(main, p2, "2")
+	return {"main": main, "p1": p1, "p2": p2}
+
+
 ## Tek F1, özyinelemesiz, örtüşmesiz en kısa kodlama. Tasarruf yoksa p1 boş.
 func _min_encode(seq: Array) -> Dictionary:
 	var n := seq.size()
