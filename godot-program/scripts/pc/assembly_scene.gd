@@ -47,6 +47,9 @@ var duration := DURATION
 var _whooshed := false
 var _focus_ph := -1
 
+var _prefetch_path := ""
+var _prefetch_status := 0
+
 var vp: SubViewport
 var world: Node3D
 var cam: Camera3D
@@ -208,12 +211,47 @@ func _next_name() -> String:
 			return PCPartLibrary.part(i).part_name
 	return "— bilgisayar tamamlandı!"
 
+func _part_path(id: int) -> String:
+	var p = PCPartLibrary.part(id)
+	if p is Dictionary:
+		for key in ["path", "model", "model_path", "glb", "scene", "mesh"]:
+			if p.has(key) and p[key] is String:
+				return p[key]
+		return ""
+	for key in ["path", "model", "model_path", "glb", "scene"]:
+		if key in p:
+			var v = p.get(key)
+			if v is String and v != "":
+				return v
+	return ""
+
+## Sıradaki parçayı arka planda ön yükler; yol bilinmiyorsa / lint yoksa sessizce geçer
+func _prefetch_next(after_id: int) -> void:
+	var next_id := after_id + 1
+	if next_id > PCPartLibrary.COUNT:
+		return
+	var path := _part_path(next_id)
+	if path == "" or not ResourceLoader.exists(path):
+		return
+	if path == _prefetch_path:
+		return
+	_prefetch_path = path
+	_prefetch_status = ResourceLoader.load_threaded_request(path)
+
 func _spawn(id: int) -> Node3D:
+	var path := _part_path(id)
+	if path != "" and path == _prefetch_path:
+		# Hazırsa önbelleğe al; sürüyorsa beklemeden senkron load'a düş (bloklama yok)
+		if ResourceLoader.load_threaded_get_status(path) == ResourceLoader.THREAD_LOAD_LOADED:
+			ResourceLoader.load_threaded_get(path)
+		_prefetch_path = ""
+		_prefetch_status = 0
 	var n := PartBuilder.build(PCPartLibrary.part(id))
 	AssetLoader.set_gi_dynamic(n)   # takılı parçalar oyuncuya göre değişir: fırınlanmaz, problardan ışık alır
 	parts_root.add_child(n)
 	nodes[id] = n
 	_style_node(id, n)
+	_prefetch_next(id)
 	return n
 
 ## Kasa parçalarının (faz 9) koyu yüzeyleri kasa rengine, tüm RGB/Accent yüzeyleri seçili ışık rengine boyanır

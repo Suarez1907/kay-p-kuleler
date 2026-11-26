@@ -108,6 +108,7 @@ var ptr = null
 var audio: GameAudio
 var gfx := 2                # 0 düşük, 1 orta, 2 yüksek
 var perf: PerfGovernor = null
+var perf_hud: PerfHud = null
 var perf_label: Label = null
 var post_fx: ColorRect = null
 var ui: CanvasLayer
@@ -219,6 +220,7 @@ func _ready() -> void:
 	add_child(perf)
 	perf.setup(get_viewport())
 	perf.set_fps_cap(120 if bool(progress.get("fps120", false)) else 60)
+	perf.set_smart_protection(bool(progress.get("smart_protection", true)))
 	rbox_mesh = _rounded_box(Vector3.ONE, 0.03, 0)
 	crate_mesh = _rounded_box(Vector3(0.84, 0.84, 0.84), 0.04, 0)
 	_setup_world()
@@ -267,9 +269,25 @@ func _ready() -> void:
 	_show_title()
 	# varlık önbelleği + shader ısıtma; ilk açılışta cihaz ölçülüp grafik kalitesi otomatik seçilir
 	perf.start_warmup(_baked_warm_list())
+	# Shader ön-ısıtma: ilk kare derleme takılmasını önler (görsel ön-ısıtma, oyun mantığına dokunmaz)
+	var warm_script := "res://scripts/perf/shader_warmup_manager.gd"
+	if ResourceLoader.exists(warm_script):
+		var warm_scr = load(warm_script)
+		if warm_scr != null:
+			var warm = warm_scr.new()
+			warm.name = "ShaderWarmupManager"
+			add_child(warm)
+			warm.warm_up()
+		else:
+			_shader_warmup_inline()
+	else:
+		_shader_warmup_inline()
 	if not progress.has("intro_film"):
 		_play_intro_film.call_deferred()
 	if not progress.has("gfx"):
+		# kayıtlı grafik ayarı yok: ölçülen GPU profilini benchmark'tan önce öneri olarak uygula (benchmark bunu ezebilir)
+		if String(perf.profile_name) != "":
+			perf.apply_profile(perf.profile_name)
 		perf.quality_picked.connect(_on_quality_picked, CONNECT_ONE_SHOT)
 		var bench_wait := func():
 			while not perf.warm_done:
@@ -691,6 +709,61 @@ func _baked_warm_list() -> Array:
 		if ResourceLoader.exists(p) and not p in out:
 			out.append(p)
 	return out
+
+## ShaderWarmupManager bulunamazsa (geliştirme ağacı) yerinde çalışan eşdeğer ön-ısıtma:
+## küçük MeshInstance3D'lerle pipeline'ları 2-3 kare çizdirip temizler; materyal bulunamazsa sessiz çıkar.
+func _shader_warmup_inline() -> void:
+	var paths := []
+	var seen := {}
+	var d := DirAccess.open("res://assets")
+	if d != null:
+		var stack := [{"dir": d, "base": "res://assets", "depth": 0}]
+		while not stack.is_empty() and paths.size() < 48:
+			var fr: Dictionary = stack.pop_back()
+			var dd: DirAccess = fr["dir"]
+			dd.list_dir_begin()
+			var fn := dd.get_next()
+			while fn != "" and paths.size() < 48:
+				if not fn.begins_with("."):
+					var full := fr["base"].path_join(fn)
+					if dd.current_is_dir():
+						if int(fr["depth"]) < 4:
+							var sub := DirAccess.open(full)
+							if sub != null:
+								stack.append({"dir": sub, "base": full, "depth": int(fr["depth"]) + 1})
+					elif fn.get_extension().to_lower() in ["tres", "material", "res"] and not seen.has(full):
+						seen[full] = true
+						paths.append(full)
+				fn = dd.get_next()
+			dd.list_dir_end()
+	var root := Node3D.new()
+	root.name = "ShaderWarmupTemp"
+	add_child(root)
+	var mesh := QuadMesh.new()
+	mesh.size = Vector2(0.01, 0.01)
+	var idx := 0
+	for p in paths:
+		if not ResourceLoader.exists(p):
+			continue
+		var res = load(p)
+		if res is Material:
+			var mi := MeshInstance3D.new()
+			mi.mesh = mesh
+			mi.material_override = res
+			mi.scale = Vector3(0.001, 0.001, 0.001)
+			mi.position = Vector3(idx * 0.02, -50.0, 0)
+			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			root.add_child(mi)
+			idx += 1
+			if idx >= 48:
+				break
+	if root.get_child_count() == 0:
+		root.queue_free()
+		return
+	await get_tree().process_frame
+	await get_tree().process_frame
+	await get_tree().process_frame
+	root.queue_free()
 
 ## Arka plan iş parçacığında önden yükleme: oyuncu bir seviyeyi oynarken bir sonraki seviyenin fırınlanmış
 ## sahnesi (+ ışık haritası) ve montaj atölyesi diskten okunur; geçişte ana iş parçacığı beklemez
@@ -3311,6 +3384,8 @@ func _process(dt: float) -> void:
 	if perf != null:
 		perf.busy = mode == "running" or anim != null or not queue.is_empty() or cam_spin or _film != null \
 			or assembly != null or orbit.busy() or absf(cam.size - want_size) > 0.02 or _shake_amp > 0.001
+		if PerformanceManager != null:
+			PerformanceManager.set_activity(perf.busy)
 	_update_offset()
 	if hud != null and hud.visible:
 		var safe_now := _safe_margins()
@@ -3366,6 +3441,8 @@ func _input(ev: InputEvent) -> void:
 	if perf != null and (ev is InputEventScreenTouch or ev is InputEventScreenDrag or ev is InputEventMouseButton \
 			or ev is InputEventMouseMotion or ev is InputEventKey or ev is InputEventMagnifyGesture):
 		perf.touch()
+	if PerformanceManager != null and (ev is InputEventScreenTouch or ev is InputEventScreenDrag or ev is InputEventMouseButton or ev is InputEventMouseMotion):
+		PerformanceManager.notify_activity()
 
 func _unhandled_input(ev: InputEvent) -> void:
 	if _current == "photo":
@@ -4381,6 +4458,42 @@ func _build_screens() -> void:
 		audio.play("tap"))
 	hz_row.add_child(hz_cb)
 	svb.add_child(hz_row)
+	# akıllı pil & ısı koruma: varsayılan açık; eski kayıtlarda anahtar yoksa açık sayılır
+	var sp_row := HBoxContainer.new()
+	var sp_l := UIKit.label("Akıllı Pil & Isı Koruma (ısınma/pil durumuna göre kaliteyi ayarlar)", 16, BP.TEXT_PRIMARY, UIKit.font_bold)
+	sp_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sp_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	sp_row.add_child(sp_l)
+	var sp_cb := CheckButton.new()
+	sp_cb.focus_mode = Control.FOCUS_NONE
+	sp_cb.custom_minimum_size = Vector2(64, 44)
+	BP.style_switch(sp_cb)
+	sp_cb.button_pressed = bool(progress.get("smart_protection", true))
+	sp_cb.toggled.connect(func(on: bool):
+		progress["smart_protection"] = on
+		_save_progress()
+		if perf != null:
+			perf.set_smart_protection(on)
+		audio.play("tap"))
+	sp_row.add_child(sp_cb)
+	svb.add_child(sp_row)
+	st_o.set_meta("smart_cb", sp_cb)
+	# geliştirici: performans HUD (varsayılan kapalı, kaydedilmez; açılınca PerfHud ilk kez oluşturulur)
+	svb.add_child(BP.tag("GELİŞTİRİCİ", 12, BP.ACCENT_AMBER))
+	var phud_row := HBoxContainer.new()
+	var phud_l := UIKit.label("Performans HUD (FPS · frame ms · GPU/CPU · çizim)", 16, BP.TEXT_PRIMARY, UIKit.font_bold)
+	phud_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	phud_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	phud_row.add_child(phud_l)
+	var phud_cb := CheckButton.new()
+	phud_cb.focus_mode = Control.FOCUS_NONE
+	phud_cb.custom_minimum_size = Vector2(64, 44)
+	BP.style_switch(phud_cb)
+	phud_cb.button_pressed = false
+	phud_cb.toggled.connect(func(on: bool): _set_perf_hud(on))
+	phud_row.add_child(phud_cb)
+	svb.add_child(phud_row)
+	st_o.set_meta("perf_hud_cb", phud_cb)
 	# erişilebilirlik
 	svb.add_child(BP.tag("ERİŞİLEBİLİRLİK", 12))
 	for opt in [["cb", "Renk körü modu"], ["big", "Büyük yazı"], ["tts", "Komutları sesli oku"]]:
@@ -5073,6 +5186,10 @@ func _update_settings_buttons() -> void:
 	var acc: Dictionary = progress.get("access", {})
 	for key in ["cb", "big", "tts"]:
 		(so.get_meta("acc_" + key) as CheckButton).set_pressed_no_signal(bool(acc.get(key, false)))
+	if so.has_meta("smart_cb"):
+		(so.get_meta("smart_cb") as CheckButton).set_pressed_no_signal(bool(progress.get("smart_protection", true)))
+	if so.has_meta("perf_hud_cb"):
+		(so.get_meta("perf_hud_cb") as CheckButton).set_pressed_no_signal(perf_hud != null and perf_hud.is_hud_visible())
 	var can_theme := L != null and not preview
 	for c in theme_bar.get_children():
 		if c is Button:
@@ -5218,6 +5335,19 @@ func _apply_led_color() -> void:
 		eye.albedo_color = led
 		eye.emission = led
 
+
+## Performans HUD: ilk açılışta oluşturulur, sonra yeniden kullanılır; kapalıyken görünmez ve maliyet üretmez.
+func _set_perf_hud(on: bool) -> void:
+	if on:
+		if perf_hud == null:
+			perf_hud = PerfHud.new()
+			perf_hud.name = "PerfHud"
+			add_child(perf_hud)
+			perf_hud.setup(perf)
+		perf_hud.set_hud_visible(true)
+	elif perf_hud != null:
+		perf_hud.set_hud_visible(false)
+	audio.play("tap")
 
 ## Grafik kalitesi: Düşük = hafif çözünürlük, Orta = doğal çözünürlük + 4x MSAA, Yüksek = 1,5x süper örnekleme + 8x MSAA
 func _on_quality_picked(lvl: int) -> void:

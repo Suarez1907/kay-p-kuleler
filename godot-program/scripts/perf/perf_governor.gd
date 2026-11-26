@@ -36,12 +36,22 @@ var _warm_frames := 0
 var hz := 60.0
 var fps_cap := 60                    # Ayarlar: 60 (varsayılan) ya da 120
 var busy := false                    # main her kare bildirir: Robo çalışıyor, kamera/animasyon hareketli…
+var smart_protection := true         # Akıllı Pil & Isı Koruma (varsayılan açık)
+var gpu_family := "unknown"
+var profile_name := "BALANCED"
 var _idle_t := 0.0
 var _hot_t := 0.0
 var _thermal_t := 0.0                # > 0 iken ısınma koruması: sınır 45
 const IDLE_AFTER := 2.0
 const IDLE_FPS := 30
 const THERMAL_FPS := 45
+
+const PROFILES := {
+	"ULTRA": {"scale": 1.0, "shadow_atlas": 2048, "msaa": 2, "glow": true, "particle_mul": 1.0},
+	"HIGH": {"scale": 0.9, "shadow_atlas": 2048, "msaa": 2, "glow": true, "particle_mul": 1.0},
+	"BALANCED": {"scale": 0.8, "shadow_atlas": 1024, "msaa": 0, "glow": true, "particle_mul": 0.75},
+	"BATTERY": {"scale": 0.72, "shadow_atlas": 1024, "msaa": 0, "glow": false, "particle_mul": 0.5},
+}
 
 func setup(viewport: Viewport) -> void:
 	vp = viewport
@@ -50,6 +60,7 @@ func setup(viewport: Viewport) -> void:
 		hz = 60.0
 	hz = clampf(hz, 30.0, 144.0)
 	target_ms = 1000.0 / hz
+	detect_gpu_profile()
 	set_fps_cap(fps_cap)
 
 func set_fps_cap(cap: int) -> void:
@@ -65,11 +76,49 @@ func touch() -> void:
 
 func current_cap() -> int:
 	var c := mini(fps_cap, int(round(hz)))
-	if _thermal_t > 0.0:
-		c = mini(c, THERMAL_FPS)
-	if _idle_t > IDLE_AFTER and not busy:
-		c = mini(c, IDLE_FPS)
+	if smart_protection:
+		if _thermal_t > 0.0:
+			c = mini(c, THERMAL_FPS)
+		if _idle_t > IDLE_AFTER and not busy:
+			c = mini(c, IDLE_FPS)
 	return c
+
+func set_smart_protection(on: bool) -> void:
+	smart_protection = on
+	if not on:
+		_idle_t = 0.0
+		_thermal_t = 0.0
+	_apply_fps()
+
+func detect_gpu_profile() -> String:
+	var adapter := ""
+	var rs_name = RenderingServer.get_video_adapter_name()
+	if rs_name != null:
+		adapter = str(rs_name).to_lower()
+	if adapter.contains("mali") or adapter.contains("immortalis"):
+		gpu_family = "mali"
+		profile_name = "HIGH"
+	elif adapter.contains("adreno"):
+		gpu_family = "adreno"
+		profile_name = "HIGH"
+	elif adapter.contains("apple"):
+		gpu_family = "apple"
+		profile_name = "ULTRA"
+	else:
+		gpu_family = "unknown"
+		profile_name = "BALANCED"
+	return profile_name
+
+func apply_profile(name: String) -> void:
+	if not PROFILES.has(name):
+		name = "BALANCED"
+	var p: Dictionary = PROFILES[name]
+	profile_name = name
+	set_base_scale(float(p["scale"]))
+	if vp != null:
+		vp.msaa_3d = Viewport.MSAA_2X if int(p["msaa"]) == 2 else Viewport.MSAA_DISABLED
+	var atlas := int(p["shadow_atlas"])
+	RenderingServer.directional_shadow_atlas_set_size(atlas, true)
 
 func _apply_fps() -> void:
 	var c := current_cap()
@@ -255,3 +304,31 @@ func fps() -> float:
 
 func frame_ms() -> float:
 	return 1000.0 / maxf(0.1, fps())
+
+func avg_frame_ms() -> float:
+	if _ft.is_empty():
+		return 0.0
+	var s := 0.0
+	for v in _ft:
+		s += v
+	return s / _ft.size()
+
+func stats() -> Dictionary:
+	var adapter := ""
+	var rs_name = RenderingServer.get_video_adapter_name()
+	if rs_name != null:
+		adapter = str(rs_name)
+	var sc := 1.0
+	if vp != null:
+		sc = vp.scaling_3d_scale
+	return {
+		"fps": Engine.get_frames_per_second(),
+		"avg_ms": avg_frame_ms(),
+		"gpu": adapter,
+		"family": gpu_family,
+		"profile": profile_name,
+		"scale": sc,
+		"cap": current_cap(),
+		"idle": _idle_t > IDLE_AFTER and not busy,
+		"thermal": _thermal_t > 0.0,
+	}

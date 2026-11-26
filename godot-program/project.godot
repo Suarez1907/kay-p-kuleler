@@ -26,6 +26,7 @@ general/text_to_speech=true
 
 AudioHaptics="*res://scripts/audio/audio_haptics_manager.gd"
 ASMR="*res://scripts/audio/asmr_music_engine.gd"
+PerformanceManager="*res://scripts/perf/performance_manager.gd"
 
 [display]
 
@@ -36,6 +37,7 @@ window/size/window_height_override=720
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
 window/handheld/orientation=6
+window/vsync/vsync_mode=1
 
 [editor_plugins]
 
@@ -44,7 +46,14 @@ enabled=PackedStringArray("res://addons/kk_lightmap_baker/plugin.cfg")
 [rendering]
 
 renderer/rendering_method="mobile"
+renderer/rendering_method.mobile="mobile"
+rendering_device/driver.android="vulkan"
+shader_compiler/shader_cache/enabled=true
+shader_compiler/shader_cache/use_zstd_compression=true
+viewport/scaling_3d_mode=1
+viewport/scaling_3d_scale=1.0
 textures/vram_compression/import_etc2_astc=true
 textures/vram_compression/import_s3tc_bptc=false
-lights_and_shadows/directional_shadow/soft_shadow_filter_quality=3
-anti_aliasing/quality/msaa_3d=3
+lights_and_shadows/directional_shadow/size=2048
+lights_and_shadows/directional_shadow/soft_shadow_filter_quality=1
+anti_aliasing/quality/msaa_3d=1
