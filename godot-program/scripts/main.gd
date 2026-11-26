@@ -267,6 +267,19 @@ func _ready() -> void:
 	_show_title()
 	# varlık önbelleği + shader ısıtma; ilk açılışta cihaz ölçülüp grafik kalitesi otomatik seçilir
 	perf.start_warmup(_baked_warm_list())
+	# Shader ön-ısıtma: ilk kare derleme takılmasını önler (görsel ön-ısıtma, oyun mantığına dokunmaz)
+	var warm_script := "res://scripts/perf/shader_warmup_manager.gd"
+	if ResourceLoader.exists(warm_script):
+		var warm_scr = load(warm_script)
+		if warm_scr != null:
+			var warm = warm_scr.new()
+			warm.name = "ShaderWarmupManager"
+			add_child(warm)
+			warm.warm_up()
+		else:
+			_shader_warmup_inline()
+	else:
+		_shader_warmup_inline()
 	if not progress.has("intro_film"):
 		_play_intro_film.call_deferred()
 	if not progress.has("gfx"):
@@ -691,6 +704,61 @@ func _baked_warm_list() -> Array:
 		if ResourceLoader.exists(p) and not p in out:
 			out.append(p)
 	return out
+
+## ShaderWarmupManager bulunamazsa (geliştirme ağacı) yerinde çalışan eşdeğer ön-ısıtma:
+## küçük MeshInstance3D'lerle pipeline'ları 2-3 kare çizdirip temizler; materyal bulunamazsa sessiz çıkar.
+func _shader_warmup_inline() -> void:
+	var paths := []
+	var seen := {}
+	var d := DirAccess.open("res://assets")
+	if d != null:
+		var stack := [{"dir": d, "base": "res://assets", "depth": 0}]
+		while not stack.is_empty() and paths.size() < 48:
+			var fr: Dictionary = stack.pop_back()
+			var dd: DirAccess = fr["dir"]
+			dd.list_dir_begin()
+			var fn := dd.get_next()
+			while fn != "" and paths.size() < 48:
+				if not fn.begins_with("."):
+					var full := fr["base"].path_join(fn)
+					if dd.current_is_dir():
+						if int(fr["depth"]) < 4:
+							var sub := DirAccess.open(full)
+							if sub != null:
+								stack.append({"dir": sub, "base": full, "depth": int(fr["depth"]) + 1})
+					elif fn.get_extension().to_lower() in ["tres", "material", "res"] and not seen.has(full):
+						seen[full] = true
+						paths.append(full)
+				fn = dd.get_next()
+			dd.list_dir_end()
+	var root := Node3D.new()
+	root.name = "ShaderWarmupTemp"
+	add_child(root)
+	var mesh := QuadMesh.new()
+	mesh.size = Vector2(0.01, 0.01)
+	var idx := 0
+	for p in paths:
+		if not ResourceLoader.exists(p):
+			continue
+		var res = load(p)
+		if res is Material:
+			var mi := MeshInstance3D.new()
+			mi.mesh = mesh
+			mi.material_override = res
+			mi.scale = Vector3(0.001, 0.001, 0.001)
+			mi.position = Vector3(idx * 0.02, -50.0, 0)
+			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			root.add_child(mi)
+			idx += 1
+			if idx >= 48:
+				break
+	if root.get_child_count() == 0:
+		root.queue_free()
+		return
+	await get_tree().process_frame
+	await get_tree().process_frame
+	await get_tree().process_frame
+	root.queue_free()
 
 ## Arka plan iş parçacığında önden yükleme: oyuncu bir seviyeyi oynarken bir sonraki seviyenin fırınlanmış
 ## sahnesi (+ ışık haritası) ve montaj atölyesi diskten okunur; geçişte ana iş parçacığı beklemez
@@ -3311,6 +3379,8 @@ func _process(dt: float) -> void:
 	if perf != null:
 		perf.busy = mode == "running" or anim != null or not queue.is_empty() or cam_spin or _film != null \
 			or assembly != null or orbit.busy() or absf(cam.size - want_size) > 0.02 or _shake_amp > 0.001
+		if PerformanceManager != null:
+			PerformanceManager.set_activity(perf.busy)
 	_update_offset()
 	if hud != null and hud.visible:
 		var safe_now := _safe_margins()
@@ -3366,6 +3436,8 @@ func _input(ev: InputEvent) -> void:
 	if perf != null and (ev is InputEventScreenTouch or ev is InputEventScreenDrag or ev is InputEventMouseButton \
 			or ev is InputEventMouseMotion or ev is InputEventKey or ev is InputEventMagnifyGesture):
 		perf.touch()
+	if PerformanceManager != null and (ev is InputEventScreenTouch or ev is InputEventScreenDrag or ev is InputEventMouseButton or ev is InputEventMouseMotion):
+		PerformanceManager.notify_activity()
 
 func _unhandled_input(ev: InputEvent) -> void:
 	if _current == "photo":
